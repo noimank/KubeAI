@@ -1,0 +1,59 @@
+# KubeAI Pre-commit Hooks
+# Install: pre-commit install && pre-commit install --hook-type commit-msg
+# Run manually: pre-commit run --all-files
+
+repos:
+  # ============================================================
+  # Backend - Python
+  # ============================================================
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/
+      - id: ruff-format
+        files: ^backend/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.2
+    hooks:
+      - id: mypy
+        files: ^backend/
+        additional_dependencies:
+          - pydantic>=2.13.3
+          - sqlalchemy>=2.0.49
+
+  # ============================================================
+  # Frontend - TypeScript / React
+  # ============================================================
+  - repo: local
+    hooks:
+      - id: frontend-eslint
+        name: "frontend: eslint"
+        entry: bash -c 'cd frontend && exec npx eslint --fix "${@/#frontend\//}"' --
+        language: system
+        require_serial: true
+        types_or: [ts, tsx]
+        files: ^frontend/
+        exclude: ^(frontend/node_modules|frontend/dist)/
+
+      - id: frontend-prettier
+        name: "frontend: prettier"
+        entry: bash -c 'cd frontend && exec npx prettier --write "${@/#frontend\//}"' --
+        language: system
+        require_serial: true
+        types_or: [ts, tsx, css, json, markdown]
+        files: ^frontend/
+        exclude: ^(frontend/node_modules|frontend/dist)/
+
+      - id: frontend-typecheck
+        name: "frontend: typecheck"
+        entry: bash -c 'cd frontend && exec npx tsc --noEmit'
+        language: system
+        types_or: [ts, tsx]
+        files: ^frontend/
+        exclude: ^(frontend/node_modules|frontend/dist)/
+        pass_filenames: false
+
+  
