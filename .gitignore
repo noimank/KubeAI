@@ -8,9 +8,16 @@ wheels/
 
 # Virtual environments
 .venv
-_bmad
-_bmad-output
+
+# Environment files
+.env
+
+# IDE
 .idea
 .claude
+.vscode
 
+# BMAD
+_bmad
+_bmad-output
 
