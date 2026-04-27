@@ -1,15 +1,5 @@
 import pytest
 
-from app.core.exceptions import (
-    BadRequestException,
-    ConflictException,
-    ExternalServiceException,
-    ForbiddenException,
-    NotFoundException,
-    QuotaExceededException,
-    UnauthorizedException,
-)
-
 
 @pytest.mark.asyncio
 async def test_health_check(client):
