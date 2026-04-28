@@ -9,6 +9,7 @@ import AuthLayout from './layouts/AuthLayout'
 const THEME_KEY = 'kubeai_theme'
 
 const LoginPage = lazy(() => import('./pages/login'))
+const RegisterPage = lazy(() => import('./pages/register'))
 const DashboardPage = lazy(() => import('./pages/dashboard'))
 const DatasetsPage = lazy(() => import('./pages/datasets'))
 const TrainingJobsPage = lazy(() => import('./pages/training-jobs'))
@@ -74,6 +75,9 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<AuthLayout />}>
                 <Route index element={<LoginPage />} />
+              </Route>
+              <Route path="/register" element={<AuthLayout />}>
+                <Route index element={<RegisterPage />} />
               </Route>
               <Route path="/" element={<MainLayout />}>
                 <Route index element={<Navigate to="/dashboard" replace />} />

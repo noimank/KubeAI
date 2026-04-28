@@ -12,3 +12,10 @@ export interface TokenPayload {
   refresh_token: string
   token_type: string
 }
+
+export interface RegisterRequest {
+  username: string
+  email: string
+  password: string
+  confirm_password: string
+}

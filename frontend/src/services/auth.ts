@@ -1,6 +1,11 @@
 import { api } from './api'
 import type { BaseResponse } from '@/types/api'
-import type { User, TokenPayload } from '@/types/auth'
+import type { RegisterRequest, TokenPayload, User } from '@/types/auth'
+
+export async function register(data: RegisterRequest): Promise<BaseResponse<TokenPayload>> {
+  const res = await api.post<BaseResponse<TokenPayload>>('/auth/register', data)
+  return res.data
+}
 
 export async function login(
   username: string,
