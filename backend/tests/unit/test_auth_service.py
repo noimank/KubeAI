@@ -27,6 +27,14 @@ def mock_redis():
 
 
 @pytest.fixture
+def mock_blacklist():
+    svc = AsyncMock()
+    svc.is_revoked = AsyncMock(return_value=False)
+    svc.revoke_token = AsyncMock()
+    return svc
+
+
+@pytest.fixture
 def auth_service(mock_db, mock_redis):
     return AuthService(mock_db, mock_redis)
 
@@ -146,3 +154,78 @@ class TestLogin:
             await auth_service.login(LoginRequest(username="testuser", password="wrong"))
 
         mock_redis.setex.assert_called()
+
+
+class TestRefreshTokens:
+    async def test_refresh_success(self, auth_service, mock_blacklist):
+        from app.core.security import create_refresh_token
+
+        user_id = str(uuid.uuid4())
+        token = create_refresh_token({"sub": user_id})
+        auth_service.blacklist = mock_blacklist
+
+        result = await auth_service.refresh_tokens(token)
+        assert result.access_token is not None
+        assert result.refresh_token is not None
+        assert result.token_type == "bearer"
+
+    async def test_refresh_revokes_old_token(self, auth_service, mock_blacklist):
+        from app.core.security import create_refresh_token
+
+        user_id = str(uuid.uuid4())
+        token = create_refresh_token({"sub": user_id})
+        auth_service.blacklist = mock_blacklist
+
+        await auth_service.refresh_tokens(token)
+        mock_blacklist.revoke_token.assert_called_once()
+
+    async def test_refresh_expired_token_raises_401(self, auth_service):
+        with (
+            patch("app.services.auth_service.decode_token", side_effect=ValueError("expired")),
+            pytest.raises(UnauthorizedException, match="无效或过期"),
+        ):
+            await auth_service.refresh_tokens("expired-token")
+
+    async def test_refresh_revoked_token_raises_401(self, auth_service, mock_blacklist):
+        from app.core.security import create_refresh_token
+
+        user_id = str(uuid.uuid4())
+        token = create_refresh_token({"sub": user_id})
+        mock_blacklist.is_revoked = AsyncMock(return_value=True)
+        auth_service.blacklist = mock_blacklist
+
+        with pytest.raises(UnauthorizedException, match="已被吊销"):
+            await auth_service.refresh_tokens(token)
+
+    async def test_refresh_wrong_type_raises_401(self, auth_service, mock_blacklist):
+        from app.core.security import create_access_token
+
+        user_id = str(uuid.uuid4())
+        token = create_access_token({"sub": user_id})
+        auth_service.blacklist = mock_blacklist
+
+        with pytest.raises(UnauthorizedException, match="类型"):
+            await auth_service.refresh_tokens(token)
+
+
+class TestLogout:
+    async def test_logout_revokes_access_token(self, auth_service, mock_blacklist):
+        auth_service.blacklist = mock_blacklist
+        user_id = str(uuid.uuid4())
+
+        await auth_service.logout(user_id, "access-jti")
+        mock_blacklist.revoke_token.assert_called_once_with("access-jti", 30 * 60)
+
+    async def test_logout_revokes_both_tokens(self, auth_service, mock_blacklist):
+        auth_service.blacklist = mock_blacklist
+        user_id = str(uuid.uuid4())
+
+        await auth_service.logout(user_id, "access-jti", "refresh-jti")
+        assert mock_blacklist.revoke_token.call_count == 2
+
+    async def test_logout_without_refresh_token(self, auth_service, mock_blacklist):
+        auth_service.blacklist = mock_blacklist
+        user_id = str(uuid.uuid4())
+
+        await auth_service.logout(user_id, "access-jti", None)
+        mock_blacklist.revoke_token.assert_called_once_with("access-jti", 30 * 60)
