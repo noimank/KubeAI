@@ -10,6 +10,7 @@ describe('authStore', () => {
       accessToken: null,
       refreshToken: null,
       isAuthenticated: false,
+      isInitializing: false,
     })
     useRbacStore.getState().clearRbac()
   })
@@ -27,7 +28,7 @@ describe('authStore', () => {
       username: 'testuser',
       email: 'test@example.com',
       role: 'engineer' as const,
-      tenant_id: 'tenant-1',
+      tenantId: 'tenant-1',
     }
     useAuthStore.getState().login(user, 'access-token', 'refresh-token')
 
@@ -45,7 +46,7 @@ describe('authStore', () => {
       username: 'testuser',
       email: 'test@example.com',
       role: 'mlops' as const,
-      tenant_id: 'tenant-1',
+      tenantId: 'tenant-1',
     }
     useAuthStore.getState().login(user, 'access-token', 'refresh-token')
 
@@ -60,7 +61,7 @@ describe('authStore', () => {
       username: 'testuser',
       email: 'test@example.com',
       role: 'admin' as const,
-      tenant_id: 'tenant-1',
+      tenantId: 'tenant-1',
     }
     useAuthStore.getState().login(user, 'access-token', 'refresh-token')
     useAuthStore.getState().logout()
@@ -90,7 +91,7 @@ describe('authStore', () => {
       username: 'testuser',
       email: 'test@example.com',
       role: 'annotator' as const,
-      tenant_id: 'tenant-1',
+      tenantId: 'tenant-1',
     }
     useAuthStore.getState().setUser(user)
 
