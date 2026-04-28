@@ -1,0 +1,81 @@
+from unittest.mock import MagicMock, patch
+
+from app.integrations.k8s.network_policy import (
+    ALLOWED_NAMESPACES,
+    POLICY_NAME,
+    build_tenant_network_policy,
+    create_tenant_network_policy,
+    delete_network_policy,
+)
+
+
+class TestBuildTenantNetworkPolicy:
+    def test_policy_metadata(self):
+        policy = build_tenant_network_policy("kubeai-test-123")
+        assert policy.metadata.name == POLICY_NAME
+        assert policy.metadata.namespace == "kubeai-test-123"
+
+    def test_policy_types(self):
+        policy = build_tenant_network_policy("kubeai-test-123")
+        assert set(policy.spec.policy_types) == {"Ingress", "Egress"}
+
+    def test_ingress_rules(self):
+        policy = build_tenant_network_policy("kubeai-test-123")
+        assert len(policy.spec.ingress) == 1
+        ingress_from = policy.spec.ingress[0]._from
+        assert len(ingress_from) == 1 + len(ALLOWED_NAMESPACES)
+
+    def test_egress_rules_allow_namespace_traffic(self):
+        policy = build_tenant_network_policy("kubeai-test-123")
+        assert len(policy.spec.egress) == 2
+        egress_to = policy.spec.egress[0].to
+        assert len(egress_to) == 1 + len(ALLOWED_NAMESPACES)
+
+    def test_egress_rules_allow_dns(self):
+        policy = build_tenant_network_policy("kubeai-test-123")
+        dns_egress = policy.spec.egress[1]
+        assert len(dns_egress.to) == 1
+        assert dns_egress.to[0].ip_block.cidr == "0.0.0.0/0"
+        ports = dns_egress.ports
+        assert any(p.protocol == "TCP" and p.port == 53 for p in ports)
+        assert any(p.protocol == "UDP" and p.port == 53 for p in ports)
+
+
+class TestCreateTenantNetworkPolicy:
+    @patch("app.integrations.k8s.network_policy.get_k8s_clients")
+    def test_create_success(self, mock_get_clients):
+        mock_api = MagicMock()
+        mock_get_clients.return_value = {"networking_v1": mock_api}
+
+        create_tenant_network_policy("kubeai-test-123")
+        mock_api.create_namespaced_network_policy.assert_called_once()
+
+    @patch("app.integrations.k8s.network_policy.get_k8s_clients")
+    def test_create_already_exists(self, mock_get_clients):
+        from kubernetes.client.rest import ApiException
+
+        mock_api = MagicMock()
+        mock_api.create_namespaced_network_policy.side_effect = ApiException(status=409)
+        mock_get_clients.return_value = {"networking_v1": mock_api}
+
+        create_tenant_network_policy("kubeai-test-123")
+
+
+class TestDeleteNetworkPolicy:
+    @patch("app.integrations.k8s.network_policy.get_k8s_clients")
+    def test_delete_success(self, mock_get_clients):
+        mock_api = MagicMock()
+        mock_get_clients.return_value = {"networking_v1": mock_api}
+
+        delete_network_policy("kubeai-test-123")
+        mock_api.delete_namespaced_network_policy.assert_called_once()
+
+    @patch("app.integrations.k8s.network_policy.get_k8s_clients")
+    def test_delete_not_found(self, mock_get_clients):
+        from kubernetes.client.rest import ApiException
+
+        mock_api = MagicMock()
+        mock_api.delete_namespaced_network_policy.side_effect = ApiException(status=404)
+        mock_get_clients.return_value = {"networking_v1": mock_api}
+
+        delete_network_policy("kubeai-test-123")
