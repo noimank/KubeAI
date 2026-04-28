@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { ProForm, ProFormText } from '@ant-design/pro-components'
-import { Card, message, Button, type FormInstance } from 'antd'
+import { Card, Form, message, Button } from 'antd'
 import { UserOutlined, MailOutlined, LockOutlined } from '@ant-design/icons'
 import { register } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
@@ -16,7 +16,7 @@ function validatePassword(_: unknown, value: string) {
     { test: (v: string) => /\d/.test(v), label: '至少 1 个数字' },
   ]
   const failed = rules.find((r) => !r.test(value))
-  if (failed) return Promise.reject(new Error(`密码需满足：${failed.label}`))
+  if (failed) return Promise.reject(new Error(`密码需满足: ${failed.label}`))
   return Promise.resolve()
 }
 
@@ -24,7 +24,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const authLogin = useAuthStore((s) => s.login)
-  const [formRef, setFormRef] = useState<FormInstance | null>(null)
+  const [form] = Form.useForm()
 
   const handleSubmit = async (values: RegisterRequest) => {
     setLoading(true)
@@ -46,7 +46,7 @@ export default function RegisterPage() {
       if (status === 409) {
         message.error(msg || '用户名或邮箱已存在')
       } else {
-        message.error(msg || '注册失败，请稍后重试')
+        message.error(msg || '注册失败, 请稍后重试')
       }
     } finally {
       setLoading(false)
@@ -56,7 +56,7 @@ export default function RegisterPage() {
   return (
     <Card style={{ width: '100%', maxWidth: 600 }}>
       <ProForm<RegisterRequest>
-        formRef={setFormRef}
+        form={form}
         onFinish={handleSubmit}
         submitter={{
           render: () => (
@@ -97,7 +97,7 @@ export default function RegisterPage() {
           placeholder="请输入密码"
           rules={[{ required: true, validator: validatePassword }]}
           fieldProps={{ prefix: <LockOutlined /> }}
-          extra="密码至少 8 个字符，需包含大写字母、小写字母和数字"
+          extra="密码至少 8 个字符, 需包含大写字母、小写字母和数字"
         />
         <ProFormText.Password
           name="confirm_password"
@@ -106,9 +106,9 @@ export default function RegisterPage() {
           dependencies={['password']}
           rules={[
             { required: true, message: '请确认密码' },
-            () => ({
+            ({ getFieldValue }) => ({
               validator(_: unknown, value: string) {
-                if (!value || (formRef && formRef.getFieldValue('password') === value)) {
+                if (!value || getFieldValue('password') === value) {
                   return Promise.resolve()
                 }
                 return Promise.reject(new Error('两次输入的密码不一致'))
@@ -120,7 +120,7 @@ export default function RegisterPage() {
       </ProForm>
       <div style={{ textAlign: 'center', marginTop: 16 }}>
         <Link to="/login">
-          <Button type="link">已有账号？去登录</Button>
+          <Button type="link">已有账号? 去登录</Button>
         </Link>
       </div>
     </Card>
