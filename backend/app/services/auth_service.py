@@ -1,10 +1,19 @@
+from datetime import UTC, datetime
+
 import redis.asyncio as aioredis
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, UnauthorizedException
-from app.core.security import create_access_token, create_refresh_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_password,
+    verify_password,
+)
+from app.core.token_blacklist import TokenBlacklistService
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 
@@ -19,6 +28,7 @@ class AuthService:
     def __init__(self, db: AsyncSession, redis: aioredis.Redis):
         self.db = db
         self.redis = redis
+        self.blacklist = TokenBlacklistService(redis)
 
     async def register(self, req: RegisterRequest) -> TokenResponse:
         existing = await self.db.execute(select(User).where(User.username == req.username))
@@ -54,6 +64,51 @@ class AuthService:
 
         await self._reset_failed_attempts(str(user.id))
         return self._generate_tokens(str(user.id))
+
+    async def refresh_tokens(self, refresh_token: str) -> TokenResponse:
+        try:
+            payload = decode_token(refresh_token)
+        except ValueError:
+            raise UnauthorizedException("无效或过期的 Refresh Token") from None
+
+        if payload.get("type") != "refresh":
+            raise UnauthorizedException("无效的 Token 类型")
+
+        jti = payload.get("jti")
+        if not jti:
+            raise UnauthorizedException("无效的 Token")
+
+        if await self.blacklist.is_revoked(jti):
+            raise UnauthorizedException("Refresh Token 已被吊销")
+
+        exp = payload.get("exp")
+        if exp:
+            remaining = int(exp - datetime.now(UTC).timestamp())
+            if remaining > 0:
+                await self.blacklist.revoke_token(jti, remaining)
+
+        user_id = payload.get("sub")
+        if not user_id:
+            raise UnauthorizedException("无效的 Token")
+        return self._generate_tokens(user_id)
+
+    async def logout(self, user_id: str, access_token_jti: str, refresh_token_jti: str | None = None) -> None:
+        await self.blacklist.revoke_token(access_token_jti, self._access_token_remaining_ttl())
+
+        if refresh_token_jti:
+            await self.blacklist.revoke_token(refresh_token_jti, self._refresh_token_remaining_ttl())
+
+        logger.info("user_logged_out", user_id=user_id)
+
+    def _access_token_remaining_ttl(self) -> int:
+        from app.core.config import settings
+
+        return settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+    def _refresh_token_remaining_ttl(self) -> int:
+        from app.core.config import settings
+
+        return settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
 
     async def _check_lockout(self, user_id: str) -> None:
         lock_key = f"login_lock:{user_id}"

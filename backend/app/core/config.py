@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    IDLE_TIMEOUT_MINUTES: int = 30
 
 
 settings = Settings()
