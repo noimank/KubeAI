@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.endpoints.auth import router as auth_router
+from app.api.endpoints.credentials import router as credentials_router
 from app.schemas.base import BaseResponse
 
 api_router = APIRouter()
@@ -12,3 +13,4 @@ async def health_check() -> BaseResponse:
 
 
 api_router.include_router(auth_router)
+api_router.include_router(credentials_router)
