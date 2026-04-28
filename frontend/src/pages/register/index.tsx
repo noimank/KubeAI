@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { ProForm, ProFormText } from '@ant-design/pro-components'
-import { Card, Form, message, Button } from 'antd'
+import { App, Card, Form, Button } from 'antd'
 import { UserOutlined, MailOutlined, LockOutlined } from '@ant-design/icons'
 import { register } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
@@ -23,6 +23,7 @@ function validatePassword(_: unknown, value: string) {
 export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { message } = App.useApp()
   const authLogin = useAuthStore((s) => s.login)
   const [form] = Form.useForm()
 

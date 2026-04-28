@@ -2,6 +2,7 @@ import { ProLayout } from '@ant-design/pro-components'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Sidebar } from './components/Sidebar'
 import { Header } from './components/Header'
+import { useIdleTimeout } from '@/hooks/useIdleTimeout'
 
 const NAVIGATE_MAP: Record<string, string> = {
   '/dashboard': '工作台',
@@ -22,6 +23,8 @@ const NAVIGATE_MAP: Record<string, string> = {
 export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
+
+  useIdleTimeout()
 
   return (
     <ProLayout

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link, Navigate } from 'react-router-dom'
 import { ProForm, ProFormText } from '@ant-design/pro-components'
-import { Card, message, Button } from 'antd'
+import { App, Card, Button } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { login } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/authStore'
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { message } = App.useApp()
   const { isAuthenticated, login: authLogin } = useAuthStore()
 
   if (isAuthenticated) {

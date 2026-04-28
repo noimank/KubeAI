@@ -1,7 +1,10 @@
-import axios from 'axios'
-import { message } from 'antd'
+import axios, { type InternalAxiosRequestConfig } from 'axios'
+
+import { useAuthStore } from '@/stores/authStore'
+import { getMessageInstance } from '@/utils/messageHolder'
 
 const ACCESS_TOKEN_KEY = 'kubeai_access_token'
+const REFRESH_TOKEN_KEY = 'kubeai_refresh_token'
 
 function toCamelCase(str: string): string {
   return str.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
@@ -57,32 +60,106 @@ api.interceptors.response.use(
   },
   (error) => {
     if (!error.response) {
-      message.error('网络错误，请检查网络连接')
+      getMessageInstance()?.error('网络错误，请检查网络连接')
       return Promise.reject(error)
     }
 
     const { status, data } = error.response
     const errorMessage = data?.message || ''
+    const originalRequest = error.config
+
+    if (status === 401 && !originalRequest._retry) {
+      if (originalRequest.url?.includes('/auth/refresh')) {
+        const authStore = useAuthStore.getState()
+        authStore.logout()
+        getMessageInstance()?.warning('会话已过期，请重新登录')
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
+
+      return handleTokenRefresh(originalRequest)
+    }
 
     switch (status) {
-      case 401:
-        localStorage.removeItem(ACCESS_TOKEN_KEY)
-        window.location.href = '/login'
-        break
       case 403:
-        message.error('权限不足')
+        getMessageInstance()?.error('权限不足')
         break
       default:
         if (status >= 400 && status < 500) {
-          message.error(errorMessage || '请求错误')
+          getMessageInstance()?.error(errorMessage || '请求错误')
         } else if (status >= 500) {
-          message.error('服务器错误，请稍后重试')
+          getMessageInstance()?.error('服务器错误，请稍后重试')
         }
     }
 
     return Promise.reject(error)
   },
 )
+
+let isRefreshing = false
+let refreshSubscribers: Array<(token: string) => void> = []
+
+function onTokenRefreshed(newToken: string) {
+  refreshSubscribers.forEach((cb) => cb(newToken))
+  refreshSubscribers = []
+}
+
+function addRefreshSubscriber(callback: (token: string) => void) {
+  refreshSubscribers.push(callback)
+}
+
+async function handleTokenRefresh(originalRequest: InternalAxiosRequestConfig) {
+  if (isRefreshing) {
+    return new Promise((resolve) => {
+      addRefreshSubscriber((token: string) => {
+        originalRequest.headers.Authorization = `Bearer ${token}`
+        resolve(api(originalRequest))
+      })
+    })
+  }
+
+  originalRequest._retry = true
+  isRefreshing = true
+
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+  if (!refreshToken) {
+    const authStore = useAuthStore.getState()
+    authStore.logout()
+    window.location.href = '/login'
+    return Promise.reject(originalRequest)
+  }
+
+  try {
+    const { data } = await axios.post(
+      `${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/refresh`,
+      { refresh_token: refreshToken },
+    )
+
+    const responseData = data?.data || data
+    const newAccessToken = responseData.access_token
+    const newRefreshToken = responseData.refresh_token
+
+    localStorage.setItem(ACCESS_TOKEN_KEY, newAccessToken)
+    localStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken)
+
+    const authStore = useAuthStore.getState()
+    authStore.setTokens(newAccessToken, newRefreshToken)
+
+    onTokenRefreshed(newAccessToken)
+
+    originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
+    return api(originalRequest)
+  } catch (refreshError) {
+    refreshSubscribers = []
+    const authStore = useAuthStore.getState()
+    authStore.logout()
+    getMessageInstance()?.warning('会话已过期，请重新登录')
+    window.location.href = '/login'
+    return Promise.reject(refreshError)
+  } finally {
+    isRefreshing = false
+  }
+}
 
 export { api, transformKeys, toCamelCase, toSnakeCase }
 export { ACCESS_TOKEN_KEY }

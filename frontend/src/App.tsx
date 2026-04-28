@@ -1,10 +1,11 @@
 import { useState, useMemo, lazy, Suspense } from 'react'
-import { ConfigProvider, Spin, theme as antdTheme } from 'antd'
+import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import zhCN from 'antd/locale/zh_CN'
 import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
+import { setMessageInstance } from './utils/messageHolder'
 
 const THEME_KEY = 'kubeai_theme'
 
@@ -49,6 +50,14 @@ function LoadingFallback() {
   )
 }
 
+function MessageHolder() {
+  const { message } = AntApp.useApp()
+  useMemo(() => {
+    setMessageInstance(message)
+  }, [message])
+  return null
+}
+
 export default function App() {
   const [themeMode] = useState<'light' | 'dark'>(getInitialTheme)
 
@@ -69,36 +78,39 @@ export default function App() {
 
   return (
     <ConfigProvider locale={zhCN} theme={themeConfig}>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <Suspense fallback={<LoadingFallback />}>
-            <Routes>
-              <Route path="/login" element={<AuthLayout />}>
-                <Route index element={<LoginPage />} />
-              </Route>
-              <Route path="/register" element={<AuthLayout />}>
-                <Route index element={<RegisterPage />} />
-              </Route>
-              <Route path="/" element={<MainLayout />}>
-                <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="dashboard" element={<DashboardPage />} />
-                <Route path="datasets" element={<DatasetsPage />} />
-                <Route path="training-jobs" element={<TrainingJobsPage />} />
-                <Route path="experiments" element={<ExperimentsPage />} />
-                <Route path="models" element={<ModelsPage />} />
-                <Route path="inference" element={<InferencePage />} />
-                <Route path="dev-environments" element={<DevEnvironmentsPage />} />
-                <Route path="images" element={<ImagesPage />} />
-                <Route path="annotations" element={<AnnotationsPage />} />
-                <Route path="monitoring" element={<MonitoringPage />} />
-                <Route path="admin/tenants" element={<TenantsPage />} />
-                <Route path="admin/users" element={<UsersPage />} />
-                <Route path="admin/audit-logs" element={<AuditLogsPage />} />
-              </Route>
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
-      </QueryClientProvider>
+      <AntApp>
+        <MessageHolder />
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <Suspense fallback={<LoadingFallback />}>
+              <Routes>
+                <Route path="/login" element={<AuthLayout />}>
+                  <Route index element={<LoginPage />} />
+                </Route>
+                <Route path="/register" element={<AuthLayout />}>
+                  <Route index element={<RegisterPage />} />
+                </Route>
+                <Route path="/" element={<MainLayout />}>
+                  <Route index element={<Navigate to="/dashboard" replace />} />
+                  <Route path="dashboard" element={<DashboardPage />} />
+                  <Route path="datasets" element={<DatasetsPage />} />
+                  <Route path="training-jobs" element={<TrainingJobsPage />} />
+                  <Route path="experiments" element={<ExperimentsPage />} />
+                  <Route path="models" element={<ModelsPage />} />
+                  <Route path="inference" element={<InferencePage />} />
+                  <Route path="dev-environments" element={<DevEnvironmentsPage />} />
+                  <Route path="images" element={<ImagesPage />} />
+                  <Route path="annotations" element={<AnnotationsPage />} />
+                  <Route path="monitoring" element={<MonitoringPage />} />
+                  <Route path="admin/tenants" element={<TenantsPage />} />
+                  <Route path="admin/users" element={<UsersPage />} />
+                  <Route path="admin/audit-logs" element={<AuditLogsPage />} />
+                </Route>
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </QueryClientProvider>
+      </AntApp>
     </ConfigProvider>
   )
 }

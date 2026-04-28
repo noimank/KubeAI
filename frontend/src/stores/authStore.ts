@@ -19,6 +19,23 @@ function getStoredToken(key: string): string | null {
   return localStorage.getItem(key)
 }
 
+async function callLogoutApi() {
+  const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY)
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+  if (!accessToken) return
+
+  try {
+    const axios = (await import('axios')).default
+    await axios.post(
+      `${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/logout`,
+      { refresh_token: refreshToken || undefined },
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    )
+  } catch {
+    // best-effort: network failure should not block local cleanup
+  }
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   accessToken: getStoredToken(ACCESS_TOKEN_KEY),
@@ -32,6 +49,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: () => {
+    callLogoutApi()
     localStorage.removeItem(ACCESS_TOKEN_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)
     set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false })
