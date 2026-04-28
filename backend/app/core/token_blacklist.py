@@ -17,7 +17,7 @@ class TokenBlacklistService:
 
     async def is_revoked(self, jti: str) -> bool:
         key = f"{BLACKLIST_PREFIX}:{jti}"
-        return await self.redis.exists(key) == 1
+        return bool(await self.redis.exists(key))
 
     async def revoke_all_user_tokens(self, user_id: str) -> None:
         version_key = f"user_token_version:{user_id}"

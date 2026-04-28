@@ -26,7 +26,7 @@ app = FastAPI(
 
 app.add_middleware(TenantMiddleware)
 
-app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(AppException, app_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.include_router(api_router, prefix=settings.API_PREFIX)

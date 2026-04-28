@@ -1,8 +1,8 @@
 import base64
 import logging
 
-from kubernetes import client
-from kubernetes.client.rest import ApiException
+from kubernetes import client  # type: ignore[import-untyped]
+from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
 
 from app.integrations.base import with_retry
 from app.integrations.k8s.client import get_k8s_clients

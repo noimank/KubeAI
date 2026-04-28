@@ -1,7 +1,7 @@
 import os
 
-import casbin
-from casbin_sqlalchemy_adapter import Adapter
+import casbin  # type: ignore[import-untyped]
+from casbin_sqlalchemy_adapter import Adapter  # type: ignore[import-untyped]
 
 
 class CasbinEnforcer:
@@ -24,7 +24,8 @@ class CasbinEnforcer:
 
     @classmethod
     def enforce(cls, sub: str, obj: str, act: str) -> bool:
-        return cls.get_enforcer().enforce(sub, obj, act)
+        result = cls.get_enforcer().enforce(sub, obj, act)
+        return bool(result)
 
     @classmethod
     def _seed_policies(cls) -> None:

@@ -1,13 +1,14 @@
 import logging
+from typing import Any
 
-from kubernetes import client, config
+from kubernetes import client, config  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
-_k8s_clients: dict | None = None
+_k8s_clients: dict[str, Any] | None = None
 
 
-def get_k8s_clients() -> dict:
+def get_k8s_clients() -> dict[str, Any]:
     global _k8s_clients
     if _k8s_clients is not None:
         return _k8s_clients

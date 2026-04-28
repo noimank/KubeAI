@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import Annotated, Any
 
 import redis.asyncio as aioredis
 from fastapi import Depends, Request
@@ -76,7 +76,7 @@ async def get_current_tenant_id(request: Request) -> str | None:
 RequireTenant = Annotated[str | None, Depends(get_current_tenant_id)]
 
 
-def require_permission(resource: str, action: str):
+def require_permission(resource: str, action: str) -> Any:
     async def _check_permission(current_user: CurrentUser) -> User:
         role = current_user.role.value
         if not CasbinEnforcer.enforce(role, resource, action):
@@ -86,7 +86,7 @@ def require_permission(resource: str, action: str):
     return _check_permission
 
 
-def require_tenant_access(resource_tenant_id: uuid.UUID):
+def require_tenant_access(resource_tenant_id: uuid.UUID) -> Any:
     async def _check(current_user: CurrentUser) -> User:
         if current_user.role == UserRole.ADMIN:
             return current_user

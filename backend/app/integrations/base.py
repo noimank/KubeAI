@@ -2,17 +2,18 @@ import functools
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 K8S_NAMESPACE_PREFIX = "kubeai-"
 
 
-def with_retry(max_retries: int = 3, backoff_base: float = 1.0):
-    def decorator(func: Callable) -> Callable:
+def with_retry(max_retries: int = 3, backoff_base: float = 1.0) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exception: BaseException | None = None
             for attempt in range(1, max_retries + 1):
                 try:
                     return func(*args, **kwargs)
@@ -30,6 +31,7 @@ def with_retry(max_retries: int = 3, backoff_base: float = 1.0):
                         import time
 
                         time.sleep(wait)
+            assert last_exception is not None
             raise last_exception
 
         return wrapper

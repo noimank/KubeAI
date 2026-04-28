@@ -4,11 +4,13 @@ from app.api.endpoints.auth import router as auth_router
 from app.api.endpoints.credentials import router as credentials_router
 from app.schemas.base import BaseResponse
 
+HealthResponse = BaseResponse[dict[str, str]]
+
 api_router = APIRouter()
 
 
-@api_router.get("/health", response_model=BaseResponse)
-async def health_check() -> BaseResponse:
+@api_router.get("/health", response_model=HealthResponse)
+async def health_check() -> HealthResponse:
     return BaseResponse(data={"status": "healthy"})
 
 
