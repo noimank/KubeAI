@@ -15,17 +15,7 @@ export async function login(
   return res.data
 }
 
-export async function refreshToken(refreshToken: string): Promise<BaseResponse<TokenPayload>> {
-  const res = await api.post<BaseResponse<TokenPayload>>('/auth/refresh', { refreshToken })
-  return res.data
-}
-
 export async function getCurrentUser(): Promise<BaseResponse<User>> {
   const res = await api.get<BaseResponse<User>>('/auth/me')
-  return res.data
-}
-
-export async function logout(): Promise<BaseResponse<null>> {
-  const res = await api.post<BaseResponse<null>>('/auth/logout')
   return res.data
 }

@@ -5,19 +5,19 @@ export interface User {
   username: string
   email: string
   role: UserRole
-  tenant_id: string
+  tenantId: string
   avatar?: string
 }
 
 export interface TokenPayload {
-  access_token: string
-  refresh_token: string
-  token_type: string
+  accessToken: string
+  refreshToken: string
+  tokenType: string
 }
 
 export interface RegisterRequest {
   username: string
   email: string
   password: string
-  confirm_password: string
+  confirmPassword: string
 }

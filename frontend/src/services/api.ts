@@ -1,6 +1,6 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios'
 
-import { useAuthStore } from '@/stores/authStore'
+import { useAuthStore, ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore'
 import { getMessageInstance } from '@/utils/messageHolder'
 
 declare module 'axios' {
@@ -8,9 +8,6 @@ declare module 'axios' {
     _retry?: boolean
   }
 }
-
-const ACCESS_TOKEN_KEY = 'kubeai_access_token'
-const REFRESH_TOKEN_KEY = 'kubeai_refresh_token'
 
 function toCamelCase(str: string): string {
   return str.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
@@ -56,12 +53,7 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => {
-    const data = transformKeys(response.data, toCamelCase)
-    if (data && typeof data === 'object' && 'success' in data && 'data' in data) {
-      response.data = data
-    } else {
-      response.data = data
-    }
+    response.data = transformKeys(response.data, toCamelCase)
     return response
   },
   (error) => {
@@ -168,4 +160,3 @@ async function handleTokenRefresh(originalRequest: InternalAxiosRequestConfig) {
 }
 
 export { api, transformKeys, toCamelCase, toSnakeCase }
-export { ACCESS_TOKEN_KEY }

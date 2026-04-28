@@ -8,7 +8,7 @@ export interface PageData<T> {
   items: T[]
   total: number
   page: number
-  page_size: number
+  pageSize: number
 }
 
 export type PageResponse<T> = BaseResponse<PageData<T>>

@@ -1,11 +1,14 @@
-import { useState, useMemo, lazy, Suspense } from 'react'
+import { useState, useMemo, lazy, Suspense, useEffect } from 'react'
 import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import zhCN from 'antd/locale/zh_CN'
 import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
+import AuthGuard from './components/AuthGuard'
+import PermissionGuard from './components/PermissionGuard'
 import { setMessageInstance } from './utils/messageHolder'
+import { useAuthStore } from './stores/authStore'
 
 const THEME_KEY = 'kubeai_theme'
 
@@ -21,6 +24,7 @@ const DevEnvironmentsPage = lazy(() => import('./pages/dev-environments'))
 const ImagesPage = lazy(() => import('./pages/images'))
 const AnnotationsPage = lazy(() => import('./pages/annotations'))
 const MonitoringPage = lazy(() => import('./pages/monitoring'))
+const ForbiddenPage = lazy(() => import('./pages/403'))
 const TenantsPage = lazy(() => import('./pages/admin/tenants'))
 const UsersPage = lazy(() => import('./pages/admin/users'))
 const AuditLogsPage = lazy(() => import('./pages/admin/audit-logs'))
@@ -60,6 +64,11 @@ function MessageHolder() {
 
 export default function App() {
   const [themeMode] = useState<'light' | 'dark'>(getInitialTheme)
+  const initializeAuth = useAuthStore((s) => s.initializeAuth)
+
+  useEffect(() => {
+    initializeAuth()
+  }, [initializeAuth])
 
   const themeConfig = useMemo(
     () => ({
@@ -90,21 +99,108 @@ export default function App() {
                 <Route path="/register" element={<AuthLayout />}>
                   <Route index element={<RegisterPage />} />
                 </Route>
-                <Route path="/" element={<MainLayout />}>
-                  <Route index element={<Navigate to="/dashboard" replace />} />
-                  <Route path="dashboard" element={<DashboardPage />} />
-                  <Route path="datasets" element={<DatasetsPage />} />
-                  <Route path="training-jobs" element={<TrainingJobsPage />} />
-                  <Route path="experiments" element={<ExperimentsPage />} />
-                  <Route path="models" element={<ModelsPage />} />
-                  <Route path="inference" element={<InferencePage />} />
-                  <Route path="dev-environments" element={<DevEnvironmentsPage />} />
-                  <Route path="images" element={<ImagesPage />} />
-                  <Route path="annotations" element={<AnnotationsPage />} />
-                  <Route path="monitoring" element={<MonitoringPage />} />
-                  <Route path="admin/tenants" element={<TenantsPage />} />
-                  <Route path="admin/users" element={<UsersPage />} />
-                  <Route path="admin/audit-logs" element={<AuditLogsPage />} />
+                <Route path="/" element={<AuthGuard />}>
+                  <Route element={<MainLayout />}>
+                    <Route index element={<Navigate to="/dashboard" replace />} />
+                    <Route path="dashboard" element={<DashboardPage />} />
+                    <Route
+                      path="datasets"
+                      element={
+                        <PermissionGuard permission="datasets:read">
+                          <DatasetsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="training-jobs"
+                      element={
+                        <PermissionGuard permission="training_jobs:read">
+                          <TrainingJobsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="experiments"
+                      element={
+                        <PermissionGuard permission="experiments:read">
+                          <ExperimentsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="models"
+                      element={
+                        <PermissionGuard permission="models:read">
+                          <ModelsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="inference"
+                      element={
+                        <PermissionGuard permission="inference_services:read">
+                          <InferencePage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="dev-environments"
+                      element={
+                        <PermissionGuard permission="dev_environments:read">
+                          <DevEnvironmentsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="images"
+                      element={
+                        <PermissionGuard permission="images:read">
+                          <ImagesPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="annotations"
+                      element={
+                        <PermissionGuard permission="annotations:read">
+                          <AnnotationsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="monitoring"
+                      element={
+                        <PermissionGuard permission="monitoring:read">
+                          <MonitoringPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="admin/tenants"
+                      element={
+                        <PermissionGuard permission="tenants:manage">
+                          <TenantsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="admin/users"
+                      element={
+                        <PermissionGuard permission="users:manage">
+                          <UsersPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="admin/audit-logs"
+                      element={
+                        <PermissionGuard permission="audit_logs:read">
+                          <AuditLogsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route path="403" element={<ForbiddenPage />} />
+                  </Route>
                 </Route>
               </Routes>
             </Suspense>

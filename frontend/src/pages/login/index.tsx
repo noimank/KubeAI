@@ -1,16 +1,18 @@
 import { useState } from 'react'
-import { useNavigate, Link, Navigate } from 'react-router-dom'
+import { useNavigate, Link, Navigate, useSearchParams } from 'react-router-dom'
 import { ProForm, ProFormText } from '@ant-design/pro-components'
 import { App, Card, Button } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
-import { login } from '@/services/auth'
+import { login, getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { message } = App.useApp()
   const { isAuthenticated, login: authLogin } = useAuthStore()
+  const setTokens = useAuthStore((s) => s.setTokens)
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />
@@ -21,12 +23,16 @@ export default function LoginPage() {
     try {
       const res = await login(values.username, values.password)
       if (res.success && res.data) {
-        authLogin(
-          { id: '', username: values.username, email: '', role: 'engineer', tenant_id: '' },
-          res.data.access_token,
-          res.data.refresh_token,
-        )
-        navigate('/dashboard', { replace: true })
+        setTokens(res.data.accessToken, res.data.refreshToken)
+        const userRes = await getCurrentUser()
+        if (userRes.success && userRes.data) {
+          authLogin(userRes.data, res.data.accessToken, res.data.refreshToken)
+        } else {
+          message.error('获取用户信息失败')
+          return
+        }
+        const redirect = searchParams.get('redirect') || '/dashboard'
+        navigate(redirect, { replace: true })
       }
     } catch (err: unknown) {
       const error = err as { response?: { status?: number; data?: { message?: string } } }

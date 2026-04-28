@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, Navigate, useSearchParams } from 'react-router-dom'
 import { ProForm, ProFormText } from '@ant-design/pro-components'
 import { App, Card, Form, Button } from 'antd'
 import { UserOutlined, MailOutlined, LockOutlined } from '@ant-design/icons'
-import { register } from '@/services/auth'
+import { register, getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
 import type { RegisterRequest } from '@/types/auth'
 
@@ -23,28 +23,33 @@ function validatePassword(_: unknown, value: string) {
 export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { message } = App.useApp()
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const setTokens = useAuthStore((s) => s.setTokens)
   const authLogin = useAuthStore((s) => s.login)
   const [form] = Form.useForm()
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />
+  }
 
   const handleSubmit = async (values: RegisterRequest) => {
     setLoading(true)
     try {
       const res = await register(values)
       if (res.success && res.data) {
-        authLogin(
-          {
-            id: '',
-            username: values.username,
-            email: values.email,
-            role: 'engineer',
-            tenant_id: '',
-          },
-          res.data.access_token,
-          res.data.refresh_token,
-        )
+        setTokens(res.data.accessToken, res.data.refreshToken)
+        const userRes = await getCurrentUser()
+        if (userRes.success && userRes.data) {
+          authLogin(userRes.data, res.data.accessToken, res.data.refreshToken)
+        } else {
+          message.error('获取用户信息失败')
+          return
+        }
         message.success('注册成功')
-        navigate('/dashboard', { replace: true })
+        const redirect = searchParams.get('redirect') || '/dashboard'
+        navigate(redirect, { replace: true })
       }
     } catch (err: unknown) {
       const error = err as { response?: { status?: number; data?: { message?: string } } }
@@ -107,7 +112,7 @@ export default function RegisterPage() {
           extra="密码至少 8 个字符, 需包含大写字母、小写字母和数字"
         />
         <ProFormText.Password
-          name="confirm_password"
+          name="confirmPassword"
           label="确认密码"
           placeholder="请再次输入密码"
           dependencies={['password']}

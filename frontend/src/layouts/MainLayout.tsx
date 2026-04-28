@@ -1,8 +1,9 @@
 import { ProLayout } from '@ant-design/pro-components'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Sidebar } from './components/Sidebar'
+import { buildSidebarMenu } from './components/Sidebar'
 import { Header } from './components/Header'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
+import { useRbacStore } from '@/stores/rbacStore'
 
 const NAVIGATE_MAP: Record<string, string> = {
   '/dashboard': '工作台',
@@ -23,6 +24,7 @@ const NAVIGATE_MAP: Record<string, string> = {
 export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
+  const hasPermission = useRbacStore((s) => s.hasPermission)
 
   useIdleTimeout()
 
@@ -35,7 +37,7 @@ export default function MainLayout() {
       siderWidth={240}
       fixSiderbar
       fixedHeader
-      menuDataRender={() => Sidebar()}
+      menuDataRender={() => buildSidebarMenu(hasPermission)}
       menuItemRender={(item, dom) => (
         <div
           onClick={() => {
