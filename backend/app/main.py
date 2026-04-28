@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.events import on_shutdown, on_startup
 from app.core.exceptions import AppException
 from app.middleware.error_handler import app_exception_handler, unhandled_exception_handler
+from app.middleware.tenant import TenantMiddleware
 
 
 @asynccontextmanager
@@ -22,6 +23,8 @@ app = FastAPI(
     version=settings.APP_VERSION,
     lifespan=lifespan,
 )
+
+app.add_middleware(TenantMiddleware)
 
 app.add_exception_handler(AppException, app_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)

@@ -1,8 +1,9 @@
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
 import redis.asyncio as aioredis
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,7 @@ from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.redis import get_redis
 from app.core.security import decode_token
 from app.core.token_blacklist import TokenBlacklistService
+from app.models.enums import UserRole
 from app.models.user import User
 
 security = HTTPBearer()
@@ -67,6 +69,13 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+async def get_current_tenant_id(request: Request) -> str | None:
+    return getattr(request.state, "tenant_id", None)
+
+
+RequireTenant = Annotated[str | None, Depends(get_current_tenant_id)]
+
+
 def require_permission(resource: str, action: str):
     async def _check_permission(current_user: CurrentUser) -> User:
         role = current_user.role.value
@@ -75,3 +84,14 @@ def require_permission(resource: str, action: str):
         return current_user
 
     return _check_permission
+
+
+def require_tenant_access(resource_tenant_id: uuid.UUID):
+    async def _check(current_user: CurrentUser) -> User:
+        if current_user.role == UserRole.ADMIN:
+            return current_user
+        if current_user.tenant_id != resource_tenant_id:
+            raise ForbiddenException("无权访问其他租户的资源")
+        return current_user
+
+    return _check
