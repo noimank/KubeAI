@@ -91,5 +91,6 @@ async def me(user: CurrentUser) -> BaseResponse[UserResponse]:
         email=user.email,
         is_active=user.is_active,
         role=user.role,
+        tenant_id=str(user.tenant_id) if user.tenant_id else None,
     )
     return BaseResponse(data=user_response, message="获取成功")

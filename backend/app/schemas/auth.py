@@ -50,9 +50,11 @@ class UserResponse(BaseModel):
     email: str
     is_active: bool
     role: UserRole
+    tenant_id: str | None = None
 
 
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    tenant_id: str | None = None

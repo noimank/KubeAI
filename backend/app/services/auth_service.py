@@ -47,7 +47,7 @@ class AuthService:
         self.db.add(user)
         await self.db.flush()
 
-        return self._generate_tokens(str(user.id))
+        return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
     async def login(self, req: LoginRequest) -> TokenResponse:
         result = await self.db.execute(select(User).where(User.username == req.username))
@@ -63,7 +63,7 @@ class AuthService:
             raise UnauthorizedException("用户名或密码错误")
 
         await self._reset_failed_attempts(str(user.id))
-        return self._generate_tokens(str(user.id))
+        return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
     async def refresh_tokens(self, refresh_token: str) -> TokenResponse:
         try:
@@ -90,7 +90,13 @@ class AuthService:
         user_id = payload.get("sub")
         if not user_id:
             raise UnauthorizedException("无效的 Token")
-        return self._generate_tokens(user_id)
+
+        result = await self.db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise UnauthorizedException("用户不存在")
+
+        return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
     async def logout(self, user_id: str, access_token_jti: str, refresh_token_jti: str | None = None) -> None:
         await self.blacklist.revoke_token(access_token_jti, self._access_token_remaining_ttl())
@@ -132,9 +138,12 @@ class AuthService:
         attempts_key = f"login_attempts:{user_id}"
         await self.redis.delete(attempts_key)
 
-    def _generate_tokens(self, user_id: str) -> TokenResponse:
+    def _generate_tokens(self, user_id: str, tenant_id: str | None = None) -> TokenResponse:
         payload = {"sub": user_id}
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
         return TokenResponse(
             access_token=create_access_token(payload),
             refresh_token=create_refresh_token(payload),
+            tenant_id=tenant_id,
         )

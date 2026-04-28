@@ -100,6 +100,24 @@ class TestLogin:
 
         assert result.access_token is not None
         assert result.refresh_token is not None
+        assert result.tenant_id is None
+
+    async def test_login_with_tenant_id(self, auth_service, mock_db, mock_redis):
+        from app.models.user import User
+
+        tenant_id = uuid.uuid4()
+        user = User(
+            username="tenantuser", email="tenant@example.com", hashed_password="$2b$12$fakehash", tenant_id=tenant_id
+        )
+        user.id = uuid.uuid4()
+
+        mock_db.execute.return_value = _sync_result(user)
+        mock_redis.get.return_value = None
+
+        with patch("app.services.auth_service.verify_password", return_value=True):
+            result = await auth_service.login(LoginRequest(username="tenantuser", password="Passw0rd"))
+
+        assert result.tenant_id == str(tenant_id)
 
     async def test_login_user_not_found(self, auth_service, mock_db):
         mock_db.execute.return_value = _sync_result(None)
@@ -157,24 +175,28 @@ class TestLogin:
 
 
 class TestRefreshTokens:
-    async def test_refresh_success(self, auth_service, mock_blacklist):
+    async def test_refresh_success(self, auth_service, mock_blacklist, mock_db):
         from app.core.security import create_refresh_token
+        from app.models.user import User
 
-        user_id = str(uuid.uuid4())
-        token = create_refresh_token({"sub": user_id})
+        user = User(username="testuser", email="test@example.com", hashed_password="hash")
+        token = create_refresh_token({"sub": str(user.id)})
         auth_service.blacklist = mock_blacklist
+        mock_db.execute.return_value = _sync_result(user)
 
         result = await auth_service.refresh_tokens(token)
         assert result.access_token is not None
         assert result.refresh_token is not None
         assert result.token_type == "bearer"
 
-    async def test_refresh_revokes_old_token(self, auth_service, mock_blacklist):
+    async def test_refresh_revokes_old_token(self, auth_service, mock_blacklist, mock_db):
         from app.core.security import create_refresh_token
+        from app.models.user import User
 
-        user_id = str(uuid.uuid4())
-        token = create_refresh_token({"sub": user_id})
+        user = User(username="testuser", email="test@example.com", hashed_password="hash")
+        token = create_refresh_token({"sub": str(user.id)})
         auth_service.blacklist = mock_blacklist
+        mock_db.execute.return_value = _sync_result(user)
 
         await auth_service.refresh_tokens(token)
         mock_blacklist.revoke_token.assert_called_once()
@@ -196,6 +218,30 @@ class TestRefreshTokens:
 
         with pytest.raises(UnauthorizedException, match="已被吊销"):
             await auth_service.refresh_tokens(token)
+
+    async def test_refresh_user_not_found_raises_401(self, auth_service, mock_blacklist, mock_db):
+        from app.core.security import create_refresh_token
+
+        user_id = str(uuid.uuid4())
+        token = create_refresh_token({"sub": user_id})
+        auth_service.blacklist = mock_blacklist
+        mock_db.execute.return_value = _sync_result(None)
+
+        with pytest.raises(UnauthorizedException, match="用户不存在"):
+            await auth_service.refresh_tokens(token)
+
+    async def test_refresh_carries_tenant_id(self, auth_service, mock_blacklist, mock_db):
+        from app.core.security import create_refresh_token
+        from app.models.user import User
+
+        tenant_id = uuid.uuid4()
+        user = User(username="testuser", email="test@example.com", hashed_password="hash", tenant_id=tenant_id)
+        token = create_refresh_token({"sub": str(user.id)})
+        auth_service.blacklist = mock_blacklist
+        mock_db.execute.return_value = _sync_result(user)
+
+        result = await auth_service.refresh_tokens(token)
+        assert result.tenant_id == str(tenant_id)
 
     async def test_refresh_wrong_type_raises_401(self, auth_service, mock_blacklist):
         from app.core.security import create_access_token
