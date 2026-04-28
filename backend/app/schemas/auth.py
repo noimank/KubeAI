@@ -2,6 +2,8 @@ import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.models.enums import UserRole
+
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=50)
@@ -47,6 +49,7 @@ class UserResponse(BaseModel):
     username: str
     email: str
     is_active: bool
+    role: UserRole
 
 
 class TokenResponse(BaseModel):

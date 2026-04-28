@@ -33,7 +33,13 @@ export default function RegisterPage() {
       const res = await register(values)
       if (res.success && res.data) {
         authLogin(
-          { id: '', username: values.username, email: values.email, role: '', tenant_id: '' },
+          {
+            id: '',
+            username: values.username,
+            email: values.email,
+            role: 'engineer',
+            tenant_id: '',
+          },
           res.data.access_token,
           res.data.refresh_token,
         )

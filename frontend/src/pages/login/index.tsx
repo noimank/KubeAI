@@ -22,7 +22,7 @@ export default function LoginPage() {
       const res = await login(values.username, values.password)
       if (res.success && res.data) {
         authLogin(
-          { id: '', username: values.username, email: '', role: '', tenant_id: '' },
+          { id: '', username: values.username, email: '', role: 'engineer', tenant_id: '' },
           res.data.access_token,
           res.data.refresh_token,
         )

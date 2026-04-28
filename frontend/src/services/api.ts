@@ -3,6 +3,12 @@ import axios, { type InternalAxiosRequestConfig } from 'axios'
 import { useAuthStore } from '@/stores/authStore'
 import { getMessageInstance } from '@/utils/messageHolder'
 
+declare module 'axios' {
+  interface InternalAxiosRequestConfig {
+    _retry?: boolean
+  }
+}
+
 const ACCESS_TOKEN_KEY = 'kubeai_access_token'
 const REFRESH_TOKEN_KEY = 'kubeai_refresh_token'
 

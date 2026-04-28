@@ -7,6 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.casbin import CasbinEnforcer
 from app.core.database import async_session_factory
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.redis import get_redis
@@ -64,3 +65,13 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_permission(resource: str, action: str):
+    async def _check_permission(current_user: CurrentUser) -> User:
+        role = current_user.role.value
+        if not CasbinEnforcer.enforce(role, resource, action):
+            raise ForbiddenException(f"权限不足: 无法对 {resource} 执行 {action} 操作")
+        return current_user
+
+    return _check_permission

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useAuthStore } from '@/stores/authStore'
+import { useRbacStore } from '@/stores/rbacStore'
 
 describe('authStore', () => {
   beforeEach(() => {
@@ -10,6 +11,7 @@ describe('authStore', () => {
       refreshToken: null,
       isAuthenticated: false,
     })
+    useRbacStore.getState().clearRbac()
   })
 
   it('should start with null state when no stored tokens', () => {
@@ -24,7 +26,7 @@ describe('authStore', () => {
       id: '1',
       username: 'testuser',
       email: 'test@example.com',
-      role: 'admin',
+      role: 'engineer' as const,
       tenant_id: 'tenant-1',
     }
     useAuthStore.getState().login(user, 'access-token', 'refresh-token')
@@ -37,12 +39,27 @@ describe('authStore', () => {
     expect(localStorage.getItem('kubeai_access_token')).toBe('access-token')
   })
 
-  it('should clear state on logout', () => {
+  it('should sync role to rbacStore on login', () => {
     const user = {
       id: '1',
       username: 'testuser',
       email: 'test@example.com',
-      role: 'admin',
+      role: 'mlops' as const,
+      tenant_id: 'tenant-1',
+    }
+    useAuthStore.getState().login(user, 'access-token', 'refresh-token')
+
+    const rbacState = useRbacStore.getState()
+    expect(rbacState.currentRole).toBe('mlops')
+    expect(rbacState.hasPermission('training_jobs:manage')).toBe(true)
+  })
+
+  it('should clear state and rbac on logout', () => {
+    const user = {
+      id: '1',
+      username: 'testuser',
+      email: 'test@example.com',
+      role: 'admin' as const,
       tenant_id: 'tenant-1',
     }
     useAuthStore.getState().login(user, 'access-token', 'refresh-token')
@@ -53,6 +70,10 @@ describe('authStore', () => {
     expect(state.accessToken).toBeNull()
     expect(state.isAuthenticated).toBe(false)
     expect(localStorage.getItem('kubeai_access_token')).toBeNull()
+
+    const rbacState = useRbacStore.getState()
+    expect(rbacState.currentRole).toBeNull()
+    expect(rbacState.permissions).toEqual([])
   })
 
   it('should update tokens', () => {
@@ -61,5 +82,20 @@ describe('authStore', () => {
     const state = useAuthStore.getState()
     expect(state.accessToken).toBe('new-access')
     expect(state.refreshToken).toBe('new-refresh')
+  })
+
+  it('should sync role to rbacStore on setUser', () => {
+    const user = {
+      id: '1',
+      username: 'testuser',
+      email: 'test@example.com',
+      role: 'annotator' as const,
+      tenant_id: 'tenant-1',
+    }
+    useAuthStore.getState().setUser(user)
+
+    const rbacState = useRbacStore.getState()
+    expect(rbacState.currentRole).toBe('annotator')
+    expect(rbacState.hasPermission('annotations:write')).toBe(true)
   })
 })

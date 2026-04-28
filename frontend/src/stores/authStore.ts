@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { User } from '@/types/auth'
+import { useRbacStore } from './rbacStore'
 
 const ACCESS_TOKEN_KEY = 'kubeai_access_token'
 const REFRESH_TOKEN_KEY = 'kubeai_refresh_token'
@@ -45,6 +46,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: (user, accessToken, refreshToken) => {
     localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
     localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
+    useRbacStore.getState().setRole(user.role)
     set({ user, accessToken, refreshToken, isAuthenticated: true })
   },
 
@@ -52,6 +54,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     callLogoutApi()
     localStorage.removeItem(ACCESS_TOKEN_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)
+    useRbacStore.getState().clearRbac()
     set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false })
   },
 
@@ -61,5 +64,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ accessToken, refreshToken })
   },
 
-  setUser: (user) => set({ user }),
+  setUser: (user) => {
+    useRbacStore.getState().setRole(user.role)
+    set({ user })
+  },
 }))

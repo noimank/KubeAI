@@ -66,7 +66,6 @@ class TestTokenExpiration:
             mock_settings.SECRET_KEY = "test-secret"
             mock_settings.ACCESS_TOKEN_EXPIRE_MINUTES = -1
             token = create_access_token({"sub": "user-123"})
-        from jose import JWTError
 
-        with pytest.raises(JWTError):
+        with pytest.raises(ValueError, match="无效或过期的 Token"):
             decode_token(token)

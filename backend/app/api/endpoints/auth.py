@@ -90,5 +90,6 @@ async def me(user: CurrentUser) -> BaseResponse[UserResponse]:
         username=user.username,
         email=user.email,
         is_active=user.is_active,
+        role=user.role,
     )
     return BaseResponse(data=user_response, message="获取成功")

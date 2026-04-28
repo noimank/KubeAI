@@ -1,45 +1,55 @@
 import { create } from 'zustand'
 
-type Role = 'platform_admin' | 'tenant_admin' | 'developer' | 'viewer'
+export type Role = 'admin' | 'mlops' | 'engineer' | 'annotator'
 
 interface RbacState {
   currentRole: Role | null
   permissions: string[]
   setRole: (role: Role) => void
-  setPermissions: (permissions: string[]) => void
   hasPermission: (permission: string) => boolean
   clearRbac: () => void
 }
 
 const ROLE_PERMISSIONS: Record<Role, string[]> = {
-  platform_admin: ['*'],
-  tenant_admin: [
-    'tenant:read',
-    'tenant:write',
-    'member:read',
-    'member:write',
-    'dataset:read',
-    'dataset:write',
-    'training:read',
-    'training:write',
-    'model:read',
-    'model:write',
-    'inference:read',
-    'inference:write',
+  admin: ['*'],
+  mlops: [
+    'datasets:read',
+    'datasets:write',
+    'annotations:read',
+    'annotations:write',
+    'annotations:manage',
+    'training_jobs:read',
+    'training_jobs:write',
+    'training_jobs:manage',
+    'experiments:read',
+    'experiments:write',
+    'experiments:manage',
+    'models:read',
+    'models:write',
+    'inference_services:read',
+    'inference_services:write',
+    'inference_services:manage',
+    'images:read',
+    'dev_environments:read',
+    'dev_environments:write',
+    'dev_environments:manage',
     'monitoring:read',
+    'audit_logs:read',
+    'users:read',
   ],
-  developer: [
-    'dataset:read',
-    'dataset:write',
-    'training:read',
-    'training:write',
-    'model:read',
-    'model:write',
-    'inference:read',
-    'inference:write',
-    'monitoring:read',
+  engineer: [
+    'datasets:read',
+    'training_jobs:read',
+    'training_jobs:write',
+    'experiments:read',
+    'experiments:write',
+    'models:read',
+    'images:read',
+    'dev_environments:read',
+    'dev_environments:write',
+    'inference_services:read',
   ],
-  viewer: ['dataset:read', 'training:read', 'model:read', 'inference:read', 'monitoring:read'],
+  annotator: ['datasets:read', 'annotations:read', 'annotations:write'],
 }
 
 export const useRbacStore = create<RbacState>((set, get) => ({
@@ -49,8 +59,6 @@ export const useRbacStore = create<RbacState>((set, get) => ({
   setRole: (role) => {
     set({ currentRole: role, permissions: ROLE_PERMISSIONS[role] })
   },
-
-  setPermissions: (permissions) => set({ permissions }),
 
   hasPermission: (permission) => {
     const { permissions } = get()

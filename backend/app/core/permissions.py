@@ -1,0 +1,76 @@
+import enum
+
+
+class RESOURCE(enum.StrEnum):
+    USERS = "users"
+    TENANTS = "tenants"
+    QUOTAS = "quotas"
+    DATASETS = "datasets"
+    ANNOTATIONS = "annotations"
+    TRAINING_JOBS = "training_jobs"
+    EXPERIMENTS = "experiments"
+    MODELS = "models"
+    INFERENCE_SERVICES = "inference_services"
+    IMAGES = "images"
+    DEV_ENVIRONMENTS = "dev_environments"
+    MONITORING = "monitoring"
+    AUDIT_LOGS = "audit_logs"
+    NOTIFICATIONS = "notifications"
+
+
+class ACTION(enum.StrEnum):
+    READ = "read"
+    WRITE = "write"
+    MANAGE = "manage"
+
+
+# (sub, obj, act)
+SEED_POLICIES: list[tuple[str, str, str]] = [
+    # annotator
+    ("annotator", "datasets", "read"),
+    ("annotator", "annotations", "read"),
+    ("annotator", "annotations", "write"),
+    # engineer
+    ("engineer", "datasets", "read"),
+    ("engineer", "training_jobs", "read"),
+    ("engineer", "training_jobs", "write"),
+    ("engineer", "experiments", "read"),
+    ("engineer", "experiments", "write"),
+    ("engineer", "models", "read"),
+    ("engineer", "images", "read"),
+    ("engineer", "dev_environments", "read"),
+    ("engineer", "dev_environments", "write"),
+    ("engineer", "inference_services", "read"),
+    # mlops (inherits engineer + additional)
+    ("mlops", "annotations", "manage"),
+    ("mlops", "datasets", "write"),
+    ("mlops", "training_jobs", "manage"),
+    ("mlops", "models", "write"),
+    ("mlops", "inference_services", "manage"),
+    ("mlops", "images", "read"),
+    ("mlops", "dev_environments", "manage"),
+    ("mlops", "monitoring", "read"),
+    ("mlops", "audit_logs", "read"),
+    ("mlops", "users", "read"),
+    ("mlops", "experiments", "manage"),
+    # admin (inherits mlops + additional)
+    ("admin", "tenants", "manage"),
+    ("admin", "users", "manage"),
+    ("admin", "quotas", "manage"),
+    ("admin", "monitoring", "manage"),
+    ("admin", "audit_logs", "manage"),
+    ("admin", "datasets", "manage"),
+    ("admin", "annotations", "manage"),
+    ("admin", "training_jobs", "manage"),
+    ("admin", "models", "manage"),
+    ("admin", "inference_services", "manage"),
+    ("admin", "images", "manage"),
+    ("admin", "dev_environments", "manage"),
+    ("admin", "experiments", "manage"),
+]
+
+# (parent_role, child_role)
+SEED_ROLE_INHERITANCE: list[tuple[str, str]] = [
+    ("mlops", "engineer"),
+    ("admin", "mlops"),
+]

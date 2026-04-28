@@ -1,8 +1,10 @@
+export type UserRole = 'admin' | 'mlops' | 'engineer' | 'annotator'
+
 export interface User {
   id: string
   username: string
   email: string
-  role: string
+  role: UserRole
   tenant_id: string
   avatar?: string
 }
