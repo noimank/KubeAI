@@ -14,8 +14,8 @@ class PageData[T](BaseModel):
     page_size: int
 
 
-class PageResponse[T](BaseResponse[list[T]]):
-    data: PageData[T] | None = None
+class PageResponse[T](BaseResponse[PageData[T]]):
+    pass
 
 
 class PageRequest(BaseModel):
