@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { User } from '@/types/auth'
 import { useRbacStore } from './rbacStore'
+import { useTenantStore } from './tenantStore'
 
 const ACCESS_TOKEN_KEY = 'kubeai_access_token'
 const REFRESH_TOKEN_KEY = 'kubeai_refresh_token'
@@ -48,6 +49,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
     useRbacStore.getState().setRole(user.role)
     set({ user, accessToken, refreshToken, isAuthenticated: true })
+
+    if (user.tenant_id) {
+      useTenantStore.getState().fetchCurrentTenant()
+    }
   },
 
   logout: () => {
@@ -55,6 +60,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem(ACCESS_TOKEN_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)
     useRbacStore.getState().clearRbac()
+    useTenantStore.getState().clearTenant()
     set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false })
   },
 
