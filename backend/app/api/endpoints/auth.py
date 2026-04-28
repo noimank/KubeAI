@@ -1,5 +1,6 @@
 from typing import Annotated
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _bearer = HTTPBearer()
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
-RedisDep = Annotated[object, Depends(get_redis)]
+RedisDep = Annotated[aioredis.Redis, Depends(get_redis)]
 
 
 @router.post("/register", response_model=BaseResponse[TokenResponse])
@@ -66,20 +67,23 @@ async def logout(
     db: DbDep,
     redis: RedisDep,
 ) -> BaseResponse[None]:
-    credentials: HTTPAuthorizationCredentials = await _bearer(request)
+    credentials: HTTPAuthorizationCredentials = await _bearer(request)  # type: ignore[assignment]
     access_payload = decode_token(credentials.credentials)
     access_jti = access_payload["jti"]
+    access_exp = access_payload.get("exp")
 
     refresh_jti = None
+    refresh_exp = None
     if req.refresh_token:
         try:
             refresh_payload = decode_token(req.refresh_token)
             refresh_jti = refresh_payload.get("jti")
+            refresh_exp = refresh_payload.get("exp")
         except ValueError:
             pass
 
     service = AuthService(db, redis)
-    await service.logout(str(user.id), access_jti, refresh_jti)
+    await service.logout(str(user.id), access_jti, refresh_jti, access_exp, refresh_exp)
     return BaseResponse(message="已退出登录")
 
 

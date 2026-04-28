@@ -95,26 +95,35 @@ class AuthService:
         user = result.scalar_one_or_none()
         if not user:
             raise UnauthorizedException("用户不存在")
+        if not user.is_active:
+            raise UnauthorizedException("用户已被禁用")
 
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
-    async def logout(self, user_id: str, access_token_jti: str, refresh_token_jti: str | None = None) -> None:
-        await self.blacklist.revoke_token(access_token_jti, self._access_token_remaining_ttl())
+    async def logout(
+        self,
+        user_id: str,
+        access_token_jti: str,
+        refresh_token_jti: str | None = None,
+        access_exp: float | None = None,
+        refresh_exp: float | None = None,
+    ) -> None:
+        from app.core.config import settings
+
+        access_ttl = self._calc_remaining_ttl(access_exp, settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+        await self.blacklist.revoke_token(access_token_jti, access_ttl)
 
         if refresh_token_jti:
-            await self.blacklist.revoke_token(refresh_token_jti, self._refresh_token_remaining_ttl())
+            refresh_ttl = self._calc_remaining_ttl(refresh_exp, settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400)
+            await self.blacklist.revoke_token(refresh_token_jti, refresh_ttl)
 
         logger.info("user_logged_out", user_id=user_id)
 
-    def _access_token_remaining_ttl(self) -> int:
-        from app.core.config import settings
-
-        return settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-
-    def _refresh_token_remaining_ttl(self) -> int:
-        from app.core.config import settings
-
-        return settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
+    def _calc_remaining_ttl(self, exp: float | None, default_seconds: int) -> int:
+        if exp:
+            remaining = int(exp - datetime.now(UTC).timestamp())
+            return max(remaining, 0)
+        return default_seconds
 
     async def _check_lockout(self, user_id: str) -> None:
         lock_key = f"login_lock:{user_id}"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime  # noqa: TC003
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
@@ -11,8 +12,6 @@ from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 from app.models.enums import UserRole
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from app.models.tenant import Tenant
 
 
