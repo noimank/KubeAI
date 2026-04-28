@@ -6,3 +6,8 @@ class UserRole(enum.StrEnum):
     MLOPS = "mlops"
     ENGINEER = "engineer"
     ANNOTATOR = "annotator"
+
+
+class TenantStatus(enum.StrEnum):
+    ACTIVE = "active"
+    DISABLED = "disabled"

@@ -1,12 +1,19 @@
-import uuid
-from datetime import datetime
+from __future__ import annotations
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+import uuid
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy import Enum as SQLAlchemyEnum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 from app.models.enums import UserRole
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from app.models.tenant import Tenant
 
 
 class User(Base, TimestampMixin, SoftDeleteMixin):
@@ -25,8 +32,15 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         server_default="engineer",
         nullable=False,
     )
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tenants.id"),
+        nullable=True,
+        index=True,
+    )
 
-    def __init__(self, **kwargs):
+    tenant: Mapped[Tenant | None] = relationship(backref="users", lazy="selectin", viewonly=True)
+
+    def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("id", uuid.uuid4())
         kwargs.setdefault("is_active", True)
         kwargs.setdefault("failed_login_attempts", 0)
