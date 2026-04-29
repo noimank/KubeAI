@@ -17,11 +17,13 @@ ALLOWED_NAMESPACES = [
 
 
 def build_tenant_network_policy(namespace: str) -> client.V1NetworkPolicy:
-    ns_selectors = []
+    ns_peers = []
     for ns in [namespace, *ALLOWED_NAMESPACES]:
-        ns_selectors.append(
-            client.V1LabelSelector(
-                match_labels={"kubernetes.io/metadata.name": ns},
+        ns_peers.append(
+            client.V1NetworkPolicyPeer(
+                namespace_selector=client.V1LabelSelector(
+                    match_labels={"kubernetes.io/metadata.name": ns},
+                ),
             )
         )
 
@@ -34,12 +36,12 @@ def build_tenant_network_policy(namespace: str) -> client.V1NetworkPolicy:
             policy_types=["Ingress", "Egress"],
             ingress=[
                 client.V1NetworkPolicyIngressRule(
-                    _from=ns_selectors,
+                    _from=ns_peers,
                 ),
             ],
             egress=[
                 client.V1NetworkPolicyEgressRule(
-                    to=ns_selectors,
+                    to=ns_peers,
                 ),
                 client.V1NetworkPolicyEgressRule(
                     to=[
