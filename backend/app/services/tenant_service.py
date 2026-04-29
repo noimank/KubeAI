@@ -1,9 +1,10 @@
 import logging
+import uuid
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictException, ExternalServiceException
+from app.core.exceptions import ConflictException, ExternalServiceException, NotFoundException
 from app.integrations.k8s.namespace import create_namespace, delete_namespace, make_namespace_name
 from app.integrations.k8s.network_policy import create_tenant_network_policy, delete_network_policy
 from app.integrations.k8s.resource_quota import (
@@ -11,9 +12,10 @@ from app.integrations.k8s.resource_quota import (
     create_resource_quota,
     delete_resource_quota,
 )
+from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.schemas.tenant import TenantCreateRequest
+from app.schemas.tenant import TenantCreateRequest, TenantUpdateRequest
 
 logger = logging.getLogger(__name__)
 
@@ -104,3 +106,80 @@ class TenantService:
                 }
             )
         return items, total
+
+    async def get_tenant(self, tenant_id: uuid.UUID) -> Tenant:
+        result = await self.db.execute(select(Tenant).where(Tenant.id == tenant_id))
+        tenant = result.scalar_one_or_none()
+        if not tenant:
+            raise NotFoundException("租户不存在")
+        return tenant
+
+    async def get_tenant_detail(self, tenant_id: uuid.UUID) -> dict:
+        tenant = await self.get_tenant(tenant_id)
+        member_count_result = await self.db.execute(
+            select(func.count()).select_from(User).where(User.tenant_id == tenant_id)
+        )
+        member_count = member_count_result.scalar_one()
+        return {
+            "id": tenant.id,
+            "name": tenant.name,
+            "display_name": tenant.display_name,
+            "description": tenant.description,
+            "status": tenant.status,
+            "k8s_namespace_name": tenant.k8s_namespace_name,
+            "gpu_limit": tenant.gpu_limit,
+            "cpu_limit": tenant.cpu_limit,
+            "memory_limit": tenant.memory_limit,
+            "storage_limit": tenant.storage_limit,
+            "member_count": member_count,
+            "created_at": tenant.created_at,
+            "updated_at": tenant.updated_at,
+        }
+
+    async def update_tenant(self, tenant_id: uuid.UUID, req: TenantUpdateRequest) -> Tenant:
+        tenant = await self.get_tenant(tenant_id)
+        if req.display_name is not None:
+            tenant.display_name = req.display_name
+        if req.description is not None:
+            tenant.description = req.description
+        await self.db.flush()
+        await self.db.refresh(tenant)
+        return tenant
+        # TODO: 审计日志 — 租户信息更新 (Story 2.5)
+
+    async def toggle_tenant_status(self, tenant_id: uuid.UUID, target_status: TenantStatus) -> Tenant:
+        tenant = await self.get_tenant(tenant_id)
+        if tenant.status == target_status:
+            if target_status == TenantStatus.DISABLED:
+                raise ConflictException("租户已被禁用")
+            raise ConflictException("租户已处于启用状态")
+        tenant.status = target_status
+        await self.db.flush()
+        await self.db.refresh(tenant)
+        return tenant
+        # TODO: 审计日志 — 租户状态变更 (Story 2.5)
+
+    async def delete_tenant(self, tenant_id: uuid.UUID) -> None:
+        tenant = await self.get_tenant(tenant_id)
+        member_count_result = await self.db.execute(
+            select(func.count()).select_from(User).where(User.tenant_id == tenant_id)
+        )
+        member_count = member_count_result.scalar_one()
+        if member_count > 0:
+            raise ConflictException("请先移除租户下的所有成员")
+
+        namespace = tenant.k8s_namespace_name
+        if namespace:
+            for delete_fn, label in [
+                (lambda ns=namespace: delete_resource_quota(ns), "ResourceQuota"),
+                (lambda ns=namespace: delete_network_policy(ns), "NetworkPolicy"),
+                (lambda ns=namespace: delete_namespace(ns), "Namespace"),
+            ]:
+                try:
+                    delete_fn()
+                except Exception:
+                    logger.warning("删除 K8s %s 失败: namespace=%s", label, namespace, exc_info=True)
+
+        await self.db.delete(tenant)
+        await self.db.flush()
+        # TODO: 审计日志 — 租户删除 (Story 2.5)

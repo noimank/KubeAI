@@ -14,7 +14,7 @@ from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.redis import get_redis
 from app.core.security import decode_token
 from app.core.token_blacklist import TokenBlacklistService
-from app.models.enums import UserRole
+from app.models.enums import TenantStatus, UserRole
 from app.models.user import User
 
 security = HTTPBearer()
@@ -62,6 +62,14 @@ async def get_current_user(
         raise UnauthorizedException("用户不存在")
     if not user.is_active:
         raise ForbiddenException("用户已被禁用")
+
+    if user.tenant_id is not None:
+        from app.models.tenant import Tenant
+
+        tenant_result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
+        tenant = tenant_result.scalar_one_or_none()
+        if tenant and tenant.status == TenantStatus.DISABLED:
+            raise ForbiddenException("租户已被禁用，请联系管理员")  # noqa: RUF001
 
     return user
 

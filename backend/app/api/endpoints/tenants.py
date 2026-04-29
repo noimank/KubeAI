@@ -1,11 +1,22 @@
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
+from app.core.exceptions import ConflictException
+from app.models.enums import TenantStatus
+from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
-from app.schemas.tenant import TenantCreateRequest, TenantResponse
+from app.schemas.tenant import (
+    TenantCreateRequest,
+    TenantDetailResponse,
+    TenantResponse,
+    TenantStatusRequest,
+    TenantUpdateRequest,
+)
 from app.services.tenant_service import TenantService
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
@@ -50,3 +61,79 @@ async def list_tenants(
     tenant_list = [TenantResponse(**item) for item in items]
     page_data = PageData(items=tenant_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
+
+
+@router.get("/{tenant_id}", response_model=BaseResponse[TenantDetailResponse])
+async def get_tenant(
+    tenant_id: uuid.UUID,
+    db: DbDep,
+    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[TenantDetailResponse]:
+    service = TenantService(db)
+    detail = await service.get_tenant_detail(tenant_id)
+    return BaseResponse(data=TenantDetailResponse(**detail), message="获取成功")
+
+
+@router.put("/{tenant_id}", response_model=BaseResponse[TenantResponse])
+async def update_tenant(
+    tenant_id: uuid.UUID,
+    req: TenantUpdateRequest,
+    db: DbDep,
+    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[TenantResponse]:
+    service = TenantService(db)
+    tenant = await service.update_tenant(tenant_id, req)
+    member_count = await _get_member_count(db, tenant_id)
+    data = _build_tenant_response(tenant, member_count)
+    return BaseResponse(data=data, message="租户更新成功")
+
+
+@router.patch("/{tenant_id}/status", response_model=BaseResponse[TenantResponse])
+async def toggle_tenant_status(
+    tenant_id: uuid.UUID,
+    req: TenantStatusRequest,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[TenantResponse]:
+    if req.status == TenantStatus.DISABLED and user.tenant_id == tenant_id:
+        raise ConflictException("不能禁用自身所属的租户")
+    service = TenantService(db)
+    tenant = await service.toggle_tenant_status(tenant_id, req.status)
+    member_count = await _get_member_count(db, tenant_id)
+    data = _build_tenant_response(tenant, member_count)
+    status_label = "禁用" if req.status == TenantStatus.DISABLED else "恢复"
+    return BaseResponse(data=data, message=f"租户{status_label}成功")
+
+
+@router.delete("/{tenant_id}", response_model=BaseResponse[None])
+async def delete_tenant(
+    tenant_id: uuid.UUID,
+    db: DbDep,
+    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[None]:
+    service = TenantService(db)
+    await service.delete_tenant(tenant_id)
+    return BaseResponse(message="租户删除成功")
+
+
+async def _get_member_count(db: AsyncSession, tenant_id: uuid.UUID) -> int:
+    result = await db.execute(select(func.count()).select_from(User).where(User.tenant_id == tenant_id))
+    return result.scalar_one()
+
+
+def _build_tenant_response(tenant, member_count: int = 0) -> TenantResponse:
+    return TenantResponse(
+        id=tenant.id,
+        name=tenant.name,
+        display_name=tenant.display_name,
+        description=tenant.description,
+        status=tenant.status,
+        k8s_namespace_name=tenant.k8s_namespace_name,
+        gpu_limit=tenant.gpu_limit,
+        cpu_limit=tenant.cpu_limit,
+        memory_limit=tenant.memory_limit,
+        storage_limit=tenant.storage_limit,
+        member_count=member_count,
+        created_at=tenant.created_at,
+        updated_at=tenant.updated_at,
+    )

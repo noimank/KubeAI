@@ -43,6 +43,16 @@ def admin_headers(client):
     return {"Authorization": f"Bearer {token}"}
 
 
+async def _create_tenant(client: AsyncClient, headers: dict) -> dict:
+    name = _unique("tenant")
+    resp = await client.post(
+        "/api/tenants",
+        json={"name": name, "display_name": f"Tenant {name}"},
+        headers=headers,
+    )
+    return resp.json()["data"]
+
+
 @pytest.mark.asyncio(loop_scope="session")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
 @patch("app.services.tenant_service.create_namespace")
@@ -104,3 +114,336 @@ async def test_list_tenants(mock_build, mock_quota, mock_np, mock_ns, mock_enfor
 async def test_list_tenants_unauthorized(client):
     response = await client.get("/api/tenants")
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_get_tenant_detail(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+    mock_build.return_value = MagicMock()
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    response = await client.get(f"/api/tenants/{tenant_data['id']}", headers=admin_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["id"] == tenant_data["id"]
+    assert body["data"]["name"] == tenant_data["name"]
+    assert "member_count" in body["data"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+async def test_get_tenant_not_found(mock_enforce, client, admin_headers):
+    fake_id = str(uuid.uuid4())
+    response = await client.get(f"/api/tenants/{fake_id}", headers=admin_headers)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_update_tenant(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+    mock_build.return_value = MagicMock()
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    response = await client.put(
+        f"/api/tenants/{tenant_data['id']}",
+        json={"display_name": "Updated Name", "description": "Updated desc"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["display_name"] == "Updated Name"
+    assert body["data"]["description"] == "Updated desc"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+async def test_update_tenant_not_found(mock_enforce, client, admin_headers):
+    fake_id = str(uuid.uuid4())
+    response = await client.put(
+        f"/api/tenants/{fake_id}",
+        json={"display_name": "X"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_disable_tenant(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+    mock_build.return_value = MagicMock()
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    response = await client.patch(
+        f"/api/tenants/{tenant_data['id']}/status",
+        json={"status": "disabled"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["status"] == "disabled"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_enable_tenant(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+    mock_build.return_value = MagicMock()
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    await client.patch(
+        f"/api/tenants/{tenant_data['id']}/status",
+        json={"status": "disabled"},
+        headers=admin_headers,
+    )
+
+    response = await client.patch(
+        f"/api/tenants/{tenant_data['id']}/status",
+        json={"status": "active"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "active"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_disable_already_disabled(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+    mock_build.return_value = MagicMock()
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    await client.patch(
+        f"/api/tenants/{tenant_data['id']}/status",
+        json={"status": "disabled"},
+        headers=admin_headers,
+    )
+
+    response = await client.patch(
+        f"/api/tenants/{tenant_data['id']}/status",
+        json={"status": "disabled"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.delete_namespace")
+@patch("app.services.tenant_service.delete_network_policy")
+@patch("app.services.tenant_service.delete_resource_quota")
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_delete_tenant_no_members(
+    mock_build,
+    mock_create_quota,
+    mock_create_np,
+    mock_create_ns,
+    mock_del_quota,
+    mock_del_np,
+    mock_del_ns,
+    mock_enforce,
+    client,
+    admin_headers,
+):
+    mock_build.return_value = MagicMock()
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    response = await client.delete(f"/api/tenants/{tenant_data['id']}", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+async def test_delete_tenant_not_found(mock_enforce, client, admin_headers):
+    fake_id = str(uuid.uuid4())
+    response = await client.delete(f"/api/tenants/{fake_id}", headers=admin_headers)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_disable_tenant_blocks_login(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client):
+    mock_build.return_value = MagicMock()
+
+    # Create tenant-admin: register, promote, get token
+    username = _unique("user")
+    email = f"{username}@example.com"
+    await client.post(
+        "/api/auth/register",
+        json={"username": username, "email": email, "password": "Passw0rd", "confirm_password": "Passw0rd"},
+    )
+
+    from sqlalchemy import select as sa_select
+
+    from app.core.database import async_session_factory
+    from app.models.enums import UserRole
+    from app.models.user import User
+
+    async with async_session_factory() as db:
+        result = await db.execute(sa_select(User).where(User.username == username))
+        user = result.scalar_one()
+        user.role = UserRole.ADMIN
+        await db.commit()
+        user_id = user.id
+
+    resp = await client.post("/api/auth/login", json={"username": username, "password": "Passw0rd"})
+    admin_token = resp.json()["data"]["access_token"]
+    admin_hdrs = {"Authorization": f"Bearer {admin_token}"}
+
+    # Create tenant and assign user
+    tenant_name = _unique("tenant")
+    tenant_resp = await client.post(
+        "/api/tenants",
+        json={"name": tenant_name, "display_name": f"Tenant {tenant_name}"},
+        headers=admin_hdrs,
+    )
+    tenant_id = tenant_resp.json()["data"]["id"]
+
+    async with async_session_factory() as db:
+        result = await db.execute(sa_select(User).where(User.id == user_id))
+        user = result.scalar_one()
+        user.tenant_id = uuid.UUID(tenant_id)
+        await db.commit()
+
+    # Disable tenant using a super-admin (no tenant_id)
+    super_username = _unique("superadmin")
+    super_email = f"{super_username}@example.com"
+    await client.post(
+        "/api/auth/register",
+        json={"username": super_username, "email": super_email, "password": "Passw0rd", "confirm_password": "Passw0rd"},
+    )
+    async with async_session_factory() as db:
+        result = await db.execute(sa_select(User).where(User.username == super_username))
+        super_user = result.scalar_one()
+        super_user.role = UserRole.ADMIN
+        await db.commit()
+    super_resp = await client.post("/api/auth/login", json={"username": super_username, "password": "Passw0rd"})
+    super_hdrs = {"Authorization": f"Bearer {super_resp.json()['data']['access_token']}"}
+
+    await client.patch(
+        f"/api/tenants/{tenant_id}/status",
+        json={"status": "disabled"},
+        headers=super_hdrs,
+    )
+
+    # Verify tenant user is now blocked
+    response = await client.get("/api/tenants", headers=admin_hdrs)
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_delete_tenant_with_members(
+    mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers
+):
+    mock_build.return_value = MagicMock()
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    # Create a user and assign to tenant
+    username = _unique("member")
+    email = f"{username}@example.com"
+    await client.post(
+        "/api/auth/register",
+        json={"username": username, "email": email, "password": "Passw0rd", "confirm_password": "Passw0rd"},
+    )
+    from sqlalchemy import select as sa_select
+
+    from app.core.database import async_session_factory
+    from app.models.user import User
+
+    async with async_session_factory() as db:
+        result = await db.execute(sa_select(User).where(User.username == username))
+        member = result.scalar_one()
+        member.tenant_id = uuid.UUID(tenant_data["id"])
+        await db.commit()
+
+    response = await client.delete(f"/api/tenants/{tenant_data['id']}", headers=admin_headers)
+    assert response.status_code == 409
+    assert "请先移除" in response.json()["message"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_disable_self_tenant_forbidden(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client):
+    mock_build.return_value = MagicMock()
+
+    # Create admin with tenant
+    username = _unique("admin")
+    email = f"{username}@example.com"
+    await client.post(
+        "/api/auth/register",
+        json={"username": username, "email": email, "password": "Passw0rd", "confirm_password": "Passw0rd"},
+    )
+    from sqlalchemy import select as sa_select
+
+    from app.core.database import async_session_factory
+    from app.models.enums import UserRole
+    from app.models.user import User
+
+    async with async_session_factory() as db:
+        result = await db.execute(sa_select(User).where(User.username == username))
+        user = result.scalar_one()
+        user.role = UserRole.ADMIN
+        await db.commit()
+        user_id = user.id
+
+    resp = await client.post("/api/auth/login", json={"username": username, "password": "Passw0rd"})
+    admin_hdrs = {"Authorization": f"Bearer {resp.json()['data']['access_token']}"}
+
+    tenant_name = _unique("tenant")
+    tenant_resp = await client.post(
+        "/api/tenants",
+        json={"name": tenant_name, "display_name": f"Tenant {tenant_name}"},
+        headers=admin_hdrs,
+    )
+    tenant_id = tenant_resp.json()["data"]["id"]
+
+    async with async_session_factory() as db:
+        result = await db.execute(sa_select(User).where(User.id == user_id))
+        user = result.scalar_one()
+        user.tenant_id = uuid.UUID(tenant_id)
+        await db.commit()
+
+    # Try to disable own tenant
+    response = await client.patch(
+        f"/api/tenants/{tenant_id}/status",
+        json={"status": "disabled"},
+        headers=admin_hdrs,
+    )
+    assert response.status_code == 409

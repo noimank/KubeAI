@@ -19,3 +19,8 @@ export interface TenantCreateRequest {
   displayName: string
   description?: string
 }
+
+export interface TenantUpdateRequest {
+  displayName?: string
+  description?: string
+}

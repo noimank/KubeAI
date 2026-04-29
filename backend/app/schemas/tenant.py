@@ -12,6 +12,15 @@ class TenantCreateRequest(BaseModel):
     description: str | None = None
 
 
+class TenantUpdateRequest(BaseModel):
+    display_name: str | None = Field(None, min_length=1, max_length=200)
+    description: str | None = None
+
+
+class TenantStatusRequest(BaseModel):
+    status: TenantStatus
+
+
 class TenantResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -26,3 +35,7 @@ class TenantResponse(BaseModel):
     member_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+class TenantDetailResponse(TenantResponse):
+    pass
