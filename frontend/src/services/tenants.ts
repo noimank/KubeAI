@@ -6,6 +6,10 @@ import type {
   TenantQuotaUpdateRequest,
   TenantUpdateRequest,
   QuotaUsage,
+  Invitation,
+  InvitationCreateRequest,
+  TenantMember,
+  UpdateMemberRoleRequest,
 } from '@/types/tenant'
 
 export async function getTenants(
@@ -59,5 +63,54 @@ export async function updateTenantQuota(
 
 export async function getTenantQuotaUsage(id: string): Promise<BaseResponse<QuotaUsage>> {
   const res = await api.get<BaseResponse<QuotaUsage>>(`/tenants/${id}/quota-usage`)
+  return res.data
+}
+
+// --- Invitation ---
+
+export async function createInvitation(
+  tenantId: string,
+  data: InvitationCreateRequest,
+): Promise<BaseResponse<Invitation>> {
+  const res = await api.post<BaseResponse<Invitation>>(`/tenants/${tenantId}/invitations`, data)
+  return res.data
+}
+
+export async function listInvitations(tenantId: string): Promise<BaseResponse<Invitation[]>> {
+  const res = await api.get<BaseResponse<Invitation[]>>(`/tenants/${tenantId}/invitations`)
+  return res.data
+}
+
+export async function cancelInvitation(
+  tenantId: string,
+  invitationId: string,
+): Promise<BaseResponse<null>> {
+  const res = await api.delete<BaseResponse<null>>(
+    `/tenants/${tenantId}/invitations/${invitationId}`,
+  )
+  return res.data
+}
+
+// --- Members ---
+
+export async function listMembers(tenantId: string): Promise<BaseResponse<TenantMember[]>> {
+  const res = await api.get<BaseResponse<TenantMember[]>>(`/tenants/${tenantId}/members`)
+  return res.data
+}
+
+export async function updateMemberRole(
+  tenantId: string,
+  userId: string,
+  data: UpdateMemberRoleRequest,
+): Promise<BaseResponse<TenantMember>> {
+  const res = await api.patch<BaseResponse<TenantMember>>(
+    `/tenants/${tenantId}/members/${userId}/role`,
+    data,
+  )
+  return res.data
+}
+
+export async function removeMember(tenantId: string, userId: string): Promise<BaseResponse<null>> {
+  const res = await api.delete<BaseResponse<null>>(`/tenants/${tenantId}/members/${userId}`)
   return res.data
 }

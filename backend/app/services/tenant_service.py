@@ -21,7 +21,7 @@ from app.integrations.k8s.resource_quota import (
     get_quota_used,
     update_resource_quota,
 )
-from app.models.enums import TenantStatus
+from app.models.enums import TenantStatus, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.tenant import TenantCreateRequest, TenantQuotaUpdateRequest, TenantUpdateRequest
@@ -266,3 +266,59 @@ class TenantService:
         except Exception as e:
             logger.warning("获取配额使用量失败: %s", e, exc_info=True)
             raise ExternalServiceException(f"无法获取配额使用量: {e}") from e
+
+    # --- Member Management ---
+
+    async def list_members(self, tenant_id: uuid.UUID) -> list[dict]:
+        await self.get_tenant(tenant_id)
+        result = await self.db.execute(
+            select(User).where(User.tenant_id == tenant_id, User.deleted_at.is_(None)).order_by(User.created_at.asc())
+        )
+        users = result.scalars().all()
+        return [
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+                "is_active": user.is_active,
+                "joined_at": user.created_at,
+            }
+            for user in users
+        ]
+
+    async def update_member_role(
+        self, tenant_id: uuid.UUID, user_id: uuid.UUID, new_role: UserRole, current_user_id: uuid.UUID
+    ) -> User:
+        if user_id == current_user_id:
+            raise BadRequestException("不能修改自己的角色")
+        if new_role == UserRole.ADMIN:
+            raise BadRequestException("不能将成员角色设为管理员")
+
+        result = await self.db.execute(
+            select(User).where(User.id == user_id, User.tenant_id == tenant_id, User.deleted_at.is_(None))
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise NotFoundException("该用户不属于此租户")
+
+        user.role = new_role
+        await self.db.flush()
+        await self.db.refresh(user)
+        return user
+        # TODO: 审计日志 — 成员角色变更 (Story 2.5)
+
+    async def remove_member(self, tenant_id: uuid.UUID, user_id: uuid.UUID, current_user_id: uuid.UUID) -> None:
+        if user_id == current_user_id:
+            raise BadRequestException("不能移除自己")
+
+        result = await self.db.execute(
+            select(User).where(User.id == user_id, User.tenant_id == tenant_id, User.deleted_at.is_(None))
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise NotFoundException("该用户不属于此租户")
+
+        user.tenant_id = None
+        await self.db.flush()
+        # TODO: 审计日志 — 成员移除 (Story 2.5)

@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
-from app.models.enums import TenantStatus
+from app.models.enums import InvitationStatus, TenantStatus, UserRole
 
 
 class TenantCreateRequest(BaseModel):
@@ -54,3 +54,54 @@ class QuotaUsageResponse(BaseModel):
 
 class TenantDetailResponse(TenantResponse):
     pass
+
+
+# --- Invitation Schemas ---
+
+
+class InviteMemberRequest(BaseModel):
+    email: EmailStr
+    role: UserRole = Field(..., description="仅限 engineer/mlops/annotator")
+
+
+class InvitationResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    email: str
+    role: UserRole
+    token: str
+    status: InvitationStatus
+    invited_by: uuid.UUID
+    expires_at: datetime
+    created_at: datetime
+
+
+class AcceptInvitationRequest(BaseModel):
+    token: str = Field(..., min_length=1)
+    username: str | None = Field(None, min_length=1, max_length=50)
+    password: str | None = Field(None, min_length=8)
+    confirm_password: str | None = None
+    force: bool = False
+
+
+class InvitationInfoResponse(BaseModel):
+    tenant_name: str
+    tenant_display_name: str
+    email: str
+    role: UserRole
+
+
+# --- Member Schemas ---
+
+
+class TenantMemberResponse(BaseModel):
+    id: uuid.UUID
+    username: str
+    email: str
+    role: UserRole
+    is_active: bool
+    joined_at: datetime
+
+
+class UpdateMemberRoleRequest(BaseModel):
+    role: UserRole = Field(..., description="仅限 engineer/mlops/annotator")

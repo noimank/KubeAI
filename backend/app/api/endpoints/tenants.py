@@ -11,14 +11,19 @@ from app.models.enums import TenantStatus
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.tenant import (
+    InvitationResponse,
+    InviteMemberRequest,
     QuotaUsageResponse,
     TenantCreateRequest,
     TenantDetailResponse,
+    TenantMemberResponse,
     TenantQuotaUpdateRequest,
     TenantResponse,
     TenantStatusRequest,
     TenantUpdateRequest,
+    UpdateMemberRoleRequest,
 )
+from app.services.invitation_service import InvitationService
 from app.services.tenant_service import TenantService
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
@@ -164,3 +169,114 @@ def _build_tenant_response(tenant, member_count: int = 0) -> TenantResponse:
         created_at=tenant.created_at,
         updated_at=tenant.updated_at,
     )
+
+
+# --- Invitation Endpoints ---
+
+
+@router.post("/{tenant_id}/invitations", response_model=BaseResponse[InvitationResponse])
+async def create_invitation(
+    tenant_id: uuid.UUID,
+    req: InviteMemberRequest,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[InvitationResponse]:
+    service = InvitationService(db)
+    invitation = await service.create_invitation(tenant_id, req, user.id)
+    data = InvitationResponse(
+        id=invitation.id,
+        tenant_id=invitation.tenant_id,
+        email=invitation.email,
+        role=invitation.role,
+        token=invitation.token,
+        status=invitation.status,
+        invited_by=invitation.invited_by,
+        expires_at=invitation.expires_at,
+        created_at=invitation.created_at,
+    )
+    return BaseResponse(data=data, message="邀请创建成功")
+
+
+@router.get("/{tenant_id}/invitations", response_model=BaseResponse[list[InvitationResponse]])
+async def list_invitations(
+    tenant_id: uuid.UUID,
+    db: DbDep,
+    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[list[InvitationResponse]]:
+    service = InvitationService(db)
+    invitations = await service.list_invitations(tenant_id)
+    data = [
+        InvitationResponse(
+            id=inv.id,
+            tenant_id=inv.tenant_id,
+            email=inv.email,
+            role=inv.role,
+            token=inv.token,
+            status=inv.status,
+            invited_by=inv.invited_by,
+            expires_at=inv.expires_at,
+            created_at=inv.created_at,
+        )
+        for inv in invitations
+    ]
+    return BaseResponse(data=data, message="获取成功")
+
+
+@router.delete("/{tenant_id}/invitations/{invitation_id}", response_model=BaseResponse[None])
+async def cancel_invitation(
+    tenant_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+    db: DbDep,
+    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[None]:
+    service = InvitationService(db)
+    await service.cancel_invitation(invitation_id, tenant_id)
+    return BaseResponse(message="邀请已取消")
+
+
+# --- Member Endpoints ---
+
+
+@router.get("/{tenant_id}/members", response_model=BaseResponse[list[TenantMemberResponse]])
+async def list_members(
+    tenant_id: uuid.UUID,
+    db: DbDep,
+    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[list[TenantMemberResponse]]:
+    service = TenantService(db)
+    members = await service.list_members(tenant_id)
+    data = [TenantMemberResponse(**m) for m in members]
+    return BaseResponse(data=data, message="获取成功")
+
+
+@router.patch("/{tenant_id}/members/{user_id}/role", response_model=BaseResponse[TenantMemberResponse])
+async def update_member_role(
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    req: UpdateMemberRoleRequest,
+    db: DbDep,
+    current_user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[TenantMemberResponse]:
+    service = TenantService(db)
+    user = await service.update_member_role(tenant_id, user_id, req.role, current_user.id)
+    data = TenantMemberResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+        joined_at=user.created_at,
+    )
+    return BaseResponse(data=data, message="角色更新成功")
+
+
+@router.delete("/{tenant_id}/members/{user_id}", response_model=BaseResponse[None])
+async def remove_member(
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: DbDep,
+    current_user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[None]:
+    service = TenantService(db)
+    await service.remove_member(tenant_id, user_id, current_user.id)
+    return BaseResponse(message="成员已移除")

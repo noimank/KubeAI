@@ -25,6 +25,7 @@ const ImagesPage = lazy(() => import('./pages/images'))
 const AnnotationsPage = lazy(() => import('./pages/annotations'))
 const MonitoringPage = lazy(() => import('./pages/monitoring'))
 const ForbiddenPage = lazy(() => import('./pages/403'))
+const InvitePage = lazy(() => import('./pages/invite'))
 const TenantsPage = lazy(() => import('./pages/admin/tenants'))
 const UsersPage = lazy(() => import('./pages/admin/users'))
 const AuditLogsPage = lazy(() => import('./pages/admin/audit-logs'))
@@ -132,6 +133,7 @@ export default function App() {
                 <Route path="/auth/callback" element={<AuthLayout />}>
                   <Route index element={<OAuthCallbackPage />} />
                 </Route>
+                <Route path="/invite" element={<InvitePage />} />
                 <Route path="/" element={<AuthGuard />}>
                   <Route element={<MainLayout />}>
                     <Route index element={<Navigate to="/dashboard" replace />} />

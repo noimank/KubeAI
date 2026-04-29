@@ -6,10 +6,10 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_db
+from app.api.deps import CurrentUser, OptionalCurrentUser, get_db
 from app.core.config import settings
 from app.core.redis import get_redis
-from app.core.security import decode_token
+from app.core.security import decode_token, hash_password
 from app.schemas.auth import (
     LoginRequest,
     LogoutRequest,
@@ -20,7 +20,9 @@ from app.schemas.auth import (
 )
 from app.schemas.base import BaseResponse
 from app.schemas.oauth import OAuthCallbackRequest, OAuthProviderResponse
+from app.schemas.tenant import AcceptInvitationRequest, InvitationInfoResponse
 from app.services.auth_service import AuthService
+from app.services.invitation_service import InvitationService
 from app.services.oauth_service import OAuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -145,3 +147,84 @@ async def oauth_callback(
     service = OAuthService(db, redis)
     token = await service.handle_callback(req.code, req.state, redirect_uri)
     return BaseResponse(data=token, message="登录成功")
+
+
+# --- Invitation Endpoints ---
+
+
+@router.get("/invitation-info", response_model=BaseResponse[InvitationInfoResponse])
+async def invitation_info(
+    token: str,
+    db: DbDep,
+) -> BaseResponse[InvitationInfoResponse]:
+    service = InvitationService(db)
+    info = await service.get_invitation_info(token)
+    data = InvitationInfoResponse(**info)
+    return BaseResponse(data=data, message="获取成功")
+
+
+@router.post("/accept-invitation", response_model=BaseResponse[TokenResponse])
+async def accept_invitation(
+    req: AcceptInvitationRequest,
+    db: DbDep,
+    redis: RedisDep,
+    user: OptionalCurrentUser = None,
+) -> BaseResponse[TokenResponse]:
+    inv_service = InvitationService(db)
+    auth_service = AuthService(db, redis)
+
+    if req.username and req.password:
+        # 场景 A: 新用户注册 + 接受邀请
+        from sqlalchemy import select
+
+        from app.core.exceptions import ConflictException
+        from app.models.user import User as UserModel
+
+        inv_info = await inv_service.get_invitation_info(req.token)
+
+        existing_email = await db.execute(select(UserModel).where(UserModel.email == inv_info["email"]))
+        if existing_email.scalar_one_or_none() is not None:
+            raise ConflictException("该邮箱已注册, 请先登录后接受邀请")
+
+        existing_name = await db.execute(select(UserModel).where(UserModel.username == req.username))
+        if existing_name.scalar_one_or_none() is not None:
+            raise ConflictException("用户名已存在")
+
+        new_user = UserModel(
+            username=req.username,
+            email=inv_info["email"],
+            hashed_password=hash_password(req.password),
+        )
+        db.add(new_user)
+        await db.flush()
+        await db.refresh(new_user)
+
+        await inv_service.accept_invitation(req.token, new_user.id)
+        await db.refresh(new_user)
+
+        tokens = auth_service._generate_tokens(
+            str(new_user.id),
+            str(new_user.tenant_id) if new_user.tenant_id else None,
+        )
+        return BaseResponse(data=tokens, message="注册并加入租户成功")
+    elif user:
+        # 场景 B: 已登录用户接受邀请
+        from app.core.exceptions import BadRequestException, ConflictException
+
+        if user.tenant_id and not req.force:
+            raise ConflictException("您当前已属于一个租户, 接受邀请将转移到新租户, 请确认操作")
+
+        updated_user = await inv_service.accept_invitation(req.token, user.id)
+        if not updated_user:
+            raise BadRequestException("接受邀请失败")
+        await db.refresh(updated_user)
+
+        tokens = auth_service._generate_tokens(
+            str(updated_user.id),
+            str(updated_user.tenant_id) if updated_user.tenant_id else None,
+        )
+        return BaseResponse(data=tokens, message="已加入租户")
+    else:
+        from app.core.exceptions import BadRequestException
+
+        raise BadRequestException("请提供注册信息或先登录")

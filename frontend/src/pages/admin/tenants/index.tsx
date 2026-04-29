@@ -6,6 +6,8 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components'
 import TenantCreateForm from './components/TenantCreateForm'
 import TenantEditForm from './components/TenantEditForm'
 import QuotaEditor from './components/QuotaEditor'
+import MemberList from './components/MemberList'
+import InviteMemberModal from './components/InviteMemberModal'
 import {
   getTenants,
   createTenant,
@@ -33,6 +35,9 @@ export default function TenantsPage() {
   const [deletingTenant, setDeletingTenant] = useState<Tenant | null>(null)
   const [quotaModalOpen, setQuotaModalOpen] = useState(false)
   const [quotaTenant, setQuotaTenant] = useState<Tenant | null>(null)
+  const [memberModalOpen, setMemberModalOpen] = useState(false)
+  const [memberTenant, setMemberTenant] = useState<Tenant | null>(null)
+  const [inviteModalOpen, setInviteModalOpen] = useState(false)
   const actionRef = useRef<ActionType>(null)
 
   const handleCreate = async (values: {
@@ -140,7 +145,7 @@ export default function TenantsPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 200,
+      width: 240,
       render: (_, record) => (
         <Space size="small">
           <Button
@@ -162,6 +167,16 @@ export default function TenantsPage() {
             }}
           >
             配额
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => {
+              setMemberTenant(record)
+              setMemberModalOpen(true)
+            }}
+          >
+            成员
           </Button>
           <Popconfirm
             title={record.status === 'active' ? '确认禁用该租户？' : '确认恢复该租户？'}
@@ -314,6 +329,44 @@ export default function TenantsPage() {
               setQuotaTenant(null)
               actionRef.current?.reload()
             }}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        title={`成员管理 - ${memberTenant?.displayName ?? ''}`}
+        open={memberModalOpen}
+        onCancel={() => {
+          setMemberModalOpen(false)
+          setMemberTenant(null)
+        }}
+        footer={null}
+        destroyOnHidden
+        width={800}
+      >
+        {memberTenant && (
+          <div>
+            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+              <Button type="primary" onClick={() => setInviteModalOpen(true)}>
+                邀请成员
+              </Button>
+            </div>
+            <MemberList tenantId={memberTenant.id} />
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title="邀请成员"
+        open={inviteModalOpen}
+        onCancel={() => setInviteModalOpen(false)}
+        footer={null}
+        destroyOnHidden
+      >
+        {memberTenant && (
+          <InviteMemberModal
+            tenantId={memberTenant.id}
+            onSuccess={() => actionRef.current?.reload()}
           />
         )}
       </Modal>

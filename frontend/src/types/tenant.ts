@@ -39,3 +39,50 @@ export interface QuotaUsage {
   memoryUsed: string
   storageUsed: string
 }
+
+export type InvitationStatus = 'pending' | 'accepted' | 'cancelled' | 'expired'
+
+export interface Invitation {
+  id: string
+  tenantId: string
+  email: string
+  role: string
+  token: string
+  status: InvitationStatus
+  invitedBy: string
+  expiresAt: string
+  createdAt: string
+}
+
+export interface InvitationCreateRequest {
+  email: string
+  role: string
+}
+
+export interface TenantMember {
+  id: string
+  username: string
+  email: string
+  role: string
+  isActive: boolean
+  joinedAt: string
+}
+
+export interface UpdateMemberRoleRequest {
+  role: string
+}
+
+export interface AcceptInvitationRequest {
+  token: string
+  username?: string
+  password?: string
+  confirmPassword?: string
+  force?: boolean
+}
+
+export interface InvitationInfo {
+  tenantName: string
+  tenantDisplayName: string
+  email: string
+  role: string
+}

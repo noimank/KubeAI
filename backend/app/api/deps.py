@@ -74,7 +74,46 @@ async def get_current_user(
     return user
 
 
+async def get_optional_current_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    redis: aioredis.Redis = Depends(get_redis),  # noqa: B008
+) -> User | None:
+    try:
+        from fastapi.security.utils import get_authorization_scheme_param
+
+        auth_header = request.headers.get("Authorization", "")
+        scheme, param = get_authorization_scheme_param(auth_header)
+        if scheme.lower() != "bearer" or not param:
+            return None
+        credentials = HTTPAuthorizationCredentials(scheme=scheme, credentials=param)
+    except Exception:
+        return None
+
+    try:
+        payload = decode_token(credentials.credentials)
+        if payload.get("type") != "access":
+            return None
+        jti = payload.get("jti")
+        if not jti:
+            return None
+        blacklist = TokenBlacklistService(redis)
+        if await blacklist.is_revoked(jti):
+            return None
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user or not user.is_active:
+            return None
+        return user
+    except Exception:
+        return None
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 
 
 async def get_current_tenant_id(request: Request) -> str | None:
