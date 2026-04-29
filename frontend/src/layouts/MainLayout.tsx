@@ -4,6 +4,7 @@ import { buildSidebarMenu } from './components/Sidebar'
 import { Header } from './components/Header'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
 import { useRbacStore } from '@/stores/rbacStore'
+import { useThemeStore } from '@/stores/themeStore'
 
 const NAVIGATE_MAP: Record<string, string> = {
   '/dashboard': '工作台',
@@ -25,8 +26,11 @@ export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const hasPermission = useRbacStore((s) => s.hasPermission)
+  const themeMode = useThemeStore((s) => s.themeMode)
 
   useIdleTimeout()
+
+  const isDark = themeMode === 'dark'
 
   return (
     <ProLayout
@@ -52,8 +56,14 @@ export default function MainLayout() {
       location={{ pathname: location.pathname }}
       breadcrumbRender={(routers = []) => [{ path: '/', breadcrumbName: '首页' }, ...routers]}
       token={{
-        header: { colorBgHeader: '#001529', colorHeaderTitle: '#fff' },
-        sider: { colorMenuBackground: '#001529', colorTextMenu: 'rgba(255,255,255,0.65)' },
+        header: {
+          colorBgHeader: isDark ? '#141414' : '#001529',
+          colorHeaderTitle: '#fff',
+        },
+        sider: {
+          colorMenuBackground: isDark ? '#1f1f1f' : '#001529',
+          colorTextMenu: 'rgba(255,255,255,0.65)',
+        },
       }}
     >
       <Outlet />

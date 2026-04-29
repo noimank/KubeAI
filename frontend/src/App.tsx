@@ -1,4 +1,4 @@
-import { useState, useMemo, lazy, Suspense, useEffect } from 'react'
+import { useMemo, lazy, Suspense, useEffect } from 'react'
 import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -9,8 +9,7 @@ import AuthGuard from './components/AuthGuard'
 import PermissionGuard from './components/PermissionGuard'
 import { setMessageInstance } from './utils/messageHolder'
 import { useAuthStore } from './stores/authStore'
-
-const THEME_KEY = 'kubeai_theme'
+import { useThemeStore } from './stores/themeStore'
 
 const LoginPage = lazy(() => import('./pages/login'))
 const RegisterPage = lazy(() => import('./pages/register'))
@@ -38,12 +37,6 @@ const queryClient = new QueryClient({
   },
 })
 
-function getInitialTheme(): 'light' | 'dark' {
-  const stored = localStorage.getItem(THEME_KEY)
-  if (stored === 'dark' || stored === 'light') return stored
-  return 'light'
-}
-
 function LoadingFallback() {
   return (
     <div
@@ -62,8 +55,13 @@ function MessageHolder() {
   return null
 }
 
+const FONT_FAMILY =
+  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', 'Noto Sans SC', sans-serif"
+const FONT_FAMILY_CODE =
+  "'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace"
+
 export default function App() {
-  const [themeMode] = useState<'light' | 'dark'>(getInitialTheme)
+  const themeMode = useThemeStore((s) => s.themeMode)
   const initializeAuth = useAuthStore((s) => s.initializeAuth)
 
   useEffect(() => {
@@ -75,10 +73,41 @@ export default function App() {
       algorithm: themeMode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
       token: {
         colorPrimary: '#1677FF',
+        colorSuccess: '#52C41A',
+        colorWarning: '#FAAD14',
+        colorError: '#FF4D4F',
+        colorLink: '#1677FF',
+        fontFamily: FONT_FAMILY,
+        fontFamilyCode: FONT_FAMILY_CODE,
         borderRadius: 6,
         fontSize: 14,
+        lineHeight: 1.5714,
+        sizeStep: 4,
+        sizeUnit: 4,
+        wireframe: false,
         colorBgContainer: themeMode === 'dark' ? '#141414' : '#ffffff',
         colorBgLayout: themeMode === 'dark' ? '#000000' : '#f5f5f5',
+      },
+      components: {
+        Button: {
+          primaryShadow: '0 2px 0 rgba(5, 145, 255, 0.1)',
+          defaultBorderColor: '#d9d9d9',
+          dangerColor: '#FF4D4F',
+        },
+        Input: {
+          borderRadius: 6,
+          controlHeight: 32,
+          paddingInline: 12,
+        },
+        Select: {
+          borderRadius: 6,
+          controlHeight: 32,
+          paddingInline: 12,
+        },
+        Table: {
+          borderRadius: 6,
+          cellFontSize: 14,
+        },
       },
       cssVar: true,
     }),
