@@ -18,3 +18,29 @@ class InvitationStatus(enum.StrEnum):
     ACCEPTED = "accepted"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
+
+
+class AuditAction(enum.StrEnum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+    LOGIN = "login"
+    LOGOUT = "logout"
+    REGISTER = "register"
+    ENABLE = "enable"
+    DISABLE = "disable"
+    INVITE = "invite"
+    ACCEPT_INVITE = "accept_invite"
+    CANCEL_INVITE = "cancel_invite"
+    UPDATE_ROLE = "update_role"
+    REMOVE_MEMBER = "remove_member"
+    UPDATE_QUOTA = "update_quota"
+
+
+class ResourceType(enum.StrEnum):
+    TENANT = "tenant"
+    USER = "user"
+    QUOTA = "quota"
+    MEMBERSHIP = "membership"
+    INVITATION = "invitation"
+    CREDENTIAL = "credential"

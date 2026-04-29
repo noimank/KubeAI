@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,16 @@ from app.schemas.tenant import (
 from app.services.invitation_service import InvitationService
 from app.services.tenant_service import TenantService
 
+
+def _audit_ctx(request: Request, user: User) -> dict:
+    return {
+        "user_id": user.id,
+        "ip_address": request.client.host if request.client else "unknown",
+        "user_agent": request.headers.get("user-agent"),
+        "request_id": getattr(request.state, "request_id", None),
+    }
+
+
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
@@ -35,10 +45,11 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
 async def create_tenant(
     req: TenantCreateRequest,
     db: DbDep,
-    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[TenantResponse]:
     service = TenantService(db)
-    tenant = await service.create_tenant(req)
+    tenant = await service.create_tenant(req, audit_context=_audit_ctx(request, user))
     data = TenantResponse(
         id=tenant.id,
         name=tenant.name,
@@ -86,10 +97,11 @@ async def update_tenant(
     tenant_id: uuid.UUID,
     req: TenantUpdateRequest,
     db: DbDep,
-    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[TenantResponse]:
     service = TenantService(db)
-    tenant = await service.update_tenant(tenant_id, req)
+    tenant = await service.update_tenant(tenant_id, req, audit_context=_audit_ctx(request, user))
     member_count = await _get_member_count(db, tenant_id)
     data = _build_tenant_response(tenant, member_count)
     return BaseResponse(data=data, message="租户更新成功")
@@ -100,12 +112,13 @@ async def toggle_tenant_status(
     tenant_id: uuid.UUID,
     req: TenantStatusRequest,
     db: DbDep,
+    request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[TenantResponse]:
     if req.status == TenantStatus.DISABLED and user.tenant_id == tenant_id:
         raise ConflictException("不能禁用自身所属的租户")
     service = TenantService(db)
-    tenant = await service.toggle_tenant_status(tenant_id, req.status)
+    tenant = await service.toggle_tenant_status(tenant_id, req.status, audit_context=_audit_ctx(request, user))
     member_count = await _get_member_count(db, tenant_id)
     data = _build_tenant_response(tenant, member_count)
     status_label = "禁用" if req.status == TenantStatus.DISABLED else "恢复"
@@ -116,10 +129,11 @@ async def toggle_tenant_status(
 async def delete_tenant(
     tenant_id: uuid.UUID,
     db: DbDep,
-    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[None]:
     service = TenantService(db)
-    await service.delete_tenant(tenant_id)
+    await service.delete_tenant(tenant_id, audit_context=_audit_ctx(request, user))
     return BaseResponse(message="租户删除成功")
 
 
@@ -128,10 +142,11 @@ async def update_tenant_quota(
     tenant_id: uuid.UUID,
     req: TenantQuotaUpdateRequest,
     db: DbDep,
-    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[TenantResponse]:
     service = TenantService(db)
-    tenant = await service.update_quota(tenant_id, req)
+    tenant = await service.update_quota(tenant_id, req, audit_context=_audit_ctx(request, user))
     member_count = await _get_member_count(db, tenant_id)
     data = _build_tenant_response(tenant, member_count)
     return BaseResponse(data=data, message="配额更新成功")
@@ -179,10 +194,11 @@ async def create_invitation(
     tenant_id: uuid.UUID,
     req: InviteMemberRequest,
     db: DbDep,
+    request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[InvitationResponse]:
     service = InvitationService(db)
-    invitation = await service.create_invitation(tenant_id, req, user.id)
+    invitation = await service.create_invitation(tenant_id, req, user.id, audit_context=_audit_ctx(request, user))
     data = InvitationResponse(
         id=invitation.id,
         tenant_id=invitation.tenant_id,
@@ -227,10 +243,11 @@ async def cancel_invitation(
     tenant_id: uuid.UUID,
     invitation_id: uuid.UUID,
     db: DbDep,
-    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[None]:
     service = InvitationService(db)
-    await service.cancel_invitation(invitation_id, tenant_id)
+    await service.cancel_invitation(invitation_id, tenant_id, audit_context=_audit_ctx(request, user))
     return BaseResponse(message="邀请已取消")
 
 
@@ -255,10 +272,13 @@ async def update_member_role(
     user_id: uuid.UUID,
     req: UpdateMemberRoleRequest,
     db: DbDep,
+    request: Request,
     current_user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[TenantMemberResponse]:
     service = TenantService(db)
-    user = await service.update_member_role(tenant_id, user_id, req.role, current_user.id)
+    user = await service.update_member_role(
+        tenant_id, user_id, req.role, current_user.id, audit_context=_audit_ctx(request, current_user)
+    )
     data = TenantMemberResponse(
         id=user.id,
         username=user.username,
@@ -275,8 +295,9 @@ async def remove_member(
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     db: DbDep,
+    request: Request,
     current_user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[None]:
     service = TenantService(db)
-    await service.remove_member(tenant_id, user_id, current_user.id)
+    await service.remove_member(tenant_id, user_id, current_user.id, audit_context=_audit_ctx(request, current_user))
     return BaseResponse(message="成员已移除")

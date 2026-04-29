@@ -10,6 +10,7 @@ from app.api.deps import CurrentUser, OptionalCurrentUser, get_db
 from app.core.config import settings
 from app.core.redis import get_redis
 from app.core.security import decode_token, hash_password
+from app.models.enums import AuditAction, ResourceType
 from app.schemas.auth import (
     LoginRequest,
     LogoutRequest,
@@ -21,6 +22,7 @@ from app.schemas.auth import (
 from app.schemas.base import BaseResponse
 from app.schemas.oauth import OAuthCallbackRequest, OAuthProviderResponse
 from app.schemas.tenant import AcceptInvitationRequest, InvitationInfoResponse
+from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.invitation_service import InvitationService
 from app.services.oauth_service import OAuthService
@@ -32,14 +34,23 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
 RedisDep = Annotated[aioredis.Redis, Depends(get_redis)]
 
 
+def _audit_ctx(request: Request) -> dict:
+    return {
+        "ip_address": request.client.host if request.client else "unknown",
+        "user_agent": request.headers.get("user-agent"),
+        "request_id": getattr(request.state, "request_id", None),
+    }
+
+
 @router.post("/register", response_model=BaseResponse[TokenResponse])
 async def register(
     req: RegisterRequest,
     db: DbDep,
     redis: RedisDep,
+    request: Request,
 ) -> BaseResponse[TokenResponse]:
     service = AuthService(db, redis)
-    token = await service.register(req)
+    token = await service.register(req, audit_context=_audit_ctx(request))
     return BaseResponse(data=token, message="注册成功")
 
 
@@ -48,9 +59,10 @@ async def login(
     req: LoginRequest,
     db: DbDep,
     redis: RedisDep,
+    request: Request,
 ) -> BaseResponse[TokenResponse]:
     service = AuthService(db, redis)
-    token = await service.login(req)
+    token = await service.login(req, audit_context=_audit_ctx(request))
     return BaseResponse(data=token, message="登录成功")
 
 
@@ -89,7 +101,9 @@ async def logout(
             pass
 
     service = AuthService(db, redis)
-    await service.logout(str(user.id), access_jti, refresh_jti, access_exp, refresh_exp)
+    await service.logout(
+        str(user.id), access_jti, refresh_jti, access_exp, refresh_exp, audit_context=_audit_ctx(request)
+    )
     return BaseResponse(message="已退出登录")
 
 
@@ -168,10 +182,12 @@ async def accept_invitation(
     req: AcceptInvitationRequest,
     db: DbDep,
     redis: RedisDep,
+    request: Request,
     user: OptionalCurrentUser = None,
 ) -> BaseResponse[TokenResponse]:
     inv_service = InvitationService(db)
     auth_service = AuthService(db, redis)
+    audit_ctx = _audit_ctx(request)
 
     if req.username and req.password:
         # 场景 A: 新用户注册 + 接受邀请
@@ -202,6 +218,16 @@ async def accept_invitation(
         await inv_service.accept_invitation(req.token, new_user.id)
         await db.refresh(new_user)
 
+        audit_svc = AuditService(db)
+        await audit_svc.log_action(
+            action=AuditAction.ACCEPT_INVITE,
+            resource_type=ResourceType.INVITATION,
+            detail={"email": inv_info["email"], "role": inv_info["role"].value},
+            user_id=new_user.id,
+            tenant_id=new_user.tenant_id,
+            **audit_ctx,
+        )
+
         tokens = auth_service._generate_tokens(
             str(new_user.id),
             str(new_user.tenant_id) if new_user.tenant_id else None,
@@ -218,6 +244,16 @@ async def accept_invitation(
         if not updated_user:
             raise BadRequestException("接受邀请失败")
         await db.refresh(updated_user)
+
+        audit_svc = AuditService(db)
+        await audit_svc.log_action(
+            action=AuditAction.ACCEPT_INVITE,
+            resource_type=ResourceType.INVITATION,
+            detail={"email": updated_user.email},
+            user_id=updated_user.id,
+            tenant_id=updated_user.tenant_id,
+            **audit_ctx,
+        )
 
         tokens = auth_service._generate_tokens(
             str(updated_user.id),

@@ -6,11 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
-from app.models.enums import InvitationStatus, UserRole
+from app.models.enums import AuditAction, InvitationStatus, ResourceType, UserRole
 from app.models.invitation import TenantInvitation
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.tenant import InviteMemberRequest
+from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class InvitationService:
         self.db = db
 
     async def create_invitation(
-        self, tenant_id: uuid.UUID, req: InviteMemberRequest, inviter_id: uuid.UUID
+        self, tenant_id: uuid.UUID, req: InviteMemberRequest, inviter_id: uuid.UUID, audit_context: dict | None = None
     ) -> TenantInvitation:
         if req.role in _ADMIN_ROLES:
             raise BadRequestException("不能邀请管理员角色")
@@ -59,8 +60,19 @@ class InvitationService:
         self.db.add(invitation)
         await self.db.flush()
         await self.db.refresh(invitation)
+
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.INVITE,
+                resource_type=ResourceType.INVITATION,
+                resource_id=str(invitation.id),
+                detail={"email": req.email, "role": req.role.value},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
         return invitation
-        # TODO: 审计日志 — 创建邀请 (Story 2.5)
 
     async def list_invitations(self, tenant_id: uuid.UUID) -> list[TenantInvitation]:
         result = await self.db.execute(
@@ -73,7 +85,9 @@ class InvitationService:
         )
         return list(result.scalars().all())
 
-    async def cancel_invitation(self, invitation_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    async def cancel_invitation(
+        self, invitation_id: uuid.UUID, tenant_id: uuid.UUID, audit_context: dict | None = None
+    ) -> None:
         result = await self.db.execute(
             select(TenantInvitation).where(
                 TenantInvitation.id == invitation_id,
@@ -87,7 +101,17 @@ class InvitationService:
             raise BadRequestException("只能取消待处理的邀请")
         invitation.status = InvitationStatus.CANCELLED
         await self.db.flush()
-        # TODO: 审计日志 — 取消邀请 (Story 2.5)
+
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.CANCEL_INVITE,
+                resource_type=ResourceType.INVITATION,
+                resource_id=str(invitation.id),
+                detail={"email": invitation.email, "role": invitation.role.value},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
 
     async def get_invitation_by_token(self, token: str) -> TenantInvitation | None:
         result = await self.db.execute(select(TenantInvitation).where(TenantInvitation.token == token))

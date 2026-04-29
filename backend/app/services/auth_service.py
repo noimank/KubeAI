@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
@@ -14,8 +15,10 @@ from app.core.security import (
     verify_password,
 )
 from app.core.token_blacklist import TokenBlacklistService
+from app.models.enums import AuditAction, ResourceType
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
+from app.services.audit_service import AuditService
 
 logger = structlog.get_logger()
 
@@ -30,7 +33,7 @@ class AuthService:
         self.redis = redis
         self.blacklist = TokenBlacklistService(redis)
 
-    async def register(self, req: RegisterRequest) -> TokenResponse:
+    async def register(self, req: RegisterRequest, audit_context: dict | None = None) -> TokenResponse:
         existing = await self.db.execute(select(User).where(User.username == req.username))
         if existing.scalar_one_or_none() is not None:
             raise ConflictException("用户名已存在")
@@ -47,22 +50,63 @@ class AuthService:
         self.db.add(user)
         await self.db.flush()
 
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.REGISTER,
+                resource_type=ResourceType.USER,
+                resource_id=str(user.id),
+                detail={"username": user.username, "email": user.email},
+                user_id=user.id,
+                **audit_context,
+            )
+
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
-    async def login(self, req: LoginRequest) -> TokenResponse:
+    async def login(self, req: LoginRequest, audit_context: dict | None = None) -> TokenResponse:
         result = await self.db.execute(select(User).where(User.username == req.username))
         user = result.scalar_one_or_none()
 
         if user is None:
+            if audit_context:
+                audit_svc = AuditService(self.db)
+                await audit_svc.log_action(
+                    action=AuditAction.LOGIN,
+                    resource_type=ResourceType.USER,
+                    detail={"success": False, "reason": "user_not_found", "username": req.username},
+                    **audit_context,
+                )
             raise UnauthorizedException("用户名或密码错误")
 
         await self._check_lockout(str(user.id))
 
         if not verify_password(req.password, user.hashed_password):
+            if audit_context:
+                audit_svc = AuditService(self.db)
+                await audit_svc.log_action(
+                    action=AuditAction.LOGIN,
+                    resource_type=ResourceType.USER,
+                    resource_id=str(user.id),
+                    detail={"success": False, "reason": "invalid_credentials"},
+                    user_id=user.id,
+                    **audit_context,
+                )
             await self._increment_failed_attempts(str(user.id))
             raise UnauthorizedException("用户名或密码错误")
 
         await self._reset_failed_attempts(str(user.id))
+
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.LOGIN,
+                resource_type=ResourceType.USER,
+                resource_id=str(user.id),
+                detail={"success": True},
+                user_id=user.id,
+                **audit_context,
+            )
+
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
     async def refresh_tokens(self, refresh_token: str) -> TokenResponse:
@@ -107,6 +151,7 @@ class AuthService:
         refresh_token_jti: str | None = None,
         access_exp: float | None = None,
         refresh_exp: float | None = None,
+        audit_context: dict | None = None,
     ) -> None:
         from app.core.config import settings
 
@@ -116,6 +161,16 @@ class AuthService:
         if refresh_token_jti:
             refresh_ttl = self._calc_remaining_ttl(refresh_exp, settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400)
             await self.blacklist.revoke_token(refresh_token_jti, refresh_ttl)
+
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.LOGOUT,
+                resource_type=ResourceType.USER,
+                resource_id=user_id,
+                user_id=uuid.UUID(user_id) if user_id else None,
+                **audit_context,
+            )
 
         logger.info("user_logged_out", user_id=user_id)
 

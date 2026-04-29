@@ -21,10 +21,11 @@ from app.integrations.k8s.resource_quota import (
     get_quota_used,
     update_resource_quota,
 )
-from app.models.enums import TenantStatus, UserRole
+from app.models.enums import AuditAction, ResourceType, TenantStatus, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.tenant import TenantCreateRequest, TenantQuotaUpdateRequest, TenantUpdateRequest
+from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class TenantService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_tenant(self, req: TenantCreateRequest) -> Tenant:
+    async def create_tenant(self, req: TenantCreateRequest, audit_context: dict | None = None) -> Tenant:
         existing = await self.db.execute(select(Tenant).where(Tenant.name == req.name))
         if existing.scalar_one_or_none() is not None:
             raise ConflictException("租户名称已存在")
@@ -72,6 +73,18 @@ class TenantService:
         tenant.k8s_namespace_name = namespace
         await self.db.flush()
         await self.db.refresh(tenant)
+
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.CREATE,
+                resource_type=ResourceType.TENANT,
+                resource_id=str(tenant.id),
+                detail={"name": tenant.name, "display_name": tenant.display_name, "description": tenant.description},
+                tenant_id=tenant.id,
+                **audit_context,
+            )
+
         return tenant
 
     async def list_tenants(self, page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
@@ -145,30 +158,63 @@ class TenantService:
             "updated_at": tenant.updated_at,
         }
 
-    async def update_tenant(self, tenant_id: uuid.UUID, req: TenantUpdateRequest) -> Tenant:
+    async def update_tenant(
+        self, tenant_id: uuid.UUID, req: TenantUpdateRequest, audit_context: dict | None = None
+    ) -> Tenant:
         tenant = await self.get_tenant(tenant_id)
+        old_display_name = tenant.display_name
+        old_description = tenant.description
         if req.display_name is not None:
             tenant.display_name = req.display_name
         if req.description is not None:
             tenant.description = req.description
         await self.db.flush()
         await self.db.refresh(tenant)
-        return tenant
-        # TODO: 审计日志 — 租户信息更新 (Story 2.5)
 
-    async def toggle_tenant_status(self, tenant_id: uuid.UUID, target_status: TenantStatus) -> Tenant:
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.UPDATE,
+                resource_type=ResourceType.TENANT,
+                resource_id=str(tenant.id),
+                detail={
+                    "old": {"display_name": old_display_name, "description": old_description},
+                    "new": {"display_name": tenant.display_name, "description": tenant.description},
+                },
+                tenant_id=tenant.id,
+                **audit_context,
+            )
+
+        return tenant
+
+    async def toggle_tenant_status(
+        self, tenant_id: uuid.UUID, target_status: TenantStatus, audit_context: dict | None = None
+    ) -> Tenant:
         tenant = await self.get_tenant(tenant_id)
         if tenant.status == target_status:
             if target_status == TenantStatus.DISABLED:
                 raise ConflictException("租户已被禁用")
             raise ConflictException("租户已处于启用状态")
+        old_status = tenant.status
         tenant.status = target_status
         await self.db.flush()
         await self.db.refresh(tenant)
-        return tenant
-        # TODO: 审计日志 — 租户状态变更 (Story 2.5)
 
-    async def delete_tenant(self, tenant_id: uuid.UUID) -> None:
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            action = AuditAction.ENABLE if target_status == TenantStatus.ACTIVE else AuditAction.DISABLE
+            await audit_svc.log_action(
+                action=action,
+                resource_type=ResourceType.TENANT,
+                resource_id=str(tenant.id),
+                detail={"old_status": old_status.value, "new_status": target_status.value},
+                tenant_id=tenant.id,
+                **audit_context,
+            )
+
+        return tenant
+
+    async def delete_tenant(self, tenant_id: uuid.UUID, audit_context: dict | None = None) -> None:
         tenant = await self.get_tenant(tenant_id)
         member_count_result = await self.db.execute(
             select(func.count()).select_from(User).where(User.tenant_id == tenant_id)
@@ -189,12 +235,29 @@ class TenantService:
                 except Exception:
                     logger.warning("删除 K8s %s 失败: namespace=%s", label, namespace, exc_info=True)
 
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.DELETE,
+                resource_type=ResourceType.TENANT,
+                resource_id=str(tenant.id),
+                detail={"name": tenant.name, "display_name": tenant.display_name},
+                tenant_id=tenant.id,
+                **audit_context,
+            )
+
         await self.db.delete(tenant)
         await self.db.flush()
-        # TODO: 审计日志 — 租户删除 (Story 2.5)
 
-    async def update_quota(self, tenant_id: uuid.UUID, req: TenantQuotaUpdateRequest) -> Tenant:
+    async def update_quota(
+        self, tenant_id: uuid.UUID, req: TenantQuotaUpdateRequest, audit_context: dict | None = None
+    ) -> Tenant:
         tenant = await self.get_tenant(tenant_id)
+
+        old_gpu = tenant.gpu_limit
+        old_cpu = tenant.cpu_limit
+        old_memory = tenant.memory_limit
+        old_storage = tenant.storage_limit
 
         if not tenant.k8s_namespace_name:
             raise BadRequestException("租户尚未完成 K8s 命名空间初始化")
@@ -246,7 +309,25 @@ class TenantService:
             logger.error("同步 K8s ResourceQuota 失败: %s", e, exc_info=True)
             raise ExternalServiceException(f"K8s 配额同步失败: {e}") from e
 
-        # TODO: 审计日志 — 配额调整 (Story 2.5)
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.UPDATE_QUOTA,
+                resource_type=ResourceType.QUOTA,
+                resource_id=str(tenant.id),
+                detail={
+                    "old_quota": {"gpu": old_gpu, "cpu": old_cpu, "memory": old_memory, "storage": old_storage},
+                    "new_quota": {
+                        "gpu": tenant.gpu_limit,
+                        "cpu": tenant.cpu_limit,
+                        "memory": tenant.memory_limit,
+                        "storage": tenant.storage_limit,
+                    },
+                },
+                tenant_id=tenant.id,
+                **audit_context,
+            )
+
         return tenant
 
     async def get_quota_usage(self, tenant_id: uuid.UUID) -> dict:
@@ -288,7 +369,12 @@ class TenantService:
         ]
 
     async def update_member_role(
-        self, tenant_id: uuid.UUID, user_id: uuid.UUID, new_role: UserRole, current_user_id: uuid.UUID
+        self,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        new_role: UserRole,
+        current_user_id: uuid.UUID,
+        audit_context: dict | None = None,
     ) -> User:
         if user_id == current_user_id:
             raise BadRequestException("不能修改自己的角色")
@@ -302,13 +388,27 @@ class TenantService:
         if not user:
             raise NotFoundException("该用户不属于此租户")
 
+        old_role = user.role
         user.role = new_role
         await self.db.flush()
         await self.db.refresh(user)
-        return user
-        # TODO: 审计日志 — 成员角色变更 (Story 2.5)
 
-    async def remove_member(self, tenant_id: uuid.UUID, user_id: uuid.UUID, current_user_id: uuid.UUID) -> None:
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.UPDATE_ROLE,
+                resource_type=ResourceType.MEMBERSHIP,
+                resource_id=str(user.id),
+                detail={"old_role": old_role.value, "new_role": new_role.value},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        return user
+
+    async def remove_member(
+        self, tenant_id: uuid.UUID, user_id: uuid.UUID, current_user_id: uuid.UUID, audit_context: dict | None = None
+    ) -> None:
         if user_id == current_user_id:
             raise BadRequestException("不能移除自己")
 
@@ -321,4 +421,14 @@ class TenantService:
 
         user.tenant_id = None
         await self.db.flush()
-        # TODO: 审计日志 — 成员移除 (Story 2.5)
+
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.REMOVE_MEMBER,
+                resource_type=ResourceType.MEMBERSHIP,
+                resource_id=str(user.id),
+                detail={"username": user.username, "email": user.email},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
