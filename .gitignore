@@ -16,7 +16,7 @@ backend/.env
 .idea
 .claude
 .vscode
-
+data
 # BMAD
 _bmad
 _bmad-output
