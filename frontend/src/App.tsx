@@ -27,6 +27,7 @@ const MonitoringPage = lazy(() => import('./pages/monitoring'))
 const ForbiddenPage = lazy(() => import('./pages/403'))
 const InvitePage = lazy(() => import('./pages/invite'))
 const TenantsPage = lazy(() => import('./pages/admin/tenants'))
+const TenantDetailPage = lazy(() => import('./pages/admin/tenants/detail'))
 const UsersPage = lazy(() => import('./pages/admin/users'))
 const AuditLogsPage = lazy(() => import('./pages/admin/audit-logs'))
 
@@ -215,6 +216,14 @@ export default function App() {
                       element={
                         <PermissionGuard permission="tenants:manage">
                           <TenantsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="admin/tenants/:id"
+                      element={
+                        <PermissionGuard permission="tenants:manage">
+                          <TenantDetailPage />
                         </PermissionGuard>
                       }
                     />

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { Button, Modal, Popconfirm, Space, Tag, message } from 'antd'
+import { Link } from 'react-router-dom'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { ProTable } from '@ant-design/pro-components'
 import type { ActionType, ProColumns } from '@ant-design/pro-components'
@@ -145,9 +146,14 @@ export default function TenantsPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 240,
+      width: 280,
       render: (_, record) => (
         <Space size="small">
+          <Link to={`/admin/tenants/${record.id}`}>
+            <Button type="link" size="small">
+              详情
+            </Button>
+          </Link>
           <Button
             type="link"
             size="small"

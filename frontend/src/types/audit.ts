@@ -32,8 +32,9 @@ export interface AuditLog {
 }
 
 export interface AuditLogQueryParams {
-  action?: AuditAction
-  resourceType?: ResourceType
+  action?: AuditAction[]
+  resourceType?: ResourceType[]
+  username?: string
   userId?: string
   tenantId?: string
   startTime?: string

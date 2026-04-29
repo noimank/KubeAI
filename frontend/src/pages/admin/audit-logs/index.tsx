@@ -185,9 +185,8 @@ export default function AuditLogsPage() {
         const res = await getAuditLogs({
           page: current,
           pageSize,
-          action: Array.isArray(action) && action.length > 0 ? action : undefined,
-          resourceType:
-            Array.isArray(resourceType) && resourceType.length > 0 ? resourceType : undefined,
+          action: action?.length ? action : undefined,
+          resourceType: resourceType?.length ? resourceType : undefined,
           username: username || undefined,
           startTime,
           endTime,
