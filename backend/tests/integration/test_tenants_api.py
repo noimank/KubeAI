@@ -447,3 +447,206 @@ async def test_disable_self_tenant_forbidden(mock_build, mock_quota, mock_np, mo
         headers=admin_hdrs,
     )
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.update_resource_quota")
+@patch("app.services.tenant_service.get_quota_used")
+@patch("app.services.tenant_service.get_cluster_capacity")
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_update_tenant_quota_success(
+    mock_build,
+    mock_create_quota,
+    mock_create_np,
+    mock_create_ns,
+    mock_capacity,
+    mock_used,
+    mock_k8s_update,
+    mock_enforce,
+    client,
+    admin_headers,
+):
+    mock_build.return_value = MagicMock()
+    mock_capacity.return_value = {"gpu": "16", "cpu": "128", "memory": "512GiKi"}
+    mock_used.return_value = {
+        "requests.nvidia.com/gpu": "0",
+        "requests.cpu": "0",
+        "requests.memory": "0",
+        "requests.storage": "0",
+    }
+
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    response = await client.put(
+        f"/api/tenants/{tenant_data['id']}/quota",
+        json={"gpu_limit": 8, "cpu_limit": "32", "memory_limit": "64Gi", "storage_limit": "100Gi"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["gpu_limit"] == 8
+    assert body["data"]["cpu_limit"] == "32"
+    assert body["data"]["memory_limit"] == "64Gi"
+    assert body["data"]["storage_limit"] == "100Gi"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.get_quota_used")
+@patch("app.services.tenant_service.get_cluster_capacity")
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_update_tenant_quota_exceeds_cluster(
+    mock_build,
+    mock_create_quota,
+    mock_create_np,
+    mock_create_ns,
+    mock_capacity,
+    mock_used,
+    mock_enforce,
+    client,
+    admin_headers,
+):
+    mock_build.return_value = MagicMock()
+    mock_capacity.return_value = {"gpu": "4", "cpu": "64", "memory": "256GiKi"}
+
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    response = await client.put(
+        f"/api/tenants/{tenant_data['id']}/quota",
+        json={"gpu_limit": 100, "cpu_limit": "32", "memory_limit": "64Gi", "storage_limit": "100Gi"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422
+    assert "超过集群可用资源" in response.json()["message"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.get_quota_used")
+@patch("app.services.tenant_service.get_cluster_capacity")
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_update_tenant_quota_usage_exceeds(
+    mock_build,
+    mock_create_quota,
+    mock_create_np,
+    mock_create_ns,
+    mock_capacity,
+    mock_used,
+    mock_enforce,
+    client,
+    admin_headers,
+):
+    mock_build.return_value = MagicMock()
+    mock_capacity.return_value = {"gpu": "16", "cpu": "128", "memory": "512GiKi"}
+    mock_used.return_value = {
+        "requests.nvidia.com/gpu": "10",
+        "requests.cpu": "2",
+        "requests.memory": "4Gi",
+        "requests.storage": "10Gi",
+    }
+
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    response = await client.put(
+        f"/api/tenants/{tenant_data['id']}/quota",
+        json={"gpu_limit": 8, "cpu_limit": "32", "memory_limit": "64Gi", "storage_limit": "100Gi"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422
+    assert "使用量" in response.json()["message"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.update_resource_quota")
+@patch("app.services.tenant_service.get_quota_used")
+@patch("app.services.tenant_service.get_cluster_capacity")
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_update_tenant_quota_force(
+    mock_build,
+    mock_create_quota,
+    mock_create_np,
+    mock_create_ns,
+    mock_capacity,
+    mock_used,
+    mock_k8s_update,
+    mock_enforce,
+    client,
+    admin_headers,
+):
+    mock_build.return_value = MagicMock()
+    mock_capacity.return_value = {"gpu": "16", "cpu": "128", "memory": "512GiKi"}
+    mock_used.return_value = {
+        "requests.nvidia.com/gpu": "10",
+        "requests.cpu": "2",
+        "requests.memory": "4Gi",
+        "requests.storage": "10Gi",
+    }
+
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    response = await client.put(
+        f"/api/tenants/{tenant_data['id']}/quota",
+        json={"gpu_limit": 8, "cpu_limit": "32", "memory_limit": "64Gi", "storage_limit": "100Gi", "force": True},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["gpu_limit"] == 8
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.tenant_service.get_quota_used")
+@patch("app.services.tenant_service.create_namespace")
+@patch("app.services.tenant_service.create_resource_quota")
+@patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.build_tenant_resource_quota")
+async def test_get_tenant_quota_usage(
+    mock_build,
+    mock_create_quota,
+    mock_create_np,
+    mock_create_ns,
+    mock_used,
+    mock_enforce,
+    client,
+    admin_headers,
+):
+    mock_build.return_value = MagicMock()
+    mock_used.return_value = {
+        "requests.nvidia.com/gpu": "3",
+        "requests.cpu": "8",
+        "requests.memory": "16Gi",
+        "requests.storage": "50Gi",
+    }
+
+    tenant_data = await _create_tenant(client, admin_headers)
+
+    response = await client.get(f"/api/tenants/{tenant_data['id']}/quota-usage", headers=admin_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["gpu_used"] == 3
+    assert body["data"]["cpu_used"] == "8"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_update_tenant_quota_unauthorized(client):
+    response = await client.put(
+        f"/api/tenants/{uuid.uuid4()}/quota",
+        json={"gpu_limit": 8, "cpu_limit": "32", "memory_limit": "64Gi", "storage_limit": "100Gi"},
+    )
+    assert response.status_code == 401

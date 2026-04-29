@@ -24,3 +24,18 @@ export interface TenantUpdateRequest {
   displayName?: string
   description?: string
 }
+
+export interface TenantQuotaUpdateRequest {
+  gpuLimit: number
+  cpuLimit: string
+  memoryLimit: string
+  storageLimit: string
+  force?: boolean
+}
+
+export interface QuotaUsage {
+  gpuUsed: number
+  cpuUsed: string
+  memoryUsed: string
+  storageUsed: string
+}

@@ -5,6 +5,8 @@ from app.integrations.k8s.resource_quota import (
     build_tenant_resource_quota,
     create_resource_quota,
     delete_resource_quota,
+    get_cluster_capacity,
+    get_quota_used,
     update_resource_quota,
 )
 
@@ -92,3 +94,83 @@ class TestUpdateResourceQuota:
         mock_api.replace_namespaced_resource_quota.assert_called_once()
         assert result.spec.hard["requests.nvidia.com/gpu"] == "8"
         assert result.spec.hard["requests.cpu"] == "32"
+
+
+class TestGetClusterCapacity:
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
+    def test_single_node(self, mock_get_clients):
+        mock_api = MagicMock()
+        node = MagicMock()
+        node.status.allocatable = {"nvidia.com/gpu": "4", "cpu": "32", "memory": "128Gi"}
+        mock_api.list_node.return_value = MagicMock(items=[node])
+        mock_get_clients.return_value = {"core_v1": mock_api}
+
+        result = get_cluster_capacity()
+        assert result["gpu"] == "4"
+        assert result["cpu"] == "32"
+
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
+    def test_multiple_nodes(self, mock_get_clients):
+        mock_api = MagicMock()
+        node1 = MagicMock()
+        node1.status.allocatable = {"nvidia.com/gpu": "4", "cpu": "32", "memory": "64Gi"}
+        node2 = MagicMock()
+        node2.status.allocatable = {"nvidia.com/gpu": "8", "cpu": "64", "memory": "128Gi"}
+        mock_api.list_node.return_value = MagicMock(items=[node1, node2])
+        mock_get_clients.return_value = {"core_v1": mock_api}
+
+        result = get_cluster_capacity()
+        assert result["gpu"] == "12"
+        assert result["cpu"] == "96"
+
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
+    def test_no_gpu(self, mock_get_clients):
+        mock_api = MagicMock()
+        node = MagicMock()
+        node.status.allocatable = {"cpu": "16", "memory": "32Gi"}
+        mock_api.list_node.return_value = MagicMock(items=[node])
+        mock_get_clients.return_value = {"core_v1": mock_api}
+
+        result = get_cluster_capacity()
+        assert result["gpu"] == "0"
+
+
+class TestGetQuotaUsed:
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
+    def test_with_usage(self, mock_get_clients):
+        mock_api = MagicMock()
+        rq = MagicMock()
+        rq.status.used = {
+            "requests.nvidia.com/gpu": "3",
+            "requests.cpu": "8",
+            "requests.memory": "16Gi",
+            "requests.storage": "50Gi",
+        }
+        mock_api.read_namespaced_resource_quota.return_value = rq
+        mock_get_clients.return_value = {"core_v1": mock_api}
+
+        result = get_quota_used("kubeai-test")
+        assert result["requests.nvidia.com/gpu"] == "3"
+        assert result["requests.cpu"] == "8"
+
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
+    def test_not_found(self, mock_get_clients):
+        from kubernetes.client.rest import ApiException
+
+        mock_api = MagicMock()
+        mock_api.read_namespaced_resource_quota.side_effect = ApiException(status=404)
+        mock_get_clients.return_value = {"core_v1": mock_api}
+
+        result = get_quota_used("kubeai-test")
+        assert result["requests.nvidia.com/gpu"] == "0"
+
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
+    def test_no_status(self, mock_get_clients):
+        mock_api = MagicMock()
+        rq = MagicMock()
+        rq.status = None
+        mock_api.read_namespaced_resource_quota.return_value = rq
+        mock_get_clients.return_value = {"core_v1": mock_api}
+
+        result = get_quota_used("kubeai-test")
+        assert result["requests.nvidia.com/gpu"] == "0"

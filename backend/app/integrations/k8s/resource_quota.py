@@ -60,8 +60,15 @@ def update_resource_quota(
     core_v1: client.CoreV1Api = k8s["core_v1"]
 
     quota = build_tenant_resource_quota(gpu_limit, cpu_limit, memory_limit, storage_limit)
-    core_v1.replace_namespaced_resource_quota(name=RESOURCE_QUOTA_NAME, namespace=namespace, body=quota)
-    logger.info("Updated ResourceQuota %s in namespace %s", RESOURCE_QUOTA_NAME, namespace)
+    try:
+        core_v1.replace_namespaced_resource_quota(name=RESOURCE_QUOTA_NAME, namespace=namespace, body=quota)
+        logger.info("Updated ResourceQuota %s in namespace %s", RESOURCE_QUOTA_NAME, namespace)
+    except ApiException as e:
+        if e.status == 404:
+            create_resource_quota(namespace=namespace, quota=quota)
+            logger.info("Created ResourceQuota %s in namespace %s (was missing)", RESOURCE_QUOTA_NAME, namespace)
+        else:
+            raise
     return quota
 
 
@@ -77,3 +84,66 @@ def delete_resource_quota(namespace: str, name: str = RESOURCE_QUOTA_NAME) -> No
         if e.status == 404:
             return
         raise
+
+
+def get_cluster_capacity() -> dict[str, str]:
+    k8s = get_k8s_clients()
+    core_v1: client.CoreV1Api = k8s["core_v1"]
+
+    nodes = core_v1.list_node()
+    total_gpu = 0
+    total_cpu = 0
+    total_memory = 0
+
+    for node in nodes.items:
+        allocatable = node.status.allocatable or {}
+        total_gpu += int(allocatable.get("nvidia.com/gpu", 0))
+        cpu_str = allocatable.get("cpu", "0")
+        total_cpu += _parse_cpu(cpu_str)
+        mem_str = allocatable.get("memory", "0")
+        total_memory += _parse_memory(mem_str)
+
+    return {
+        "gpu": str(total_gpu),
+        "cpu": str(total_cpu),
+        "memory": f"{total_memory}Ki",
+    }
+
+
+def get_quota_used(namespace: str) -> dict[str, str]:
+    k8s = get_k8s_clients()
+    core_v1: client.CoreV1Api = k8s["core_v1"]
+
+    try:
+        rq = core_v1.read_namespaced_resource_quota(name=RESOURCE_QUOTA_NAME, namespace=namespace)
+    except ApiException as e:
+        if e.status == 404:
+            return {
+                "requests.nvidia.com/gpu": "0",
+                "requests.cpu": "0",
+                "requests.memory": "0",
+                "requests.storage": "0",
+            }
+        raise
+
+    used = rq.status.used if rq.status and rq.status.used else {}
+    return {
+        "requests.nvidia.com/gpu": used.get("requests.nvidia.com/gpu", "0"),
+        "requests.cpu": used.get("requests.cpu", "0"),
+        "requests.memory": used.get("requests.memory", "0"),
+        "requests.storage": used.get("requests.storage", "0"),
+    }
+
+
+def _parse_cpu(value: str) -> int:
+    if value.endswith("m"):
+        return int(value[:-1]) // 1000
+    return int(value)
+
+
+def _parse_memory(value: str) -> int:
+    suffixes = {"Ki": 1, "Mi": 1024, "Gi": 1024**2, "Ti": 1024**3}
+    for suffix, multiplier in suffixes.items():
+        if value.endswith(suffix):
+            return int(value[: -len(suffix)]) * multiplier
+    return int(value)

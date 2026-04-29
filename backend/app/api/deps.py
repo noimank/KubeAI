@@ -69,7 +69,7 @@ async def get_current_user(
         tenant_result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
         tenant = tenant_result.scalar_one_or_none()
         if tenant and tenant.status == TenantStatus.DISABLED:
-            raise ForbiddenException("租户已被禁用，请联系管理员")  # noqa: RUF001
+            raise ForbiddenException("租户已被禁用, 请联系管理员")
 
     return user
 

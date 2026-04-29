@@ -4,18 +4,27 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictException, ExternalServiceException, NotFoundException
+from app.core.exceptions import (
+    BadRequestException,
+    ConflictException,
+    ExternalServiceException,
+    NotFoundException,
+    QuotaExceededException,
+)
 from app.integrations.k8s.namespace import create_namespace, delete_namespace, make_namespace_name
 from app.integrations.k8s.network_policy import create_tenant_network_policy, delete_network_policy
 from app.integrations.k8s.resource_quota import (
     build_tenant_resource_quota,
     create_resource_quota,
     delete_resource_quota,
+    get_cluster_capacity,
+    get_quota_used,
+    update_resource_quota,
 )
 from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.schemas.tenant import TenantCreateRequest, TenantUpdateRequest
+from app.schemas.tenant import TenantCreateRequest, TenantQuotaUpdateRequest, TenantUpdateRequest
 
 logger = logging.getLogger(__name__)
 
@@ -183,3 +192,77 @@ class TenantService:
         await self.db.delete(tenant)
         await self.db.flush()
         # TODO: 审计日志 — 租户删除 (Story 2.5)
+
+    async def update_quota(self, tenant_id: uuid.UUID, req: TenantQuotaUpdateRequest) -> Tenant:
+        tenant = await self.get_tenant(tenant_id)
+
+        if not tenant.k8s_namespace_name:
+            raise BadRequestException("租户尚未完成 K8s 命名空间初始化")
+
+        # AC2: 校验不超过集群总量
+        try:
+            capacity = get_cluster_capacity()
+            cluster_gpu = int(capacity["gpu"])
+            if req.gpu_limit > cluster_gpu:
+                raise QuotaExceededException(f"GPU 配额超过集群可用资源(集群总量 {cluster_gpu} 张)")
+        except QuotaExceededException:
+            raise
+        except Exception as e:
+            logger.warning("获取集群容量失败: %s", e, exc_info=True)
+            raise ExternalServiceException(f"无法获取集群资源信息: {e}") from e
+
+        # AC3: 校验使用量不超过新配额
+        if not req.force:
+            try:
+                used = get_quota_used(tenant.k8s_namespace_name)
+                gpu_used = int(used.get("requests.nvidia.com/gpu", "0"))
+                if gpu_used > req.gpu_limit:
+                    raise QuotaExceededException(
+                        f"当前 GPU 使用量为 {gpu_used} 张, 新配额 {req.gpu_limit} 张将低于使用量"
+                    )
+            except QuotaExceededException:
+                raise
+            except Exception as e:
+                logger.warning("获取配额使用量失败: %s", e, exc_info=True)
+
+        # 更新 DB
+        tenant.gpu_limit = req.gpu_limit
+        tenant.cpu_limit = req.cpu_limit
+        tenant.memory_limit = req.memory_limit
+        tenant.storage_limit = req.storage_limit
+        await self.db.flush()
+        await self.db.refresh(tenant)
+
+        # 同步 K8s
+        try:
+            update_resource_quota(
+                namespace=tenant.k8s_namespace_name,
+                gpu_limit=tenant.gpu_limit,
+                cpu_limit=tenant.cpu_limit,
+                memory_limit=tenant.memory_limit,
+                storage_limit=tenant.storage_limit,
+            )
+        except Exception as e:
+            logger.error("同步 K8s ResourceQuota 失败: %s", e, exc_info=True)
+            raise ExternalServiceException(f"K8s 配额同步失败: {e}") from e
+
+        # TODO: 审计日志 — 配额调整 (Story 2.5)
+        return tenant
+
+    async def get_quota_usage(self, tenant_id: uuid.UUID) -> dict:
+        tenant = await self.get_tenant(tenant_id)
+
+        if not tenant.k8s_namespace_name:
+            return {"gpu_used": 0, "cpu_used": "0", "memory_used": "0", "storage_used": "0"}
+
+        try:
+            used = get_quota_used(tenant.k8s_namespace_name)
+            return {
+                "gpu_used": int(used.get("requests.nvidia.com/gpu", "0")),
+                "cpu_used": used.get("requests.cpu", "0"),
+                "memory_used": used.get("requests.memory", "0"),
+                "storage_used": used.get("requests.storage", "0"),
+            }
+        except Exception as e:
+            logger.warning("获取配额使用量失败: %s", e, exc_info=True)
+            raise ExternalServiceException(f"无法获取配额使用量: {e}") from e

@@ -5,6 +5,7 @@ import { ProTable } from '@ant-design/pro-components'
 import type { ActionType, ProColumns } from '@ant-design/pro-components'
 import TenantCreateForm from './components/TenantCreateForm'
 import TenantEditForm from './components/TenantEditForm'
+import QuotaEditor from './components/QuotaEditor'
 import {
   getTenants,
   createTenant,
@@ -30,6 +31,8 @@ export default function TenantsPage() {
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deletingTenant, setDeletingTenant] = useState<Tenant | null>(null)
+  const [quotaModalOpen, setQuotaModalOpen] = useState(false)
+  const [quotaTenant, setQuotaTenant] = useState<Tenant | null>(null)
   const actionRef = useRef<ActionType>(null)
 
   const handleCreate = async (values: {
@@ -149,6 +152,16 @@ export default function TenantsPage() {
             }}
           >
             编辑
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => {
+              setQuotaTenant(record)
+              setQuotaModalOpen(true)
+            }}
+          >
+            配额
           </Button>
           <Popconfirm
             title={record.status === 'active' ? '确认禁用该租户？' : '确认恢复该租户？'}
@@ -280,6 +293,28 @@ export default function TenantsPage() {
           </p>
         ) : (
           <p>该租户下仍有成员，请先移除所有成员后再删除。</p>
+        )}
+      </Modal>
+
+      <Modal
+        title={`配额管理 - ${quotaTenant?.displayName ?? ''}`}
+        open={quotaModalOpen}
+        onCancel={() => {
+          setQuotaModalOpen(false)
+          setQuotaTenant(null)
+        }}
+        footer={null}
+        destroyOnHidden
+      >
+        {quotaTenant && (
+          <QuotaEditor
+            tenant={quotaTenant}
+            onSuccess={() => {
+              setQuotaModalOpen(false)
+              setQuotaTenant(null)
+              actionRef.current?.reload()
+            }}
+          />
         )}
       </Modal>
     </>

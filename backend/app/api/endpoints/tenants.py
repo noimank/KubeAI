@@ -11,8 +11,10 @@ from app.models.enums import TenantStatus
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.tenant import (
+    QuotaUsageResponse,
     TenantCreateRequest,
     TenantDetailResponse,
+    TenantQuotaUpdateRequest,
     TenantResponse,
     TenantStatusRequest,
     TenantUpdateRequest,
@@ -114,6 +116,31 @@ async def delete_tenant(
     service = TenantService(db)
     await service.delete_tenant(tenant_id)
     return BaseResponse(message="租户删除成功")
+
+
+@router.put("/{tenant_id}/quota", response_model=BaseResponse[TenantResponse])
+async def update_tenant_quota(
+    tenant_id: uuid.UUID,
+    req: TenantQuotaUpdateRequest,
+    db: DbDep,
+    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[TenantResponse]:
+    service = TenantService(db)
+    tenant = await service.update_quota(tenant_id, req)
+    member_count = await _get_member_count(db, tenant_id)
+    data = _build_tenant_response(tenant, member_count)
+    return BaseResponse(data=data, message="配额更新成功")
+
+
+@router.get("/{tenant_id}/quota-usage", response_model=BaseResponse[QuotaUsageResponse])
+async def get_tenant_quota_usage(
+    tenant_id: uuid.UUID,
+    db: DbDep,
+    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[QuotaUsageResponse]:
+    service = TenantService(db)
+    usage = await service.get_quota_usage(tenant_id)
+    return BaseResponse(data=QuotaUsageResponse(**usage), message="获取成功")
 
 
 async def _get_member_count(db: AsyncSession, tenant_id: uuid.UUID) -> int:

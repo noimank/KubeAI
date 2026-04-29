@@ -1,6 +1,12 @@
 import { api } from './api'
 import type { BaseResponse, PageResponse } from '@/types/api'
-import type { Tenant, TenantCreateRequest, TenantUpdateRequest } from '@/types/tenant'
+import type {
+  Tenant,
+  TenantCreateRequest,
+  TenantQuotaUpdateRequest,
+  TenantUpdateRequest,
+  QuotaUsage,
+} from '@/types/tenant'
 
 export async function getTenants(
   page: number = 1,
@@ -40,5 +46,18 @@ export async function toggleTenantStatus(
 
 export async function deleteTenant(id: string): Promise<BaseResponse<null>> {
   const res = await api.delete<BaseResponse<null>>(`/tenants/${id}`)
+  return res.data
+}
+
+export async function updateTenantQuota(
+  id: string,
+  data: TenantQuotaUpdateRequest,
+): Promise<BaseResponse<Tenant>> {
+  const res = await api.put<BaseResponse<Tenant>>(`/tenants/${id}/quota`, data)
+  return res.data
+}
+
+export async function getTenantQuotaUsage(id: string): Promise<BaseResponse<QuotaUsage>> {
+  const res = await api.get<BaseResponse<QuotaUsage>>(`/tenants/${id}/quota-usage`)
   return res.data
 }

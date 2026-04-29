@@ -37,5 +37,20 @@ class TenantResponse(BaseModel):
     updated_at: datetime
 
 
+class TenantQuotaUpdateRequest(BaseModel):
+    gpu_limit: int = Field(..., ge=0)
+    cpu_limit: str = Field(..., pattern=r"^\d+(\.\d+)?m?$")
+    memory_limit: str = Field(..., pattern=r"^\d+(\.\d+)?(Ki|Mi|Gi|Ti)?$")
+    storage_limit: str = Field(..., pattern=r"^\d+(\.\d+)?(Ki|Mi|Gi|Ti)?$")
+    force: bool = False
+
+
+class QuotaUsageResponse(BaseModel):
+    gpu_used: int = 0
+    cpu_used: str = "0"
+    memory_used: str = "0"
+    storage_used: str = "0"
+
+
 class TenantDetailResponse(TenantResponse):
     pass
