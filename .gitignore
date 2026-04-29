@@ -11,7 +11,7 @@ wheels/
 backend/.venv
 # Environment files
 .env
-
+backend/.env
 # IDE
 .idea
 .claude

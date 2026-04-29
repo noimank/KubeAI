@@ -2,10 +2,12 @@ from typing import Annotated
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db
+from app.core.config import settings
 from app.core.redis import get_redis
 from app.core.security import decode_token
 from app.schemas.auth import (
@@ -17,7 +19,9 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.schemas.base import BaseResponse
+from app.schemas.oauth import OAuthCallbackRequest, OAuthProviderResponse
 from app.services.auth_service import AuthService
+from app.services.oauth_service import OAuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _bearer = HTTPBearer()
@@ -98,3 +102,46 @@ async def me(user: CurrentUser) -> BaseResponse[UserResponse]:
         tenant_id=str(user.tenant_id) if user.tenant_id else None,
     )
     return BaseResponse(data=user_response, message="获取成功")
+
+
+@router.get("/oauth/providers", response_model=BaseResponse[list[OAuthProviderResponse]])
+async def oauth_providers() -> BaseResponse[list[OAuthProviderResponse]]:
+    providers = []
+    if settings.OIDC_ENABLED:
+        providers.append(OAuthProviderResponse(name="oidc", display_name=settings.OIDC_DISPLAY_NAME))
+    return BaseResponse(data=providers, message="获取成功")
+
+
+@router.get("/oauth/{provider}/authorize")
+async def oauth_authorize(
+    provider: str,
+    redis: RedisDep,
+    db: DbDep,
+) -> RedirectResponse:
+    if not settings.OIDC_ENABLED or provider != "oidc":
+        from app.core.exceptions import NotFoundException
+
+        raise NotFoundException("未知的 OAuth 提供者")
+
+    redirect_uri = f"{settings.FRONTEND_URL}/auth/callback"
+    service = OAuthService(db, redis)
+    url, _ = await service.get_authorization_url(redirect_uri)
+    return RedirectResponse(url=url)
+
+
+@router.post("/oauth/{provider}/callback", response_model=BaseResponse[TokenResponse])
+async def oauth_callback(
+    provider: str,
+    req: OAuthCallbackRequest,
+    db: DbDep,
+    redis: RedisDep,
+) -> BaseResponse[TokenResponse]:
+    if not settings.OIDC_ENABLED or provider != "oidc":
+        from app.core.exceptions import NotFoundException
+
+        raise NotFoundException("未知的 OAuth 提供者")
+
+    redirect_uri = f"{settings.FRONTEND_URL}/auth/callback"
+    service = OAuthService(db, redis)
+    token = await service.handle_callback(req.code, req.state, redirect_uri)
+    return BaseResponse(data=token, message="登录成功")

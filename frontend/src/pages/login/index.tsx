@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate, Link, Navigate, useSearchParams } from 'react-router-dom'
 import { ProForm, ProFormText } from '@ant-design/pro-components'
-import { App, Card, Button } from 'antd'
+import { App, Card, Button, Divider } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { login, getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
+import OAuthButtons from './components/OAuthButtons'
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
@@ -82,6 +83,8 @@ export default function LoginPage() {
           fieldProps={{ prefix: <LockOutlined /> }}
         />
       </ProForm>
+      <Divider>其他登录方式</Divider>
+      <OAuthButtons />
       <div style={{ textAlign: 'center', marginTop: 16 }}>
         <Link to="/register">
           <Button type="link">没有账号？去注册</Button>

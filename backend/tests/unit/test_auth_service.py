@@ -275,3 +275,32 @@ class TestLogout:
 
         await auth_service.logout(user_id, "access-jti", None)
         mock_blacklist.revoke_token.assert_called_once_with("access-jti", 30 * 60)
+
+
+class TestBuiltinAuthUnaffectedByOIDC:
+    async def test_register_still_works(self, auth_service, mock_db):
+        mock_db.execute.side_effect = [_sync_result(None), _sync_result(None)]
+
+        result = await auth_service.register(
+            RegisterRequest(
+                username="oidc_context_user",
+                email="oidc@example.com",
+                password="Passw0rd",
+                confirm_password="Passw0rd",
+            )
+        )
+        assert result.access_token is not None
+        assert result.refresh_token is not None
+
+    async def test_login_still_works(self, auth_service, mock_db, mock_redis):
+        from app.models.user import User
+
+        user = User(username="oidc_context_user", email="test@example.com", hashed_password="$2b$12$fakehash")
+        user.id = uuid.uuid4()
+
+        mock_db.execute.return_value = _sync_result(user)
+        mock_redis.get.return_value = None
+
+        with patch("app.services.auth_service.verify_password", return_value=True):
+            result = await auth_service.login(LoginRequest(username="oidc_context_user", password="Passw0rd"))
+            assert result.access_token is not None

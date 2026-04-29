@@ -25,5 +25,13 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     IDLE_TIMEOUT_MINUTES: int = 30
 
+    OIDC_ENABLED: bool = False
+    OIDC_ISSUER: str = ""
+    OIDC_CLIENT_ID: str = ""
+    OIDC_CLIENT_SECRET: str = ""
+    OIDC_SCOPES: str = "openid profile email"
+    OIDC_DISPLAY_NAME: str = "SSO 登录"
+    FRONTEND_URL: str = "http://localhost:3000"
+
 
 settings = Settings()

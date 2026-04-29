@@ -12,6 +12,7 @@ import { useAuthStore } from './stores/authStore'
 import { useThemeStore } from './stores/themeStore'
 
 const LoginPage = lazy(() => import('./pages/login'))
+const OAuthCallbackPage = lazy(() => import('./pages/login/callback'))
 const RegisterPage = lazy(() => import('./pages/register'))
 const DashboardPage = lazy(() => import('./pages/dashboard'))
 const DatasetsPage = lazy(() => import('./pages/datasets'))
@@ -127,6 +128,9 @@ export default function App() {
                 </Route>
                 <Route path="/register" element={<AuthLayout />}>
                   <Route index element={<RegisterPage />} />
+                </Route>
+                <Route path="/auth/callback" element={<AuthLayout />}>
+                  <Route index element={<OAuthCallbackPage />} />
                 </Route>
                 <Route path="/" element={<AuthGuard />}>
                   <Route element={<MainLayout />}>
