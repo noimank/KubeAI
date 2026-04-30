@@ -122,10 +122,10 @@ export default function InvitePage() {
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '100vh',
-        background: '#f0f2f5',
+        background: 'var(--bg-page)',
       }}
     >
-      <Card style={{ width: 420 }} title="邀请加入租户">
+      <Card style={{ width: 420, borderRadius: 8 }} className="elevated-card" title="邀请加入租户">
         <p style={{ fontSize: 16, marginBottom: 24 }}>
           您被邀请加入租户「<strong>{info.tenantDisplayName}</strong>」作为
           <strong>{ROLE_LABELS[info.role] || info.role}</strong>
@@ -135,7 +135,7 @@ export default function InvitePage() {
           <div>
             {user.tenantId && !needConfirm ? (
               <div>
-                <p style={{ color: '#faad14', marginBottom: 16 }}>
+                <p style={{ color: 'var(--text-warning)', marginBottom: 16 }}>
                   您当前已属于一个租户，接受邀请将转移到新租户。确认继续？
                 </p>
                 <Space>

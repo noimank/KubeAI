@@ -49,7 +49,7 @@ export default function LoginPage() {
   }
 
   return (
-    <Card style={{ width: '100%', maxWidth: 600 }}>
+    <Card style={{ width: '100%', maxWidth: 600, borderRadius: 8 }} className="elevated-card">
       <ProForm<{ username: string; password: string }>
         onFinish={handleSubmit}
         submitter={{

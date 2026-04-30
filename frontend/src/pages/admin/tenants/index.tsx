@@ -248,7 +248,9 @@ export default function TenantsPage() {
         locale={{
           emptyText: (
             <div style={{ padding: '24px 0', textAlign: 'center' }}>
-              <p style={{ color: '#999', marginBottom: 16 }}>还没有租户，创建第一个租户开始吧</p>
+              <p style={{ color: 'var(--text-tertiary)', marginBottom: 16 }}>
+                还没有租户，创建第一个租户开始吧
+              </p>
               <Button
                 type="primary"
                 icon={<PlusOutlined />}

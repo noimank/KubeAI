@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import {
   Breadcrumb,
   Button,
+  Card,
   Col,
   Descriptions,
   Drawer,
@@ -227,7 +228,7 @@ export default function TenantDetailPage() {
   if (!tenant) {
     return (
       <div style={{ textAlign: 'center', padding: 48 }}>
-        <p style={{ color: '#999' }}>租户不存在或已被删除</p>
+        <p style={{ color: 'var(--text-tertiary)' }}>租户不存在或已被删除</p>
         <Link to="/admin/tenants">返回租户列表</Link>
       </div>
     )
@@ -390,39 +391,31 @@ export default function TenantDetailPage() {
 
       <Row gutter={24}>
         <Col span={16}>
-          <Descriptions
-            bordered
-            size="small"
-            column={2}
-            style={{ marginBottom: 24 }}
-            title="基本信息"
-          >
-            <Descriptions.Item label="租户名称">{tenant.name}</Descriptions.Item>
-            <Descriptions.Item label="显示名称">{tenant.displayName}</Descriptions.Item>
-            <Descriptions.Item label="描述" span={2}>
-              {tenant.description || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="K8s Namespace">
-              {tenant.k8sNamespaceName || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="创建时间">{tenant.createdAt}</Descriptions.Item>
-          </Descriptions>
+          <Card size="small" style={{ marginBottom: 24 }}>
+            <Descriptions bordered size="small" column={2} title="基本信息">
+              <Descriptions.Item label="租户名称">{tenant.name}</Descriptions.Item>
+              <Descriptions.Item label="显示名称">{tenant.displayName}</Descriptions.Item>
+              <Descriptions.Item label="描述" span={2}>
+                {tenant.description || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="K8s Namespace">
+                {tenant.k8sNamespaceName || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="创建时间">{tenant.createdAt}</Descriptions.Item>
+            </Descriptions>
+          </Card>
 
-          <div
-            style={{
-              marginBottom: 8,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
+          <Card
+            size="small"
+            title="配额信息"
+            extra={
+              <Button size="small" onClick={() => setQuotaDrawerOpen(true)}>
+                编辑配额
+              </Button>
+            }
+            style={{ marginBottom: 24 }}
           >
-            <h3 style={{ margin: 0 }}>配额信息</h3>
-            <Button size="small" onClick={() => setQuotaDrawerOpen(true)}>
-              编辑配额
-            </Button>
-          </div>
-          {usage && (
-            <div style={{ marginBottom: 24 }}>
+            {usage && (
               <Space direction="vertical" style={{ width: '100%' }} size="middle">
                 <div>
                   <span style={{ display: 'inline-block', width: 80 }}>GPU：</span>
@@ -458,70 +451,68 @@ export default function TenantDetailPage() {
                   </span>
                 </div>
               </Space>
-            </div>
-          )}
+            )}
+          </Card>
         </Col>
 
         <Col span={8}>
-          <div
-            style={{
-              marginBottom: 8,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <h3 style={{ margin: 0 }}>成员管理</h3>
-            <Button
-              size="small"
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setInviteModalOpen(true)}
-            >
-              邀请
-            </Button>
-          </div>
-          <Table
-            columns={memberColumns}
-            dataSource={members}
-            rowKey="id"
-            loading={membersLoading}
-            pagination={false}
+          <Card
             size="small"
-            scroll={{ y: 320 }}
-          />
+            title="成员管理"
+            extra={
+              <Button
+                size="small"
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => setInviteModalOpen(true)}
+              >
+                邀请
+              </Button>
+            }
+          >
+            <Table
+              columns={memberColumns}
+              dataSource={members}
+              rowKey="id"
+              loading={membersLoading}
+              pagination={false}
+              size="small"
+              scroll={{ y: 320 }}
+            />
+          </Card>
         </Col>
       </Row>
 
       <Row style={{ marginTop: 24 }}>
         <Col span={24}>
-          <h3 style={{ marginBottom: 12 }}>审计日志</h3>
-          <ProTable<AuditLog>
-            columns={auditColumns}
-            actionRef={auditActionRef}
-            request={async (params) => {
-              const { current, pageSize, action, resourceType, username, startTime, endTime } =
-                params
-              const res = await getAuditLogs({
-                page: current,
-                pageSize,
-                tenantId: id,
-                action: action?.length ? action : undefined,
-                resourceType: resourceType?.length ? resourceType : undefined,
-                username: username || undefined,
-                startTime,
-                endTime,
-              })
-              return {
-                data: res.data?.items || [],
-                total: res.data?.total || 0,
-                success: res.success,
-              }
-            }}
-            rowKey="id"
-            search={{ filterType: 'light', span: 8 }}
-            pagination={{ defaultPageSize: 10, showSizeChanger: true }}
-          />
+          <Card size="small" title="审计日志">
+            <ProTable<AuditLog>
+              columns={auditColumns}
+              actionRef={auditActionRef}
+              request={async (params) => {
+                const { current, pageSize, action, resourceType, username, startTime, endTime } =
+                  params
+                const res = await getAuditLogs({
+                  page: current,
+                  pageSize,
+                  tenantId: id,
+                  action: action?.length ? action : undefined,
+                  resourceType: resourceType?.length ? resourceType : undefined,
+                  username: username || undefined,
+                  startTime,
+                  endTime,
+                })
+                return {
+                  data: res.data?.items || [],
+                  total: res.data?.total || 0,
+                  success: res.success,
+                }
+              }}
+              rowKey="id"
+              search={{ filterType: 'light', span: 8 }}
+              pagination={{ defaultPageSize: 10, showSizeChanger: true }}
+            />
+          </Card>
         </Col>
       </Row>
 

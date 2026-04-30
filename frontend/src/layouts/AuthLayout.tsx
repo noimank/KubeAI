@@ -8,7 +8,7 @@ export default function AuthLayout() {
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '100vh',
-        background: '#f0f2f5',
+        background: 'var(--bg-page)',
       }}
     >
       <Outlet />

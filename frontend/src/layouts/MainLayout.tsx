@@ -1,3 +1,4 @@
+import { ConfigProvider, theme as antdTheme } from 'antd'
 import { ProLayout } from '@ant-design/pro-components'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { buildSidebarMenu } from './components/Sidebar'
@@ -32,6 +33,11 @@ export default function MainLayout() {
 
   const isDark = themeMode === 'dark'
 
+  // realDark gives correct dark styling for sidebar/header, but applies dark
+  // algorithm to the content area too. Wrap <Outlet> in a ConfigProvider that
+  // restores the correct algorithm so page content renders properly.
+  const contentAlgorithm = isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm
+
   return (
     <ProLayout
       title="KubeAI"
@@ -57,16 +63,16 @@ export default function MainLayout() {
       breadcrumbRender={(routers = []) => [{ path: '/', breadcrumbName: '首页' }, ...routers]}
       token={{
         header: {
-          colorBgHeader: isDark ? '#141414' : '#001529',
-          colorHeaderTitle: '#fff',
+          colorBgHeader: isDark ? '#1f1f1f' : '#001529',
         },
         sider: {
           colorMenuBackground: isDark ? '#1f1f1f' : '#001529',
-          colorTextMenu: 'rgba(255,255,255,0.65)',
         },
       }}
     >
-      <Outlet />
+      <ConfigProvider theme={{ algorithm: contentAlgorithm }}>
+        <Outlet />
+      </ConfigProvider>
     </ProLayout>
   )
 }

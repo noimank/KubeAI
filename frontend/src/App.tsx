@@ -90,12 +90,19 @@ export default function App() {
         wireframe: false,
         colorBgContainer: themeMode === 'dark' ? '#141414' : '#ffffff',
         colorBgLayout: themeMode === 'dark' ? '#000000' : '#f5f5f5',
+        colorTextSecondary:
+          themeMode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.65)',
+        colorTextTertiary:
+          themeMode === 'dark' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.45)',
+        colorTextQuaternary:
+          themeMode === 'dark' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.25)',
+        colorFillAlter: themeMode === 'dark' ? '#1f1f1f' : '#fafafa',
+        colorFillSecondary: themeMode === 'dark' ? '#262626' : '#f5f5f5',
       },
       components: {
         Button: {
           primaryShadow: '0 2px 0 rgba(5, 145, 255, 0.1)',
-          defaultBorderColor: '#d9d9d9',
-          dangerColor: '#FF4D4F',
+          defaultBorderColor: themeMode === 'dark' ? '#424242' : '#d9d9d9',
         },
         Input: {
           borderRadius: 6,
@@ -110,6 +117,19 @@ export default function App() {
         Table: {
           borderRadius: 6,
           cellFontSize: 14,
+          headerBg: themeMode === 'dark' ? '#1f1f1f' : '#fafafa',
+          headerColor: themeMode === 'dark' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.88)',
+          headerSortActiveBg: themeMode === 'dark' ? '#262626' : '#f0f0f0',
+          headerSortHoverBg: themeMode === 'dark' ? '#303030' : '#f2f2f2',
+          rowHoverBg: themeMode === 'dark' ? '#1f1f1f' : '#fafafa',
+          borderColor: themeMode === 'dark' ? '#303030' : '#f0f0f0',
+        },
+        Card: {
+          borderRadiusLG: 8,
+        },
+        Descriptions: {
+          borderRadiusLG: 8,
+          labelBg: themeMode === 'dark' ? '#000000' : '#f5f5f5',
         },
       },
       cssVar: true,

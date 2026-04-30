@@ -24,14 +24,15 @@ body {
   min-height: 100vh;
 }
 
-.ant-pro-layout {
-  .ant-pro-sider {
-    .ant-layout-sider-children {
-      padding-top: 0;
-    }
-  }
+.ant-pro-layout .ant-pro-sider .ant-layout-sider-children {
+  padding-top: 0;
 }
 
-.tabular-nums {
-  font-variant-numeric: tabular-nums;
+/* Elevated card shadow for auth and standalone pages */
+.elevated-card {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] .elevated-card {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }

@@ -66,7 +66,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <Card style={{ width: '100%', maxWidth: 600 }}>
+    <Card style={{ width: '100%', maxWidth: 600, borderRadius: 8 }} className="elevated-card">
       <ProForm<RegisterRequest>
         form={form}
         onFinish={handleSubmit}

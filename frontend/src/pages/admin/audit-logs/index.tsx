@@ -217,7 +217,7 @@ export default function AuditLogsPage() {
       locale={{
         emptyText: (
           <div style={{ padding: '24px 0', textAlign: 'center' }}>
-            <p style={{ color: '#999', marginBottom: 16 }}>
+            <p style={{ color: 'var(--text-tertiary)', marginBottom: 16 }}>
               暂无审计日志，操作记录会自动出现在这里
             </p>
           </div>
