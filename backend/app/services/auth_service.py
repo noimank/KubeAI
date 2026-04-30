@@ -1,12 +1,13 @@
+from __future__ import annotations
+
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
-import redis.asyncio as aioredis
 import structlog
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictException, UnauthorizedException
+from app.core.exceptions import ConflictException, ForbiddenException, UnauthorizedException
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -19,6 +20,10 @@ from app.models.enums import AuditAction, ResourceType
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 from app.services.audit_service import AuditService
+
+if TYPE_CHECKING:
+    import redis.asyncio as aioredis
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger()
 
@@ -33,7 +38,7 @@ class AuthService:
         self.redis = redis
         self.blacklist = TokenBlacklistService(redis)
 
-    async def register(self, req: RegisterRequest, audit_context: dict | None = None) -> TokenResponse:
+    async def register(self, req: RegisterRequest, audit_context: dict[str, Any] | None = None) -> TokenResponse:
         existing = await self.db.execute(select(User).where(User.username == req.username))
         if existing.scalar_one_or_none() is not None:
             raise ConflictException("用户名已存在")
@@ -63,7 +68,7 @@ class AuthService:
 
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
-    async def login(self, req: LoginRequest, audit_context: dict | None = None) -> TokenResponse:
+    async def login(self, req: LoginRequest, audit_context: dict[str, Any] | None = None) -> TokenResponse:
         result = await self.db.execute(select(User).where(User.username == req.username))
         user = result.scalar_one_or_none()
 
@@ -77,6 +82,9 @@ class AuthService:
                     **audit_context,
                 )
             raise UnauthorizedException("用户名或密码错误")
+
+        if not user.is_active:
+            raise ForbiddenException("用户已被禁用")
 
         await self._check_lockout(str(user.id))
 
@@ -151,7 +159,7 @@ class AuthService:
         refresh_token_jti: str | None = None,
         access_exp: float | None = None,
         refresh_exp: float | None = None,
-        audit_context: dict | None = None,
+        audit_context: dict[str, Any] | None = None,
     ) -> None:
         from app.core.config import settings
 
