@@ -35,6 +35,7 @@ class AuditAction(enum.StrEnum):
     UPDATE_ROLE = "update_role"
     REMOVE_MEMBER = "remove_member"
     UPDATE_QUOTA = "update_quota"
+    UPLOAD = "upload"
 
 
 class ResourceType(enum.StrEnum):
@@ -44,3 +45,4 @@ class ResourceType(enum.StrEnum):
     MEMBERSHIP = "membership"
     INVITATION = "invitation"
     CREDENTIAL = "credential"
+    DATASET = "dataset"
