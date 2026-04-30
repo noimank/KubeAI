@@ -31,7 +31,10 @@ class DatasetResponse(BaseModel):
     description: str | None = None
     tenant_id: uuid.UUID
     created_by: uuid.UUID
+    created_by_name: str | None = None
     version_count: int = 0
+    total_file_count: int = 0
+    total_size_bytes: int = 0
     latest_version: DatasetVersionResponse | None = None
     created_at: datetime
     updated_at: datetime

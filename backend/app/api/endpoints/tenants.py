@@ -42,6 +42,22 @@ router = APIRouter(prefix="/tenants", tags=["tenants"])
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 
 
+@router.get("/me", response_model=BaseResponse[TenantResponse])
+async def get_my_tenant(
+    db: DbDep,
+    user: CurrentUser,
+) -> BaseResponse[TenantResponse]:
+    if user.tenant_id is None:
+        from app.core.exceptions import NotFoundException
+
+        raise NotFoundException("未加入任何租户")
+    service = TenantService(db)
+    tenant = await service.get_tenant(user.tenant_id)
+    member_count = await _get_member_count(db, user.tenant_id)
+    data = _build_tenant_response(tenant, member_count)
+    return BaseResponse(data=data, message="获取成功")
+
+
 @router.post("", response_model=BaseResponse[TenantResponse])
 async def create_tenant(
     req: TenantCreateRequest,

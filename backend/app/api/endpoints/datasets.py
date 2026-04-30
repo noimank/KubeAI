@@ -1,13 +1,16 @@
 import uuid
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.events import get_minio_client
 from app.integrations.minio import MinIOClient
 from app.models.dataset import Dataset
+from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.dataset import (
     DatasetCreateRequest,
@@ -24,6 +27,9 @@ router = APIRouter(prefix="/datasets", tags=["datasets"])
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 MinioDep = Annotated[MinIOClient, Depends(lambda: get_minio_client())]
 _files_default = File(...)
+_keyword_query = Query(None)
+_start_date_query = Query(None)
+_end_date_query = Query(None)
 
 
 def _audit_ctx(request: Request, user: Any) -> dict[str, Any]:
@@ -35,16 +41,24 @@ def _audit_ctx(request: Request, user: Any) -> dict[str, Any]:
     }
 
 
-def _build_dataset_response(dataset: Dataset) -> DatasetResponse:
+def _build_dataset_response(
+    dataset: Dataset,
+    user_name_map: dict[uuid.UUID, str] | None = None,
+) -> DatasetResponse:
     versions = sorted(dataset.versions, key=lambda v: v.version_number)
     latest = versions[-1] if versions else None
+    total_file_count = sum(v.file_count for v in versions)
+    total_size_bytes = sum(v.total_size_bytes for v in versions)
     return DatasetResponse(
         id=dataset.id,
         name=dataset.name,
         description=dataset.description,
         tenant_id=dataset.tenant_id,
         created_by=dataset.created_by,
+        created_by_name=(user_name_map or {}).get(dataset.created_by),
         version_count=len(versions),
+        total_file_count=total_file_count,
+        total_size_bytes=total_size_bytes,
         latest_version=DatasetVersionResponse(
             id=latest.id,
             dataset_id=latest.dataset_id,
@@ -91,12 +105,22 @@ async def list_datasets(
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    keyword: str | None = Query(None),
+    keyword: str | None = _keyword_query,
+    start_date: date | None = _start_date_query,
+    end_date: date | None = _end_date_query,
 ) -> PageResponse[DatasetResponse]:
     tenant_id = _require_tenant_id(user)
     service = DatasetService(db, minio)
-    items, total = await service.list_datasets(tenant_id=tenant_id, page=page, page_size=page_size, keyword=keyword)
-    dataset_list = [_build_dataset_response(ds) for ds in items]
+    items, total = await service.list_datasets(
+        tenant_id=tenant_id,
+        page=page,
+        page_size=page_size,
+        keyword=keyword,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    user_name_map = await _resolve_user_names(db, items)
+    dataset_list = [_build_dataset_response(ds, user_name_map) for ds in items]
     page_data = PageData(items=dataset_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
 
@@ -111,7 +135,8 @@ async def get_dataset(
     tenant_id = _require_tenant_id(user)
     service = DatasetService(db, minio)
     dataset = await service.get_dataset(dataset_id=dataset_id, tenant_id=tenant_id)
-    base = _build_dataset_response(dataset)
+    user_name_map = await _resolve_user_names(db, [dataset])
+    base = _build_dataset_response(dataset, user_name_map)
     versions = sorted(dataset.versions, key=lambda v: v.version_number)
     detail = DatasetDetailResponse(
         **base.model_dump(),
@@ -208,3 +233,11 @@ def _require_tenant_id(user: Any) -> uuid.UUID:
 
         raise ForbiddenException("请先加入租户")
     return uuid.UUID(str(user.tenant_id))
+
+
+async def _resolve_user_names(db: AsyncSession, datasets: list[Dataset]) -> dict[uuid.UUID, str]:
+    user_ids = {ds.created_by for ds in datasets}
+    if not user_ids:
+        return {}
+    result = await db.execute(select(User.id, User.username).where(User.id.in_(user_ids)))
+    return {row.id: row.username for row in result.all()}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import date, timedelta
 from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
@@ -142,10 +143,17 @@ class DatasetService:
         page: int = 1,
         page_size: int = 20,
         keyword: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> tuple[list[Dataset], int]:
         query = select(Dataset).options(selectinload(Dataset.versions)).where(Dataset.tenant_id == tenant_id)
         if keyword:
             query = query.where(Dataset.name.ilike(f"%{keyword}%"))
+        if start_date:
+            query = query.where(Dataset.created_at >= start_date)
+        if end_date:
+            next_day = end_date + timedelta(days=1)
+            query = query.where(Dataset.created_at < next_day)
 
         total_q = select(func.count()).select_from(query.subquery())
         total = (await self.db.execute(total_q)).scalar_one()

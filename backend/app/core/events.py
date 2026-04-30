@@ -7,7 +7,8 @@ from app.core.database import async_session_factory, close_db
 from app.core.redis import close_redis, init_redis
 from app.core.security import hash_password
 from app.integrations.minio import MinIOClient
-from app.models.enums import UserRole
+from app.models.enums import TenantStatus, UserRole
+from app.models.tenant import Tenant
 from app.models.user import User
 
 logger = structlog.get_logger()
@@ -25,8 +26,21 @@ async def _init_admin_user() -> None:
     async with async_session_factory() as session:
         stmt = select(User).where(User.username == "admin")
         result = await session.execute(stmt)
-        if result.scalar_one_or_none() is not None:
+        admin = result.scalar_one_or_none()
+        if admin is not None:
             return
+
+        tenant_result = await session.execute(select(Tenant).where(Tenant.name == "default"))
+        tenant = tenant_result.scalar_one_or_none()
+        if tenant is None:
+            tenant = Tenant(
+                name="default",
+                display_name="默认租户",
+                description="系统自动创建的默认租户",
+                status=TenantStatus.ACTIVE,
+            )
+            session.add(tenant)
+            await session.flush()
 
         admin = User(
             username="admin",
@@ -34,6 +48,7 @@ async def _init_admin_user() -> None:
             hashed_password=hash_password("Admin123456"),
             role=UserRole.ADMIN,
             is_active=True,
+            tenant_id=tenant.id,
         )
         session.add(admin)
         await session.commit()

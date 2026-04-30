@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,6 +15,9 @@ def _sync_result(value):
     return result
 
 
+_NOW = datetime(2026, 4, 30, 12, 0, 0, tzinfo=UTC)
+
+
 def _make_dataset(name="test-dataset", tenant_id=None):
     ds = Dataset(
         name=name,
@@ -22,6 +26,8 @@ def _make_dataset(name="test-dataset", tenant_id=None):
         created_by=uuid.uuid4(),
     )
     ds.id = uuid.uuid4()
+    ds.created_at = _NOW
+    ds.updated_at = _NOW
     ds.versions = []
     return ds
 
@@ -36,6 +42,8 @@ def _make_version(dataset_id=None, version_number=1):
         created_by=uuid.uuid4(),
     )
     v.id = uuid.uuid4()
+    v.created_at = _NOW
+    v.updated_at = _NOW
     return v
 
 
@@ -207,6 +215,85 @@ class TestListDatasets:
 
         await service.list_datasets(tenant_id=uuid.uuid4(), keyword="test")
         assert mock_db.execute.call_count == 2
+
+    async def test_list_with_start_date(self, service, mock_db):
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        rows_result = MagicMock()
+        rows_result.scalars.return_value.all.return_value = []
+
+        mock_db.execute.side_effect = [count_result, rows_result]
+
+        await service.list_datasets(tenant_id=uuid.uuid4(), start_date=date(2026, 1, 1))
+        assert mock_db.execute.call_count == 2
+
+    async def test_list_with_end_date(self, service, mock_db):
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        rows_result = MagicMock()
+        rows_result.scalars.return_value.all.return_value = []
+
+        mock_db.execute.side_effect = [count_result, rows_result]
+
+        await service.list_datasets(tenant_id=uuid.uuid4(), end_date=date(2026, 4, 30))
+        assert mock_db.execute.call_count == 2
+
+    async def test_list_with_date_range(self, service, mock_db):
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        rows_result = MagicMock()
+        rows_result.scalars.return_value.all.return_value = []
+
+        mock_db.execute.side_effect = [count_result, rows_result]
+
+        await service.list_datasets(
+            tenant_id=uuid.uuid4(),
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 4, 30),
+        )
+        assert mock_db.execute.call_count == 2
+
+
+class TestDatasetAggregation:
+    def test_build_dataset_response_aggregation(self):
+        from app.api.endpoints.datasets import _build_dataset_response
+
+        ds = _make_dataset()
+        v1 = _make_version(dataset_id=ds.id, version_number=1)
+        v1.file_count = 5
+        v1.total_size_bytes = 1024
+        v2 = _make_version(dataset_id=ds.id, version_number=2)
+        v2.file_count = 3
+        v2.total_size_bytes = 2048
+        ds.versions = [v1, v2]
+
+        resp = _build_dataset_response(ds)
+        assert resp.total_file_count == 8
+        assert resp.total_size_bytes == 3072
+        assert resp.version_count == 2
+        assert resp.created_by_name is None
+
+    def test_build_dataset_response_with_user_name(self):
+        from app.api.endpoints.datasets import _build_dataset_response
+
+        ds = _make_dataset()
+        ds.versions = []
+        user_map = {ds.created_by: "testuser"}
+
+        resp = _build_dataset_response(ds, user_map)
+        assert resp.created_by_name == "testuser"
+
+    def test_build_dataset_response_no_versions(self):
+        from app.api.endpoints.datasets import _build_dataset_response
+
+        ds = _make_dataset()
+        ds.versions = []
+
+        resp = _build_dataset_response(ds)
+        assert resp.total_file_count == 0
+        assert resp.total_size_bytes == 0
+        assert resp.version_count == 0
+        assert resp.latest_version is None
 
 
 class TestDeleteDataset:
