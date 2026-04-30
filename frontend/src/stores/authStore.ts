@@ -49,6 +49,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   isInitializing: !!getStoredToken(ACCESS_TOKEN_KEY),
 
   login: (user, accessToken, refreshToken) => {
+    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
+    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
     useRbacStore.getState().setRole(user.role)
     set({ user, accessToken, refreshToken, isAuthenticated: true })
 

@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   Breadcrumb,
   Button,
   Card,
   Col,
+  DatePicker,
   Descriptions,
   Drawer,
+  Input,
   Modal,
   Popconfirm,
   Progress,
@@ -18,9 +20,10 @@ import {
   Tag,
   message,
 } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
-import { ProTable } from '@ant-design/pro-components'
-import type { ActionType, ProColumns } from '@ant-design/pro-components'
+import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
+import { useQuery } from '@tanstack/react-query'
+import type { Dayjs } from 'dayjs'
 import TenantEditForm from './components/TenantEditForm'
 import QuotaEditor from './components/QuotaEditor'
 import InviteMemberModal from './components/InviteMemberModal'
@@ -134,7 +137,66 @@ export default function TenantDetailPage() {
   const [members, setMembers] = useState<TenantMember[]>([])
   const [membersLoading, setMembersLoading] = useState(false)
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
-  const auditActionRef = useRef<ActionType>(null)
+
+  // Audit log state
+  const [auditPage, setAuditPage] = useState(1)
+  const [auditPageSize, setAuditPageSize] = useState(10)
+  const [auditTimeRange, setAuditTimeRange] = useState<[Dayjs, Dayjs]>()
+  const [auditUsername, setAuditUsername] = useState<string>()
+  const [auditActions, setAuditActions] = useState<AuditAction[]>()
+  const [auditResourceTypes, setAuditResourceTypes] = useState<ResourceType[]>()
+  const [auditFilters, setAuditFilters] = useState<{
+    startTime?: string
+    endTime?: string
+    username?: string
+    action?: AuditAction[]
+    resourceType?: ResourceType[]
+  }>()
+
+  const {
+    data: auditRes,
+    isLoading: auditLoading,
+    refetch: auditRefetch,
+  } = useQuery({
+    queryKey: ['audit-logs', id, auditPage, auditPageSize, auditFilters],
+    queryFn: () =>
+      getAuditLogs({
+        page: auditPage,
+        pageSize: auditPageSize,
+        tenantId: id,
+        startTime: auditFilters?.startTime,
+        endTime: auditFilters?.endTime,
+        username: auditFilters?.username,
+        action: auditFilters?.action?.length ? auditFilters.action : undefined,
+        resourceType: auditFilters?.resourceType?.length ? auditFilters.resourceType : undefined,
+      }),
+    enabled: !!id,
+  })
+
+  const handleAuditSearch = () => {
+    setAuditFilters({
+      startTime: auditTimeRange?.[0]?.toISOString(),
+      endTime: auditTimeRange?.[1]?.toISOString(),
+      username: auditUsername,
+      action: auditActions,
+      resourceType: auditResourceTypes,
+    })
+    setAuditPage(1)
+  }
+
+  const handleAuditReset = () => {
+    setAuditTimeRange(undefined)
+    setAuditUsername(undefined)
+    setAuditActions(undefined)
+    setAuditResourceTypes(undefined)
+    setAuditFilters(undefined)
+    setAuditPage(1)
+  }
+
+  const handleAuditTableChange = useCallback((pagination: TablePaginationConfig) => {
+    setAuditPage(pagination.current || 1)
+    setAuditPageSize(pagination.pageSize || 10)
+  }, [])
 
   const fetchData = async () => {
     if (!id) return
@@ -301,38 +363,21 @@ export default function TenantDetailPage() {
     },
   ]
 
-  const auditColumns: ProColumns<AuditLog>[] = [
+  const auditColumns: ColumnsType<AuditLog> = [
     {
       title: '操作时间',
       dataIndex: 'createdAt',
-      valueType: 'dateTime',
       width: 180,
-      hideInSearch: true,
-    },
-    {
-      title: '时间范围',
-      dataIndex: 'timeRange',
-      valueType: 'dateTimeRange',
-      hideInTable: true,
-      search: {
-        transform: (value: [string, string]) => ({
-          startTime: value[0],
-          endTime: value[1],
-        }),
-      },
     },
     {
       title: '操作人',
       dataIndex: 'username',
       width: 120,
-      fieldProps: { placeholder: '搜索用户名' },
     },
     {
       title: '操作类型',
       dataIndex: 'action',
       width: 120,
-      valueType: 'select',
-      fieldProps: { mode: 'multiple', options: ACTION_OPTIONS, placeholder: '选择操作类型' },
       render: (_, record) => (
         <Tag color={ACTION_COLORS[record.action] || 'default'}>
           {ACTION_LABELS[record.action] || record.action}
@@ -343,8 +388,6 @@ export default function TenantDetailPage() {
       title: '资源类型',
       dataIndex: 'resourceType',
       width: 120,
-      valueType: 'select',
-      fieldProps: { mode: 'multiple', options: RESOURCE_OPTIONS, placeholder: '选择资源类型' },
       render: (_, record) => (
         <Tag color={RESOURCE_COLORS[record.resourceType] || 'default'}>
           {RESOURCE_LABELS[record.resourceType] || record.resourceType}
@@ -355,7 +398,6 @@ export default function TenantDetailPage() {
       title: 'IP 地址',
       dataIndex: 'ipAddress',
       width: 140,
-      hideInSearch: true,
     },
   ]
 
@@ -486,31 +528,61 @@ export default function TenantDetailPage() {
       <Row style={{ marginTop: 24 }}>
         <Col span={24}>
           <Card size="small" title="审计日志">
-            <ProTable<AuditLog>
-              columns={auditColumns}
-              actionRef={auditActionRef}
-              request={async (params) => {
-                const { current, pageSize, action, resourceType, username, startTime, endTime } =
-                  params
-                const res = await getAuditLogs({
-                  page: current,
-                  pageSize,
-                  tenantId: id,
-                  action: action?.length ? action : undefined,
-                  resourceType: resourceType?.length ? resourceType : undefined,
-                  username: username || undefined,
-                  startTime: startTime || undefined,
-                  endTime: endTime || undefined,
-                })
-                return {
-                  data: res.data?.items || [],
-                  total: res.data?.total || 0,
-                  success: res.success,
-                }
-              }}
+            <div style={{ marginBottom: 16 }}>
+              <Space wrap>
+                <DatePicker.RangePicker
+                  value={auditTimeRange}
+                  onChange={(dates) => setAuditTimeRange(dates as [Dayjs, Dayjs] | undefined)}
+                  style={{ width: 280 }}
+                />
+                <Input
+                  placeholder="搜索用户名"
+                  value={auditUsername}
+                  onChange={(e) => setAuditUsername(e.target.value || undefined)}
+                  style={{ width: 160 }}
+                  prefix={<SearchOutlined />}
+                  onPressEnter={handleAuditSearch}
+                />
+                <Select
+                  mode="multiple"
+                  placeholder="选择操作类型"
+                  value={auditActions}
+                  onChange={(v) => setAuditActions(v as AuditAction[])}
+                  options={ACTION_OPTIONS}
+                  style={{ minWidth: 160 }}
+                  allowClear
+                />
+                <Select
+                  mode="multiple"
+                  placeholder="选择资源类型"
+                  value={auditResourceTypes}
+                  onChange={(v) => setAuditResourceTypes(v as ResourceType[])}
+                  options={RESOURCE_OPTIONS}
+                  style={{ minWidth: 160 }}
+                  allowClear
+                />
+                <Button type="primary" onClick={handleAuditSearch}>
+                  查询
+                </Button>
+                <Button onClick={handleAuditReset}>重置</Button>
+                <Button icon={<ReloadOutlined />} onClick={() => auditRefetch()}>
+                  刷新
+                </Button>
+              </Space>
+            </div>
+            <Table<AuditLog>
               rowKey="id"
-              search={{ filterType: 'light', span: 8 }}
-              pagination={{ defaultPageSize: 10, showSizeChanger: true }}
+              columns={auditColumns}
+              dataSource={auditRes?.data?.items}
+              loading={auditLoading}
+              pagination={{
+                current: auditPage,
+                pageSize: auditPageSize,
+                total: auditRes?.data?.total ?? 0,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 条`,
+              }}
+              onChange={handleAuditTableChange}
             />
           </Card>
         </Col>

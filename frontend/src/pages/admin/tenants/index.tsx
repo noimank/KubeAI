@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react'
-import { Button, Modal, Popconfirm, Space, Tag, message } from 'antd'
+import { useState, useCallback } from 'react'
+import { Button, Modal, Popconfirm, Space, Table, Tag, message } from 'antd'
 import { Link } from 'react-router-dom'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import { ProTable } from '@ant-design/pro-components'
-import type { ActionType, ProColumns } from '@ant-design/pro-components'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
+import { useQuery } from '@tanstack/react-query'
 import TenantCreateForm from './components/TenantCreateForm'
 import TenantEditForm from './components/TenantEditForm'
 import QuotaEditor from './components/QuotaEditor'
@@ -29,6 +29,8 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 export default function TenantsPage() {
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null)
@@ -39,7 +41,20 @@ export default function TenantsPage() {
   const [memberModalOpen, setMemberModalOpen] = useState(false)
   const [memberTenant, setMemberTenant] = useState<Tenant | null>(null)
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
-  const actionRef = useRef<ActionType>(null)
+
+  const {
+    data: res,
+    isLoading,
+    refetch,
+  } = useQuery({
+    queryKey: ['tenants', page, pageSize],
+    queryFn: () => getTenants(page, pageSize),
+  })
+
+  const handleTableChange = useCallback((pagination: TablePaginationConfig) => {
+    setPage(pagination.current || 1)
+    setPageSize(pagination.pageSize || 20)
+  }, [])
 
   const handleCreate = async (values: {
     name: string
@@ -49,7 +64,7 @@ export default function TenantsPage() {
     await createTenant(values)
     message.success('租户创建成功')
     setCreateModalOpen(false)
-    actionRef.current?.reload()
+    refetch()
   }
 
   const handleEdit = async (values: TenantUpdateRequest) => {
@@ -59,7 +74,7 @@ export default function TenantsPage() {
       message.success('租户更新成功')
       setEditModalOpen(false)
       setEditingTenant(null)
-      actionRef.current?.reload()
+      refetch()
     } catch {
       // interceptor handles error toast
     }
@@ -70,7 +85,7 @@ export default function TenantsPage() {
     try {
       await toggleTenantStatus(record.id, targetStatus)
       message.success(targetStatus === 'disabled' ? '租户已禁用' : '租户已恢复')
-      actionRef.current?.reload()
+      refetch()
     } catch {
       // interceptor handles error toast
     }
@@ -83,7 +98,7 @@ export default function TenantsPage() {
       message.success('租户删除成功')
       setDeleteModalOpen(false)
       setDeletingTenant(null)
-      actionRef.current?.reload()
+      refetch()
     } catch {
       // interceptor handles error toast
     }
@@ -94,7 +109,7 @@ export default function TenantsPage() {
     setDeleteModalOpen(true)
   }
 
-  const columns: ProColumns<Tenant>[] = [
+  const columns: ColumnsType<Tenant> = [
     {
       title: '租户名称',
       dataIndex: 'name',
@@ -140,12 +155,10 @@ export default function TenantsPage() {
     {
       title: '创建时间',
       dataIndex: 'createdAt',
-      valueType: 'dateTime',
       width: 180,
     },
     {
       title: '操作',
-      valueType: 'option',
       width: 280,
       render: (_, record) => (
         <Space size="small">
@@ -211,40 +224,28 @@ export default function TenantsPage() {
 
   return (
     <>
-      <ProTable<Tenant>
-        columns={columns}
-        actionRef={actionRef}
-        request={async (params) => {
-          const res = await getTenants(params.current, params.pageSize)
-          return {
-            data: res.data?.items || [],
-            total: res.data?.total || 0,
-            success: res.success,
-          }
-        }}
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
+          创建租户
+        </Button>
+        <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
+          刷新
+        </Button>
+      </div>
+
+      <Table<Tenant>
         rowKey="id"
-        search={false}
-        toolBarRender={() => [
-          <Button
-            key="create"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setCreateModalOpen(true)}
-          >
-            创建租户
-          </Button>,
-          <Button
-            key="reload"
-            icon={<ReloadOutlined />}
-            onClick={() => actionRef.current?.reload()}
-          >
-            刷新
-          </Button>,
-        ]}
+        columns={columns}
+        dataSource={res?.data?.items}
+        loading={isLoading}
         pagination={{
-          defaultPageSize: 20,
+          current: page,
+          pageSize,
+          total: res?.data?.total ?? 0,
           showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`,
         }}
+        onChange={handleTableChange}
         locale={{
           emptyText: (
             <div style={{ padding: '24px 0', textAlign: 'center' }}>
@@ -335,7 +336,7 @@ export default function TenantsPage() {
             onSuccess={() => {
               setQuotaModalOpen(false)
               setQuotaTenant(null)
-              actionRef.current?.reload()
+              refetch()
             }}
           />
         )}
@@ -372,10 +373,7 @@ export default function TenantsPage() {
         destroyOnHidden
       >
         {memberTenant && (
-          <InviteMemberModal
-            tenantId={memberTenant.id}
-            onSuccess={() => actionRef.current?.reload()}
-          />
+          <InviteMemberModal tenantId={memberTenant.id} onSuccess={() => refetch()} />
         )}
       </Modal>
     </>

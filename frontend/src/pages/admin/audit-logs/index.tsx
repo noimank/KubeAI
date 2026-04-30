@@ -1,8 +1,9 @@
-import { useRef } from 'react'
-import { Button, Tag, Typography } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
-import { ProTable } from '@ant-design/pro-components'
-import type { ActionType, ProColumns } from '@ant-design/pro-components'
+import { useState, useCallback } from 'react'
+import { Button, DatePicker, Input, Select, Space, Table, Tag, Typography } from 'antd'
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
+import { useQuery } from '@tanstack/react-query'
+import type { Dayjs } from 'dayjs'
 import { getAuditLogs } from '@/services/audit'
 import type { AuditLog, AuditAction, ResourceType } from '@/types/audit'
 
@@ -98,33 +99,75 @@ function DetailPanel({ record }: { record: AuditLog }) {
 }
 
 export default function AuditLogsPage() {
-  const actionRef = useRef<ActionType>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
-  const columns: ProColumns<AuditLog>[] = [
+  const [timeRange, setTimeRange] = useState<[Dayjs, Dayjs]>()
+  const [username, setUsername] = useState<string>()
+  const [actionFilter, setActionFilter] = useState<AuditAction[]>()
+  const [resourceTypeFilter, setResourceTypeFilter] = useState<ResourceType[]>()
+
+  const [filters, setFilters] = useState<{
+    startTime?: string
+    endTime?: string
+    username?: string
+    action?: AuditAction[]
+    resourceType?: ResourceType[]
+  }>()
+
+  const {
+    data: res,
+    isLoading,
+    refetch,
+  } = useQuery({
+    queryKey: ['audit-logs', page, pageSize, filters],
+    queryFn: () =>
+      getAuditLogs({
+        page,
+        pageSize,
+        startTime: filters?.startTime,
+        endTime: filters?.endTime,
+        username: filters?.username,
+        action: filters?.action?.length ? filters.action : undefined,
+        resourceType: filters?.resourceType?.length ? filters.resourceType : undefined,
+      }),
+  })
+
+  const handleSearch = () => {
+    setFilters({
+      startTime: timeRange?.[0]?.toISOString(),
+      endTime: timeRange?.[1]?.toISOString(),
+      username,
+      action: actionFilter,
+      resourceType: resourceTypeFilter,
+    })
+    setPage(1)
+  }
+
+  const handleReset = () => {
+    setTimeRange(undefined)
+    setUsername(undefined)
+    setActionFilter(undefined)
+    setResourceTypeFilter(undefined)
+    setFilters(undefined)
+    setPage(1)
+  }
+
+  const handleTableChange = useCallback((pagination: TablePaginationConfig) => {
+    setPage(pagination.current || 1)
+    setPageSize(pagination.pageSize || 20)
+  }, [])
+
+  const columns: ColumnsType<AuditLog> = [
     {
       title: '操作时间',
       dataIndex: 'createdAt',
-      valueType: 'dateTime',
       width: 180,
-      hideInSearch: true,
-    },
-    {
-      title: '时间范围',
-      dataIndex: 'timeRange',
-      valueType: 'dateTimeRange',
-      hideInTable: true,
-      search: {
-        transform: (value: [string, string]) => ({
-          startTime: value[0],
-          endTime: value[1],
-        }),
-      },
     },
     {
       title: '操作人',
       dataIndex: 'username',
       width: 150,
-      fieldProps: { placeholder: '搜索用户名' },
       render: (_, record) =>
         record.username || (record.userId ? record.userId.substring(0, 8) + '...' : '系统'),
     },
@@ -132,8 +175,6 @@ export default function AuditLogsPage() {
       title: '操作类型',
       dataIndex: 'action',
       width: 120,
-      valueType: 'select',
-      fieldProps: { mode: 'multiple', options: ACTION_OPTIONS, placeholder: '选择操作类型' },
       render: (_, record) => (
         <Tag color={ACTION_COLORS[record.action] || 'default'}>
           {ACTION_LABELS[record.action] || record.action}
@@ -144,8 +185,6 @@ export default function AuditLogsPage() {
       title: '资源类型',
       dataIndex: 'resourceType',
       width: 120,
-      valueType: 'select',
-      fieldProps: { mode: 'multiple', options: RESOURCE_OPTIONS, placeholder: '选择资源类型' },
       render: (_, record) => (
         <Tag color={RESOURCE_COLORS[record.resourceType] || 'default'}>
           {RESOURCE_LABELS[record.resourceType] || record.resourceType}
@@ -156,7 +195,6 @@ export default function AuditLogsPage() {
       title: '资源 ID',
       dataIndex: 'resourceId',
       width: 160,
-      hideInSearch: true,
       render: (_, record) =>
         record.resourceId ? (
           <Typography.Text copyable style={{ fontSize: 12 }}>
@@ -172,57 +210,80 @@ export default function AuditLogsPage() {
       title: 'IP 地址',
       dataIndex: 'ipAddress',
       width: 140,
-      hideInSearch: true,
     },
   ]
 
   return (
-    <ProTable<AuditLog>
-      columns={columns}
-      actionRef={actionRef}
-      request={async (params) => {
-        const { current, pageSize, action, resourceType, username, startTime, endTime } = params
-        const res = await getAuditLogs({
-          page: current,
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <Space wrap>
+          <DatePicker.RangePicker
+            value={timeRange}
+            onChange={(dates) => setTimeRange(dates as [Dayjs, Dayjs] | undefined)}
+            style={{ width: 280 }}
+          />
+          <Input
+            placeholder="搜索用户名"
+            value={username}
+            onChange={(e) => setUsername(e.target.value || undefined)}
+            style={{ width: 160 }}
+            prefix={<SearchOutlined />}
+            onPressEnter={handleSearch}
+          />
+          <Select
+            mode="multiple"
+            placeholder="选择操作类型"
+            value={actionFilter}
+            onChange={(v) => setActionFilter(v as AuditAction[])}
+            options={ACTION_OPTIONS}
+            style={{ minWidth: 160 }}
+            allowClear
+          />
+          <Select
+            mode="multiple"
+            placeholder="选择资源类型"
+            value={resourceTypeFilter}
+            onChange={(v) => setResourceTypeFilter(v as ResourceType[])}
+            options={RESOURCE_OPTIONS}
+            style={{ minWidth: 160 }}
+            allowClear
+          />
+          <Button type="primary" onClick={handleSearch}>
+            查询
+          </Button>
+          <Button onClick={handleReset}>重置</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
+            刷新
+          </Button>
+        </Space>
+      </div>
+
+      <Table<AuditLog>
+        rowKey="id"
+        columns={columns}
+        dataSource={res?.data?.items}
+        loading={isLoading}
+        pagination={{
+          current: page,
           pageSize,
-          action: action?.length ? action : undefined,
-          resourceType: resourceType?.length ? resourceType : undefined,
-          username: username || undefined,
-          startTime: startTime || undefined,
-          endTime: endTime || undefined,
-        })
-        return {
-          data: res.data?.items || [],
-          total: res.data?.total || 0,
-          success: res.success,
-        }
-      }}
-      rowKey="id"
-      search={{
-        filterType: 'light',
-        span: 6,
-      }}
-      expandable={{
-        expandedRowRender: (record) => <DetailPanel record={record} />,
-      }}
-      toolBarRender={() => [
-        <Button key="reload" icon={<ReloadOutlined />} onClick={() => actionRef.current?.reload()}>
-          刷新
-        </Button>,
-      ]}
-      pagination={{
-        defaultPageSize: 20,
-        showSizeChanger: true,
-      }}
-      locale={{
-        emptyText: (
-          <div style={{ padding: '24px 0', textAlign: 'center' }}>
-            <p style={{ color: 'var(--text-tertiary)', marginBottom: 16 }}>
-              暂无审计日志，操作记录会自动出现在这里
-            </p>
-          </div>
-        ),
-      }}
-    />
+          total: res?.data?.total ?? 0,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`,
+        }}
+        onChange={handleTableChange}
+        expandable={{
+          expandedRowRender: (record) => <DetailPanel record={record} />,
+        }}
+        locale={{
+          emptyText: (
+            <div style={{ padding: '24px 0', textAlign: 'center' }}>
+              <p style={{ color: 'var(--text-tertiary)', marginBottom: 16 }}>
+                暂无审计日志，操作记录会自动出现在这里
+              </p>
+            </div>
+          ),
+        }}
+      />
+    </div>
   )
 }
