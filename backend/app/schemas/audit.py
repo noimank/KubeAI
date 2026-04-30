@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +15,7 @@ class AuditLogResponse(BaseModel):
     action: str
     resource_type: str
     resource_id: str | None = None
-    detail: dict | None = None
+    detail: dict[str, Any] | None = None
     ip_address: str
     user_agent: str | None = None
     request_id: str | None = None

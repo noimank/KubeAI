@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy import Enum as SQLAlchemyEnum
@@ -31,7 +32,7 @@ class AuditLog(Base):
         index=True,
     )
     resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    detail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     ip_address: Mapped[str] = mapped_column(String(45), nullable=False)
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

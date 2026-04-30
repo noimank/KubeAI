@@ -133,10 +133,12 @@ class TestUserResponse:
             id=user_id,
             username="testuser",
             email="test@example.com",
-            role="algorithm_engineer",
+            role="engineer",
             is_active=True,
+            auth_provider="local",
             created_at=datetime.now(),
+            updated_at=datetime.now(),
         )
         assert resp.id == user_id
-        assert resp.role == "algorithm_engineer"
+        assert resp.role.value == "engineer"
         assert resp.tenant_id is None

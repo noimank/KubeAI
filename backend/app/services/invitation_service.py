@@ -1,17 +1,24 @@
+from __future__ import annotations
+
 import logging
-import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.models.enums import AuditAction, InvitationStatus, ResourceType, UserRole
 from app.models.invitation import TenantInvitation
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.schemas.tenant import InviteMemberRequest
 from app.services.audit_service import AuditService
+
+if TYPE_CHECKING:
+    import uuid
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.schemas.tenant import InviteMemberRequest
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +30,11 @@ class InvitationService:
         self.db = db
 
     async def create_invitation(
-        self, tenant_id: uuid.UUID, req: InviteMemberRequest, inviter_id: uuid.UUID, audit_context: dict | None = None
+        self,
+        tenant_id: uuid.UUID,
+        req: InviteMemberRequest,
+        inviter_id: uuid.UUID,
+        audit_context: dict[str, Any] | None = None,
     ) -> TenantInvitation:
         if req.role in _ADMIN_ROLES:
             raise BadRequestException("不能邀请管理员角色")
@@ -86,7 +97,7 @@ class InvitationService:
         return list(result.scalars().all())
 
     async def cancel_invitation(
-        self, invitation_id: uuid.UUID, tenant_id: uuid.UUID, audit_context: dict | None = None
+        self, invitation_id: uuid.UUID, tenant_id: uuid.UUID, audit_context: dict[str, Any] | None = None
     ) -> None:
         result = await self.db.execute(
             select(TenantInvitation).where(
@@ -124,7 +135,7 @@ class InvitationService:
             return None
         return invitation
 
-    async def get_invitation_info(self, token: str) -> dict:
+    async def get_invitation_info(self, token: str) -> dict[str, Any]:
         invitation = await self.get_invitation_by_token(token)
         if not invitation:
             raise BadRequestException("邀请无效或已过期")
@@ -160,5 +171,4 @@ class InvitationService:
         if user_id:
             await self.db.refresh(user)
             return user
-        return None  # type: ignore[return-value]
-        # TODO: 审计日志 - 接受邀请 (Story 2.5)
+        return None

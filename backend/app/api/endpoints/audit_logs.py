@@ -12,24 +12,27 @@ from app.services.audit_service import AuditService
 
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
 
-_query_none = Query(None)
-_query_page = Query(1, ge=1)
-_query_page_size = Query(20, ge=1, le=100)
+_OptActionList = Annotated[list[AuditAction] | None, Query()]
+_OptResourceList = Annotated[list[ResourceType] | None, Query()]
+_OptStr = Annotated[str | None, Query()]
+_OptUUID = Annotated[uuid.UUID | None, Query()]
+_Page = Annotated[int, Query(ge=1)]
+_PageSize = Annotated[int, Query(ge=1, le=100)]
 
 
 @router.get("", response_model=PageResponse[AuditLogResponse])
 async def list_audit_logs(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[CurrentUser, Depends(require_permission("audit_logs", "read"))],
-    action: list[AuditAction] | None = _query_none,
-    resource_type: list[ResourceType] | None = _query_none,
-    username: str | None = _query_none,
-    user_id: uuid.UUID | None = _query_none,
-    tenant_id: uuid.UUID | None = _query_none,
-    start_time: str | None = _query_none,
-    end_time: str | None = _query_none,
-    page: int = _query_page,
-    page_size: int = _query_page_size,
+    action: _OptActionList = None,
+    resource_type: _OptResourceList = None,
+    username: _OptStr = None,
+    user_id: _OptUUID = None,
+    tenant_id: _OptUUID = None,
+    start_time: _OptStr = None,
+    end_time: _OptStr = None,
+    page: _Page = 1,
+    page_size: _PageSize = 20,
 ) -> PageResponse[AuditLogResponse]:
     from datetime import datetime
 

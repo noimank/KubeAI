@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import secrets
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import httpx
 import structlog
-from authlib.integrations.httpx_client import AsyncOAuth2Client
+from authlib.integrations.httpx_client import AsyncOAuth2Client  # type: ignore[import-untyped]
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -40,7 +40,7 @@ class OAuthService:
         cache_key = f"oidc:discovery:{settings.OIDC_ISSUER}"
         cached = await self.redis.get(cache_key)
         if cached:
-            return json.loads(cached)
+            return cast("dict[str, str]", json.loads(cached))
 
         url = f"{settings.OIDC_ISSUER.rstrip('/')}/.well-known/openid-configuration"
         async with httpx.AsyncClient() as client:
@@ -50,7 +50,7 @@ class OAuthService:
             doc = resp.json()
 
         await self.redis.setex(cache_key, DISCOVERY_CACHE_TTL, json.dumps(doc))
-        return doc
+        return cast("dict[str, str]", doc)
 
     async def get_authorization_url(self, redirect_uri: str) -> tuple[str, str]:
         discovery = await self._get_discovery()

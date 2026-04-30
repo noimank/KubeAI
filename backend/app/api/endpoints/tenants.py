@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, select
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.exceptions import ConflictException
 from app.models.enums import TenantStatus
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.tenant import (
@@ -27,7 +28,7 @@ from app.services.invitation_service import InvitationService
 from app.services.tenant_service import TenantService
 
 
-def _audit_ctx(request: Request, user: User) -> dict:
+def _audit_ctx(request: Request, user: User) -> dict[str, Any]:
     return {
         "user_id": user.id,
         "ip_address": request.client.host if request.client else "unknown",
@@ -168,7 +169,7 @@ async def _get_member_count(db: AsyncSession, tenant_id: uuid.UUID) -> int:
     return result.scalar_one()
 
 
-def _build_tenant_response(tenant, member_count: int = 0) -> TenantResponse:
+def _build_tenant_response(tenant: Tenant, member_count: int = 0) -> TenantResponse:
     return TenantResponse(
         id=tenant.id,
         name=tenant.name,

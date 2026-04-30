@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,7 @@ class AuditService:
         user_id: uuid.UUID | None = None,
         tenant_id: uuid.UUID | None = None,
         resource_id: str | None = None,
-        detail: dict | None = None,
+        detail: dict[str, Any] | None = None,
         user_agent: str | None = None,
         request_id: str | None = None,
     ) -> AuditLog:

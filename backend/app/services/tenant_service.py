@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import logging
-import uuid
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     BadRequestException,
@@ -24,8 +25,15 @@ from app.integrations.k8s.resource_quota import (
 from app.models.enums import AuditAction, ResourceType, TenantStatus, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.schemas.tenant import TenantCreateRequest, TenantQuotaUpdateRequest, TenantUpdateRequest
 from app.services.audit_service import AuditService
+
+if TYPE_CHECKING:
+    import uuid
+    from collections.abc import Callable
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.schemas.tenant import TenantCreateRequest, TenantQuotaUpdateRequest, TenantUpdateRequest
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +42,7 @@ class TenantService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_tenant(self, req: TenantCreateRequest, audit_context: dict | None = None) -> Tenant:
+    async def create_tenant(self, req: TenantCreateRequest, audit_context: dict[str, Any] | None = None) -> Tenant:
         existing = await self.db.execute(select(Tenant).where(Tenant.name == req.name))
         if existing.scalar_one_or_none() is not None:
             raise ConflictException("租户名称已存在")
@@ -87,7 +95,7 @@ class TenantService:
 
         return tenant
 
-    async def list_tenants(self, page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
+    async def list_tenants(self, page: int = 1, page_size: int = 20) -> tuple[list[dict[str, Any]], int]:
         count_result = await self.db.execute(select(func.count()).select_from(Tenant))
         total = count_result.scalar_one()
 
@@ -136,7 +144,7 @@ class TenantService:
             raise NotFoundException("租户不存在")
         return tenant
 
-    async def get_tenant_detail(self, tenant_id: uuid.UUID) -> dict:
+    async def get_tenant_detail(self, tenant_id: uuid.UUID) -> dict[str, Any]:
         tenant = await self.get_tenant(tenant_id)
         member_count_result = await self.db.execute(
             select(func.count()).select_from(User).where(User.tenant_id == tenant_id)
@@ -159,7 +167,7 @@ class TenantService:
         }
 
     async def update_tenant(
-        self, tenant_id: uuid.UUID, req: TenantUpdateRequest, audit_context: dict | None = None
+        self, tenant_id: uuid.UUID, req: TenantUpdateRequest, audit_context: dict[str, Any] | None = None
     ) -> Tenant:
         tenant = await self.get_tenant(tenant_id)
         old_display_name = tenant.display_name
@@ -188,7 +196,7 @@ class TenantService:
         return tenant
 
     async def toggle_tenant_status(
-        self, tenant_id: uuid.UUID, target_status: TenantStatus, audit_context: dict | None = None
+        self, tenant_id: uuid.UUID, target_status: TenantStatus, audit_context: dict[str, Any] | None = None
     ) -> Tenant:
         tenant = await self.get_tenant(tenant_id)
         if tenant.status == target_status:
@@ -214,7 +222,7 @@ class TenantService:
 
         return tenant
 
-    async def delete_tenant(self, tenant_id: uuid.UUID, audit_context: dict | None = None) -> None:
+    async def delete_tenant(self, tenant_id: uuid.UUID, audit_context: dict[str, Any] | None = None) -> None:
         tenant = await self.get_tenant(tenant_id)
         member_count_result = await self.db.execute(
             select(func.count()).select_from(User).where(User.tenant_id == tenant_id)
@@ -225,11 +233,12 @@ class TenantService:
 
         namespace = tenant.k8s_namespace_name
         if namespace:
-            for delete_fn, label in [
-                (lambda ns=namespace: delete_resource_quota(ns), "ResourceQuota"),
-                (lambda ns=namespace: delete_network_policy(ns), "NetworkPolicy"),
-                (lambda ns=namespace: delete_namespace(ns), "Namespace"),
-            ]:
+            cleanup_ops: list[tuple[Callable[[], None], str]] = [
+                (lambda: delete_resource_quota(namespace), "ResourceQuota"),
+                (lambda: delete_network_policy(namespace), "NetworkPolicy"),
+                (lambda: delete_namespace(namespace), "Namespace"),
+            ]
+            for delete_fn, label in cleanup_ops:
                 try:
                     delete_fn()
                 except Exception:
@@ -250,7 +259,7 @@ class TenantService:
         await self.db.flush()
 
     async def update_quota(
-        self, tenant_id: uuid.UUID, req: TenantQuotaUpdateRequest, audit_context: dict | None = None
+        self, tenant_id: uuid.UUID, req: TenantQuotaUpdateRequest, audit_context: dict[str, Any] | None = None
     ) -> Tenant:
         tenant = await self.get_tenant(tenant_id)
 
@@ -330,7 +339,7 @@ class TenantService:
 
         return tenant
 
-    async def get_quota_usage(self, tenant_id: uuid.UUID) -> dict:
+    async def get_quota_usage(self, tenant_id: uuid.UUID) -> dict[str, Any]:
         tenant = await self.get_tenant(tenant_id)
 
         if not tenant.k8s_namespace_name:
@@ -350,7 +359,7 @@ class TenantService:
 
     # --- Member Management ---
 
-    async def list_members(self, tenant_id: uuid.UUID) -> list[dict]:
+    async def list_members(self, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
         await self.get_tenant(tenant_id)
         result = await self.db.execute(
             select(User).where(User.tenant_id == tenant_id, User.deleted_at.is_(None)).order_by(User.created_at.asc())
@@ -374,7 +383,7 @@ class TenantService:
         user_id: uuid.UUID,
         new_role: UserRole,
         current_user_id: uuid.UUID,
-        audit_context: dict | None = None,
+        audit_context: dict[str, Any] | None = None,
     ) -> User:
         if user_id == current_user_id:
             raise BadRequestException("不能修改自己的角色")
@@ -407,7 +416,11 @@ class TenantService:
         return user
 
     async def remove_member(
-        self, tenant_id: uuid.UUID, user_id: uuid.UUID, current_user_id: uuid.UUID, audit_context: dict | None = None
+        self,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+        audit_context: dict[str, Any] | None = None,
     ) -> None:
         if user_id == current_user_id:
             raise BadRequestException("不能移除自己")

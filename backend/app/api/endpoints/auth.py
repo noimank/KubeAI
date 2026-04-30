@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Request
@@ -34,7 +34,7 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
 RedisDep = Annotated[aioredis.Redis, Depends(get_redis)]
 
 
-def _audit_ctx(request: Request) -> dict:
+def _audit_ctx(request: Request) -> dict[str, Any]:
     return {
         "ip_address": request.client.host if request.client else "unknown",
         "user_agent": request.headers.get("user-agent"),

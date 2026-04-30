@@ -499,8 +499,8 @@ export default function TenantDetailPage() {
                   action: action?.length ? action : undefined,
                   resourceType: resourceType?.length ? resourceType : undefined,
                   username: username || undefined,
-                  startTime,
-                  endTime,
+                  startTime: startTime || undefined,
+                  endTime: endTime || undefined,
                 })
                 return {
                   data: res.data?.items || [],
