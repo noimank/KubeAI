@@ -49,3 +49,11 @@ export interface VersionStats {
   totalSizeBytes: number
   fileTypeDistribution: FileTypeDistribution[]
 }
+
+export interface DatasetMountInfo {
+  pvcName: string
+  mountPath: string
+  accessMode: string
+  storageRequest: string
+  pvcStatus: string
+}

@@ -285,6 +285,80 @@ class DatasetService:
             ext_counter[ext]["total_size_bytes"] += f["size_bytes"]
         return sorted(ext_counter.values(), key=lambda x: x["count"], reverse=True)
 
+    async def ensure_dataset_pvc(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        from app.integrations.k8s.namespace import make_namespace_name
+        from app.integrations.k8s.pvc import create_pvc, make_dataset_pvc_name
+
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
+        version = await self._get_version_or_fail(version_id, dataset_id)
+
+        namespace = make_namespace_name(str(tenant_id))
+        pvc_name = make_dataset_pvc_name(str(dataset_id), str(version_id))
+        mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
+
+        size_bytes = version.total_size_bytes or 0
+        size_gb = max(1, -(-size_bytes // (1024**3)))
+        storage_request = f"{size_gb}Gi"
+
+        pvc = await asyncio.to_thread(create_pvc, namespace, pvc_name, storage_request)
+
+        return {
+            "pvc_name": pvc_name,
+            "mount_path": mount_path,
+            "access_mode": "ReadWriteMany",
+            "storage_request": storage_request,
+            "pvc_status": pvc.status.phase if pvc.status else "Unknown",
+        }
+
+    async def get_dataset_mount_info(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        from app.integrations.k8s.namespace import make_namespace_name
+        from app.integrations.k8s.pvc import get_pvc, make_dataset_pvc_name
+
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
+        version = await self._get_version_or_fail(version_id, dataset_id)
+
+        namespace = make_namespace_name(str(tenant_id))
+        pvc_name = make_dataset_pvc_name(str(dataset_id), str(version_id))
+        mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
+
+        pvc = await asyncio.to_thread(get_pvc, namespace, pvc_name)
+
+        return {
+            "pvc_name": pvc_name,
+            "mount_path": mount_path,
+            "access_mode": "ReadWriteMany",
+            "storage_request": pvc.spec.resources.requests.get("storage", "0Gi"),
+            "pvc_status": pvc.status.phase if pvc.status else "Unknown",
+            "minio_bucket": str(tenant_id),
+            "minio_prefix": version.storage_path,
+        }
+
+    async def delete_dataset_pvc(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> None:
+        from app.integrations.k8s.namespace import make_namespace_name
+        from app.integrations.k8s.pvc import delete_pvc, make_dataset_pvc_name
+
+        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        await self._get_version_or_fail(version_id, dataset_id)
+
+        namespace = make_namespace_name(str(tenant_id))
+        pvc_name = make_dataset_pvc_name(str(dataset_id), str(version_id))
+        await asyncio.to_thread(delete_pvc, namespace, pvc_name)
+
     async def _get_dataset_or_fail(self, dataset_id: uuid.UUID, tenant_id: uuid.UUID) -> Dataset:
         result = await self.db.execute(
             select(Dataset)

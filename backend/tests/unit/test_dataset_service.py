@@ -572,3 +572,108 @@ class TestComputeFileTypeDistribution:
     def test_distribution_empty(self, service):
         result = service._compute_file_type_distribution([])
         assert result == []
+
+
+class TestEnsureDatasetPvc:
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_ensure_pvc_creates_new(self, mock_to_thread, service, mock_db):
+        dataset = _make_dataset(name="mnist")
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        version.total_size_bytes = 0
+        dataset.versions = [version]
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+
+        mock_pvc = MagicMock()
+        mock_pvc.status.phase = "Bound"
+        mock_to_thread.return_value = mock_pvc
+
+        result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
+
+        assert result["pvc_name"] == f"dataset-{str(dataset.id)[:8]}-v{str(version.id)[:8]}"
+        assert result["mount_path"] == "/data/datasets/mnist/v1"
+        assert result["access_mode"] == "ReadWriteMany"
+        assert result["storage_request"] == "1Gi"
+        assert result["pvc_status"] == "Bound"
+
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_ensure_pvc_storage_size_rounds_up(self, mock_to_thread, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=2)
+        version.total_size_bytes = 1_500_000_000  # ~1.5 GB → 2Gi
+        dataset.versions = [version]
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+
+        mock_pvc = MagicMock()
+        mock_pvc.status.phase = "Bound"
+        mock_to_thread.return_value = mock_pvc
+
+        result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
+        assert result["storage_request"] == "2Gi"
+
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_ensure_pvc_zero_bytes(self, mock_to_thread, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        version.total_size_bytes = 0
+        dataset.versions = [version]
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+
+        mock_pvc = MagicMock()
+        mock_pvc.status.phase = "Pending"
+        mock_to_thread.return_value = mock_pvc
+
+        result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
+        assert result["storage_request"] == "1Gi"
+
+    async def test_ensure_pvc_dataset_not_found(self, service, mock_db):
+        mock_db.execute.return_value = _sync_result(None)
+
+        with pytest.raises(NotFoundException, match="数据集不存在"):
+            await service.ensure_dataset_pvc(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+
+
+class TestGetDatasetMountInfo:
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_get_mount_info_success(self, mock_to_thread, service, mock_db):
+        dataset = _make_dataset(name="cifar10")
+        version = _make_version(dataset_id=dataset.id, version_number=3)
+        dataset.versions = [version]
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+
+        mock_pvc = MagicMock()
+        mock_pvc.status.phase = "Bound"
+        mock_pvc.spec.resources.requests = {"storage": "5Gi"}
+        mock_to_thread.return_value = mock_pvc
+
+        result = await service.get_dataset_mount_info(dataset.id, version.id, dataset.tenant_id)
+
+        assert result["mount_path"] == "/data/datasets/cifar10/v3"
+        assert result["pvc_status"] == "Bound"
+        assert result["storage_request"] == "5Gi"
+        assert result["minio_bucket"] == str(dataset.tenant_id)
+        assert result["minio_prefix"] == version.storage_path
+
+    async def test_get_mount_info_dataset_not_found(self, service, mock_db):
+        mock_db.execute.return_value = _sync_result(None)
+
+        with pytest.raises(NotFoundException, match="数据集不存在"):
+            await service.get_dataset_mount_info(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+
+
+class TestDeleteDatasetPvc:
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_delete_pvc_success(self, mock_to_thread, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        dataset.versions = [version]
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        mock_to_thread.return_value = None
+
+        await service.delete_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
+        mock_to_thread.assert_called_once()
+
+    async def test_delete_pvc_dataset_not_found(self, service, mock_db):
+        mock_db.execute.return_value = _sync_result(None)
+
+        with pytest.raises(NotFoundException, match="数据集不存在"):
+            await service.delete_dataset_pvc(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())

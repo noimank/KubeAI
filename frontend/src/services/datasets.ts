@@ -3,6 +3,7 @@ import type { BaseResponse, PageData } from '@/types/api'
 import type {
   Dataset,
   DatasetDetail,
+  DatasetMountInfo,
   DatasetVersion,
   VersionFile,
   VersionStats,
@@ -91,4 +92,34 @@ export async function getFileDownloadUrl(
     { fileName },
   )
   return res.data.data!
+}
+
+export async function mountDatasetVersion(
+  datasetId: string,
+  versionId: string,
+): Promise<DatasetMountInfo> {
+  const res = await api.post<BaseResponse<DatasetMountInfo>>(
+    `/datasets/${datasetId}/versions/${versionId}/mount`,
+  )
+  return res.data.data!
+}
+
+export async function getDatasetMountInfo(
+  datasetId: string,
+  versionId: string,
+): Promise<DatasetMountInfo> {
+  const res = await api.get<BaseResponse<DatasetMountInfo>>(
+    `/datasets/${datasetId}/versions/${versionId}/mount`,
+  )
+  return res.data.data!
+}
+
+export async function unmountDatasetVersion(
+  datasetId: string,
+  versionId: string,
+): Promise<BaseResponse<null>> {
+  const res = await api.delete<BaseResponse<null>>(
+    `/datasets/${datasetId}/versions/${versionId}/mount`,
+  )
+  return res.data
 }

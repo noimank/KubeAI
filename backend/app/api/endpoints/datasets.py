@@ -15,6 +15,7 @@ from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.dataset import (
     DatasetCreateRequest,
     DatasetDetailResponse,
+    DatasetMountInfoResponse,
     DatasetResponse,
     DatasetVersionCreateRequest,
     DatasetVersionResponse,
@@ -302,6 +303,57 @@ async def get_file_download_url(
     service = DatasetService(db, minio)
     url = await service.get_file_download_url(dataset_id, version_id, body.file_name, tenant_id)
     return BaseResponse(data=url, message="获取成功")
+
+
+@router.post(
+    "/{dataset_id}/versions/{version_id}/mount",
+    response_model=BaseResponse[DatasetMountInfoResponse],
+)
+async def mount_dataset_version(
+    dataset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: DbDep,
+    minio: MinioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
+) -> BaseResponse[DatasetMountInfoResponse]:
+    tenant_id = _require_tenant_id(user)
+    service = DatasetService(db, minio)
+    mount_info = await service.ensure_dataset_pvc(dataset_id, version_id, tenant_id)
+    return BaseResponse(data=DatasetMountInfoResponse(**mount_info), message="挂载成功")
+
+
+@router.get(
+    "/{dataset_id}/versions/{version_id}/mount",
+    response_model=BaseResponse[DatasetMountInfoResponse],
+)
+async def get_mount_info(
+    dataset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: DbDep,
+    minio: MinioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
+) -> BaseResponse[DatasetMountInfoResponse]:
+    tenant_id = _require_tenant_id(user)
+    service = DatasetService(db, minio)
+    mount_info = await service.get_dataset_mount_info(dataset_id, version_id, tenant_id)
+    return BaseResponse(data=DatasetMountInfoResponse(**mount_info), message="查询成功")
+
+
+@router.delete(
+    "/{dataset_id}/versions/{version_id}/mount",
+    response_model=BaseResponse[None],
+)
+async def unmount_dataset_version(
+    dataset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: DbDep,
+    minio: MinioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("datasets", "manage"))],
+) -> BaseResponse[None]:
+    tenant_id = _require_tenant_id(user)
+    service = DatasetService(db, minio)
+    await service.delete_dataset_pvc(dataset_id, version_id, tenant_id)
+    return BaseResponse(message="卸载成功")
 
 
 def _require_tenant_id(user: Any) -> uuid.UUID:

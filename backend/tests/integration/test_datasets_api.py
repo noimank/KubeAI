@@ -429,3 +429,117 @@ async def test_get_file_download_url(mock_to_thread, mock_enforce, mock_get_mini
     body = response.json()
     assert body["success"] is True
     assert body["data"] == "https://minio.example.com/download-url"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.endpoints.datasets.get_minio_client")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.dataset_service.asyncio.to_thread")
+async def test_mount_dataset_version(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+    mock_get_minio.return_value = _mock_minio()
+    _tenant, token = await _create_tenant_with_user(client, admin_headers)
+    user_headers = {"Authorization": f"Bearer {token}"}
+
+    create_resp = await client.post(
+        "/api/datasets",
+        json={"name": "mount-ds", "description": "Mount test"},
+        headers=user_headers,
+    )
+    dataset_id = create_resp.json()["data"]["id"]
+
+    version_resp = await client.post(
+        f"/api/datasets/{dataset_id}/versions",
+        json={"description": "v1"},
+        headers=user_headers,
+    )
+    version_id = version_resp.json()["data"]["id"]
+
+    mock_pvc = MagicMock()
+    mock_pvc.status.phase = "Bound"
+    mock_to_thread.return_value = mock_pvc
+
+    response = await client.post(
+        f"/api/datasets/{dataset_id}/versions/{version_id}/mount",
+        headers=user_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["pvc_name"].startswith("dataset-")
+    assert body["data"]["mount_path"] == "/data/datasets/mount-ds/v1"
+    assert body["data"]["access_mode"] == "ReadWriteMany"
+    assert body["data"]["storage_request"] == "1Gi"
+    assert body["data"]["pvc_status"] == "Bound"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.endpoints.datasets.get_minio_client")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.dataset_service.asyncio.to_thread")
+async def test_get_mount_info(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+    mock_get_minio.return_value = _mock_minio()
+    _tenant, token = await _create_tenant_with_user(client, admin_headers)
+    user_headers = {"Authorization": f"Bearer {token}"}
+
+    create_resp = await client.post(
+        "/api/datasets",
+        json={"name": "mount-info-ds", "description": "Mount info test"},
+        headers=user_headers,
+    )
+    dataset_id = create_resp.json()["data"]["id"]
+
+    version_resp = await client.post(
+        f"/api/datasets/{dataset_id}/versions",
+        json={"description": "v1"},
+        headers=user_headers,
+    )
+    version_id = version_resp.json()["data"]["id"]
+
+    mock_pvc = MagicMock()
+    mock_pvc.status.phase = "Bound"
+    mock_pvc.spec.resources.requests = {"storage": "2Gi"}
+    mock_to_thread.return_value = mock_pvc
+
+    response = await client.get(
+        f"/api/datasets/{dataset_id}/versions/{version_id}/mount",
+        headers=user_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["storage_request"] == "2Gi"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.endpoints.datasets.get_minio_client")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.dataset_service.asyncio.to_thread")
+async def test_unmount_dataset_version(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+    mock_get_minio.return_value = _mock_minio()
+    _tenant, token = await _create_tenant_with_user(client, admin_headers)
+    user_headers = {"Authorization": f"Bearer {token}"}
+
+    create_resp = await client.post(
+        "/api/datasets",
+        json={"name": "unmount-ds", "description": "Unmount test"},
+        headers=user_headers,
+    )
+    dataset_id = create_resp.json()["data"]["id"]
+
+    version_resp = await client.post(
+        f"/api/datasets/{dataset_id}/versions",
+        json={"description": "v1"},
+        headers=user_headers,
+    )
+    version_id = version_resp.json()["data"]["id"]
+
+    mock_to_thread.return_value = None
+
+    response = await client.delete(
+        f"/api/datasets/{dataset_id}/versions/{version_id}/mount",
+        headers=user_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["message"] == "卸载成功"

@@ -34,8 +34,10 @@ import {
   getVersionFiles,
   getVersionStats,
   getFileDownloadUrl,
+  mountDatasetVersion,
+  unmountDatasetVersion,
 } from '@/services/datasets'
-import type { DatasetVersion, VersionFile } from '@/types/dataset'
+import type { DatasetVersion, VersionFile, DatasetMountInfo } from '@/types/dataset'
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'])
 
@@ -56,6 +58,8 @@ export default function DatasetDetailPage() {
   const [uploadingVersionId, setUploadingVersionId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedVersionId, setSelectedVersionId] = useState<string | undefined>()
+  const [mountInfoMap, setMountInfoMap] = useState<Record<string, DatasetMountInfo>>({})
+  const [mountingVersionId, setMountingVersionId] = useState<string | null>(null)
 
   const {
     data: detailRes,
@@ -132,6 +136,30 @@ export default function DatasetDetailPage() {
     },
   })
 
+  const mountMutation = useMutation({
+    mutationFn: (versionId: string) => mountDatasetVersion(id!, versionId),
+    onSuccess: (info, versionId) => {
+      message.success('挂载成功')
+      setMountInfoMap((prev) => ({ ...prev, [versionId]: info }))
+      setMountingVersionId(null)
+    },
+    onError: () => {
+      setMountingVersionId(null)
+    },
+  })
+
+  const unmountMutation = useMutation({
+    mutationFn: (versionId: string) => unmountDatasetVersion(id!, versionId),
+    onSuccess: (_, versionId) => {
+      message.success('卸载成功')
+      setMountInfoMap((prev) => {
+        const next = { ...prev }
+        delete next[versionId]
+        return next
+      })
+    },
+  })
+
   if (isLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
@@ -179,44 +207,86 @@ export default function DatasetDetailPage() {
       width: 180,
     },
     {
+      title: '挂载状态',
+      width: 100,
+      render: (_, record) => {
+        const info = mountInfoMap[record.id]
+        return info ? <Tag color="green">已挂载</Tag> : <Tag>未挂载</Tag>
+      },
+    },
+    {
       title: '操作',
-      width: 160,
-      render: (_, record) => (
-        <Space size="small">
-          {canManage && (
-            <Upload
-              showUploadList={false}
-              beforeUpload={(file) => {
-                uploadMutation.mutate({ versionId: record.id, files: [file] })
-                return false
-              }}
-            >
+      width: 240,
+      render: (_, record) => {
+        const info = mountInfoMap[record.id]
+        return (
+          <Space size="small">
+            {hasPermission('datasets:read') && !info && (
               <Button
                 type="link"
                 size="small"
-                icon={<UploadOutlined />}
-                loading={uploadMutation.isPending && uploadingVersionId === record.id}
-                onClick={() => setUploadingVersionId(record.id)}
+                loading={mountMutation.isPending && mountingVersionId === record.id}
+                onClick={() => {
+                  setMountingVersionId(record.id)
+                  mountMutation.mutate(record.id)
+                }}
               >
-                上传文件
+                挂载
               </Button>
-            </Upload>
-          )}
-          {canManage && (
-            <Popconfirm
-              title="确认删除该版本？"
-              description="删除后，版本内的所有文件将被永久清除。"
-              onConfirm={() => deleteVersionMutation.mutate(record.id)}
-              okText="确认"
-              cancelText="取消"
-            >
-              <Button type="link" size="small" danger>
-                删除
-              </Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+            )}
+            {info && (
+              <>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{info.pvcName}</span>
+                {canManage && (
+                  <Popconfirm
+                    title="确认卸载？"
+                    description="卸载后 PVC 将被删除，正在使用的任务可能受影响。"
+                    onConfirm={() => unmountMutation.mutate(record.id)}
+                    okText="确认"
+                    cancelText="取消"
+                  >
+                    <Button type="link" size="small" danger>
+                      卸载
+                    </Button>
+                  </Popconfirm>
+                )}
+              </>
+            )}
+            {canManage && (
+              <Upload
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  uploadMutation.mutate({ versionId: record.id, files: [file] })
+                  return false
+                }}
+              >
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<UploadOutlined />}
+                  loading={uploadMutation.isPending && uploadingVersionId === record.id}
+                  onClick={() => setUploadingVersionId(record.id)}
+                >
+                  上传文件
+                </Button>
+              </Upload>
+            )}
+            {canManage && (
+              <Popconfirm
+                title="确认删除该版本？"
+                description="删除后，版本内的所有文件将被永久清除。"
+                onConfirm={() => deleteVersionMutation.mutate(record.id)}
+                okText="确认"
+                cancelText="取消"
+              >
+                <Button type="link" size="small" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
+        )
+      },
     },
   ]
 
