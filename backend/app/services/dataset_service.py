@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import date, timedelta
 from io import BytesIO
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
@@ -222,6 +223,67 @@ class DatasetService:
 
         await self.db.delete(dataset)
         await self.db.flush()
+
+    async def list_version_files(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> list[dict[str, Any]]:
+        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        version = await self._get_version_or_fail(version_id, dataset_id)
+        prefix = f"datasets/{dataset_id}/v{version.version_number}/"
+        objects = await asyncio.to_thread(self.minio.list_objects, tenant_id, prefix)
+        return [
+            {
+                "file_name": obj["object_name"].removeprefix(prefix),
+                "size_bytes": obj["size"],
+                "content_type": obj["content_type"],
+                "last_modified": obj["last_modified"],
+            }
+            for obj in objects
+        ]
+
+    async def get_version_stats(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        version = await self._get_version_or_fail(version_id, dataset_id)
+        files = await self.list_version_files(dataset_id, version_id, tenant_id)
+        distribution = self._compute_file_type_distribution(files)
+        return {
+            "version_id": str(version.id),
+            "version_number": version.version_number,
+            "file_count": len(files),
+            "total_size_bytes": sum(f["size_bytes"] for f in files),
+            "file_type_distribution": distribution,
+        }
+
+    async def get_file_download_url(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        file_name: str,
+        tenant_id: uuid.UUID,
+    ) -> str:
+        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        version = await self._get_version_or_fail(version_id, dataset_id)
+        object_name = f"datasets/{dataset_id}/v{version.version_number}/{file_name}"
+        return await asyncio.to_thread(self.minio.presigned_get_url, tenant_id, object_name)
+
+    def _compute_file_type_distribution(self, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        ext_counter: dict[str, dict[str, Any]] = {}
+        for f in files:
+            name = f["file_name"]
+            ext = Path(name).suffix.lower() if "." in name else "(无扩展名)"
+            if ext not in ext_counter:
+                ext_counter[ext] = {"extension": ext, "count": 0, "total_size_bytes": 0}
+            ext_counter[ext]["count"] += 1
+            ext_counter[ext]["total_size_bytes"] += f["size_bytes"]
+        return sorted(ext_counter.values(), key=lambda x: x["count"], reverse=True)
 
     async def _get_dataset_or_fail(self, dataset_id: uuid.UUID, tenant_id: uuid.UUID) -> Dataset:
         result = await self.db.execute(

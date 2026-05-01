@@ -5,18 +5,22 @@ import {
   Button,
   Card,
   Descriptions,
+  Empty,
+  Image,
   Input,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Spin,
   Statistic,
   Table,
   Tabs,
+  Tag,
   message,
   Upload,
 } from 'antd'
-import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRbacStore } from '@/stores/rbacStore'
@@ -27,8 +31,18 @@ import {
   createDatasetVersion,
   deleteDatasetVersion,
   uploadVersionFiles,
+  getVersionFiles,
+  getVersionStats,
+  getFileDownloadUrl,
 } from '@/services/datasets'
-import type { DatasetVersion } from '@/types/dataset'
+import type { DatasetVersion, VersionFile } from '@/types/dataset'
+
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'])
+
+function isImageFile(fileName: string): boolean {
+  const ext = fileName.split('.').pop()?.toLowerCase() || ''
+  return IMAGE_EXTENSIONS.has(ext)
+}
 
 export default function DatasetDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -40,6 +54,8 @@ export default function DatasetDetailPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [newVersionDesc, setNewVersionDesc] = useState('')
   const [uploadingVersionId, setUploadingVersionId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState('overview')
+  const [selectedVersionId, setSelectedVersionId] = useState<string | undefined>()
 
   const {
     data: detailRes,
@@ -52,6 +68,26 @@ export default function DatasetDetailPage() {
   })
 
   const dataset = detailRes?.data
+
+  const versions: DatasetVersion[] = dataset?.versions || []
+
+  // 默认选中最新版本
+  const latestVersionId = versions.length > 0 ? versions[versions.length - 1].id : undefined
+  const effectiveVersionId = selectedVersionId || latestVersionId
+
+  const { data: filesData, isLoading: filesLoading } = useQuery({
+    queryKey: ['version-files', id, effectiveVersionId],
+    queryFn: () => getVersionFiles(id!, effectiveVersionId!),
+    enabled: !!effectiveVersionId && activeTab === 'preview',
+  })
+
+  const { data: statsData } = useQuery({
+    queryKey: ['version-stats', id, effectiveVersionId],
+    queryFn: () => getVersionStats(id!, effectiveVersionId!),
+    enabled: !!effectiveVersionId && activeTab === 'preview',
+  })
+
+  const files: VersionFile[] = filesData || []
 
   const deleteDatasetMutation = useMutation({
     mutationFn: () => deleteDataset(id!),
@@ -89,6 +125,13 @@ export default function DatasetDetailPage() {
     },
   })
 
+  const downloadMutation = useMutation({
+    mutationFn: (fileName: string) => getFileDownloadUrl(id!, effectiveVersionId!, fileName),
+    onSuccess: (url) => {
+      window.open(url, '_blank')
+    },
+  })
+
   if (isLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
@@ -105,8 +148,6 @@ export default function DatasetDetailPage() {
       </div>
     )
   }
-
-  const versions: DatasetVersion[] = dataset.versions || []
 
   const versionColumns: ColumnsType<DatasetVersion> = [
     {
@@ -179,6 +220,66 @@ export default function DatasetDetailPage() {
     },
   ]
 
+  const fileColumns: ColumnsType<VersionFile> = [
+    {
+      title: '文件名',
+      dataIndex: 'fileName',
+      ellipsis: true,
+      render: (val: string) => {
+        if (isImageFile(val)) {
+          return (
+            <Space>
+              <Image
+                src={undefined}
+                width={50}
+                height={50}
+                style={{ objectFit: 'cover', borderRadius: 4 }}
+                preview={false}
+                placeholder
+                fallback="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjUwIiBoZWlnaHQ9IjUwIiBmaWxsPSIjZjBmMGYwIi8+PC9zdmc+"
+              />
+              {val}
+            </Space>
+          )
+        }
+        return val
+      },
+    },
+    {
+      title: '大小',
+      dataIndex: 'sizeBytes',
+      width: 120,
+      render: (val: number) => formatFileSize(val),
+    },
+    {
+      title: '类型',
+      dataIndex: 'contentType',
+      width: 160,
+      ellipsis: true,
+    },
+    {
+      title: '最后修改时间',
+      dataIndex: 'lastModified',
+      width: 200,
+      render: (val: string) => (val ? new Date(val).toLocaleString('zh-CN') : '-'),
+    },
+    {
+      title: '操作',
+      width: 80,
+      render: (_, record) => (
+        <Button
+          type="link"
+          size="small"
+          icon={<DownloadOutlined />}
+          loading={downloadMutation.isPending}
+          onClick={() => downloadMutation.mutate(record.fileName)}
+        >
+          下载
+        </Button>
+      ),
+    },
+  ]
+
   return (
     <div style={{ padding: 0 }}>
       <Breadcrumb
@@ -209,6 +310,8 @@ export default function DatasetDetailPage() {
       </div>
 
       <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
         items={[
           {
             key: 'overview',
@@ -249,6 +352,66 @@ export default function DatasetDetailPage() {
                 pagination={false}
                 size="small"
               />
+            ),
+          },
+          {
+            key: 'preview',
+            label: '预览',
+            children: (
+              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                <Card size="small">
+                  <Space size="large" align="center">
+                    <span>版本选择：</span>
+                    <Select
+                      value={effectiveVersionId}
+                      onChange={setSelectedVersionId}
+                      style={{ width: 200 }}
+                      options={versions.map((v) => ({
+                        value: v.id,
+                        label: `v${v.versionNumber}`,
+                      }))}
+                    />
+                    {statsData && (
+                      <>
+                        <Statistic title="文件数" value={statsData.fileCount} />
+                        <Statistic
+                          title="总大小"
+                          value={formatFileSize(statsData.totalSizeBytes)}
+                        />
+                        <Statistic
+                          title="文件类型数"
+                          value={statsData.fileTypeDistribution.length}
+                        />
+                      </>
+                    )}
+                  </Space>
+                </Card>
+
+                {statsData && statsData.fileTypeDistribution.length > 0 && (
+                  <Card size="small">
+                    <span style={{ marginRight: 8 }}>文件类型分布：</span>
+                    {statsData.fileTypeDistribution.map((d) => (
+                      <Tag key={d.extension}>
+                        {d.extension}({d.count})
+                      </Tag>
+                    ))}
+                  </Card>
+                )}
+
+                <Spin spinning={filesLoading}>
+                  {files.length > 0 ? (
+                    <Table<VersionFile>
+                      rowKey="fileName"
+                      columns={fileColumns}
+                      dataSource={files}
+                      pagination={false}
+                      size="small"
+                    />
+                  ) : (
+                    !filesLoading && <Empty description="暂无文件，请先上传文件" />
+                  )}
+                </Spin>
+              </Space>
             ),
           },
         ]}

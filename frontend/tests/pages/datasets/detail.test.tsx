@@ -29,9 +29,15 @@ vi.mock('@/services/datasets', () => ({
   createDatasetVersion: vi.fn(),
   deleteDatasetVersion: vi.fn(),
   uploadVersionFiles: vi.fn(),
+  getVersionFiles: vi.fn(),
+  getVersionStats: vi.fn(),
+  getFileDownloadUrl: vi.fn(),
 }))
 
 const mockGetDatasetDetail = vi.mocked(await import('@/services/datasets')).getDatasetDetail
+const mockGetVersionFiles = vi.mocked(await import('@/services/datasets')).getVersionFiles
+const mockGetVersionStats = vi.mocked(await import('@/services/datasets')).getVersionStats
+const mockGetFileDownloadUrl = vi.mocked(await import('@/services/datasets')).getFileDownloadUrl
 
 const mockDataset = {
   id: 'ds-1',
@@ -219,5 +225,165 @@ describe('DatasetDetailPage', () => {
       expect(screen.getByText('v1')).toBeTruthy()
       expect(screen.getByText('v2')).toBeTruthy()
     })
+  })
+
+  it('should render preview tab label', async () => {
+    mockGetDatasetDetail.mockResolvedValueOnce({
+      success: true,
+      data: mockDataset,
+    })
+
+    renderPage()
+
+    await waitForDataset()
+
+    expect(screen.getByText('预览')).toBeTruthy()
+  })
+
+  it('should show file list when preview tab is active', async () => {
+    mockGetDatasetDetail.mockResolvedValueOnce({
+      success: true,
+      data: mockDataset,
+    })
+    mockGetVersionFiles.mockResolvedValueOnce([
+      {
+        fileName: 'data.csv',
+        sizeBytes: 1024,
+        contentType: 'text/csv',
+        lastModified: '2026-05-01T00:00:00Z',
+      },
+      {
+        fileName: 'image.png',
+        sizeBytes: 2048,
+        contentType: 'image/png',
+        lastModified: '2026-05-01T00:00:00Z',
+      },
+    ])
+    mockGetVersionStats.mockResolvedValueOnce({
+      versionId: 'v-2',
+      versionNumber: 2,
+      fileCount: 2,
+      totalSizeBytes: 3072,
+      fileTypeDistribution: [
+        { extension: '.csv', count: 1, totalSizeBytes: 1024 },
+        { extension: '.png', count: 1, totalSizeBytes: 2048 },
+      ],
+    })
+
+    renderPage()
+
+    await waitForDataset()
+
+    const previewTab = screen.getByText('预览')
+    await userEvent.click(previewTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('data.csv')).toBeTruthy()
+      expect(screen.getByText('image.png')).toBeTruthy()
+    })
+
+    expect(mockGetVersionFiles).toHaveBeenCalledWith('ds-1', 'v-2')
+  })
+
+  it('should show stats when preview tab is active', async () => {
+    mockGetDatasetDetail.mockResolvedValueOnce({
+      success: true,
+      data: mockDataset,
+    })
+    mockGetVersionFiles.mockResolvedValueOnce([])
+    mockGetVersionStats.mockResolvedValueOnce({
+      versionId: 'v-2',
+      versionNumber: 2,
+      fileCount: 3,
+      totalSizeBytes: 1024,
+      fileTypeDistribution: [
+        { extension: '.csv', count: 2, totalSizeBytes: 512 },
+        { extension: '.json', count: 1, totalSizeBytes: 512 },
+      ],
+    })
+
+    renderPage()
+
+    await waitForDataset()
+
+    const previewTab = screen.getByText('预览')
+    await userEvent.click(previewTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('.csv(2)')).toBeTruthy()
+      expect(screen.getByText('.json(1)')).toBeTruthy()
+    })
+  })
+
+  it('should show empty state when no files', async () => {
+    mockGetDatasetDetail.mockResolvedValueOnce({
+      success: true,
+      data: mockDataset,
+    })
+    mockGetVersionFiles.mockResolvedValueOnce([])
+    mockGetVersionStats.mockResolvedValueOnce({
+      versionId: 'v-2',
+      versionNumber: 2,
+      fileCount: 0,
+      totalSizeBytes: 0,
+      fileTypeDistribution: [],
+    })
+
+    renderPage()
+
+    await waitForDataset()
+
+    const previewTab = screen.getByText('预览')
+    await userEvent.click(previewTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('暂无文件，请先上传文件')).toBeTruthy()
+    })
+  })
+
+  it('should call download when download button clicked', async () => {
+    mockGetDatasetDetail.mockResolvedValueOnce({
+      success: true,
+      data: mockDataset,
+    })
+    mockGetVersionFiles.mockResolvedValueOnce([
+      {
+        fileName: 'data.csv',
+        sizeBytes: 1024,
+        contentType: 'text/csv',
+        lastModified: '2026-05-01T00:00:00Z',
+      },
+    ])
+    mockGetVersionStats.mockResolvedValueOnce({
+      versionId: 'v-2',
+      versionNumber: 2,
+      fileCount: 1,
+      totalSizeBytes: 1024,
+      fileTypeDistribution: [{ extension: '.csv', count: 1, totalSizeBytes: 1024 }],
+    })
+    mockGetFileDownloadUrl.mockResolvedValueOnce('https://minio.example.com/download')
+
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+
+    renderPage()
+
+    await waitForDataset()
+
+    const previewTab = screen.getByText('预览')
+    await userEvent.click(previewTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('data.csv')).toBeTruthy()
+    })
+
+    const downloadBtn = screen.getByText('下载')
+    await userEvent.click(downloadBtn)
+
+    await waitFor(() => {
+      expect(mockGetFileDownloadUrl).toHaveBeenCalledWith('ds-1', 'v-2', 'data.csv')
+      expect(openSpy).toHaveBeenCalledWith('https://minio.example.com/download', '_blank')
+    })
+
+    openSpy.mockRestore()
   })
 })

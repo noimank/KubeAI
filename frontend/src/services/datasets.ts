@@ -1,6 +1,12 @@
 import { api } from './api'
 import type { BaseResponse, PageData } from '@/types/api'
-import type { Dataset, DatasetDetail, DatasetVersion } from '@/types/dataset'
+import type {
+  Dataset,
+  DatasetDetail,
+  DatasetVersion,
+  VersionFile,
+  VersionStats,
+} from '@/types/dataset'
 
 export async function getDatasets(params: {
   current: number
@@ -56,4 +62,33 @@ export async function uploadVersionFiles(
     formData,
   )
   return res.data
+}
+
+export async function getVersionFiles(
+  datasetId: string,
+  versionId: string,
+): Promise<VersionFile[]> {
+  const res = await api.get<BaseResponse<VersionFile[]>>(
+    `/datasets/${datasetId}/versions/${versionId}/files`,
+  )
+  return res.data.data!
+}
+
+export async function getVersionStats(datasetId: string, versionId: string): Promise<VersionStats> {
+  const res = await api.get<BaseResponse<VersionStats>>(
+    `/datasets/${datasetId}/versions/${versionId}/stats`,
+  )
+  return res.data.data!
+}
+
+export async function getFileDownloadUrl(
+  datasetId: string,
+  versionId: string,
+  fileName: string,
+): Promise<string> {
+  const res = await api.post<BaseResponse<string>>(
+    `/datasets/${datasetId}/versions/${versionId}/files/download-url`,
+    { fileName },
+  )
+  return res.data.data!
 }

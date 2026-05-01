@@ -28,3 +28,24 @@ export interface Dataset {
 export interface DatasetDetail extends Dataset {
   versions: DatasetVersion[]
 }
+
+export interface VersionFile {
+  fileName: string
+  sizeBytes: number
+  contentType: string
+  lastModified: string
+}
+
+export interface FileTypeDistribution {
+  extension: string
+  count: number
+  totalSizeBytes: number
+}
+
+export interface VersionStats {
+  versionId: string
+  versionNumber: number
+  fileCount: number
+  totalSizeBytes: number
+  fileTypeDistribution: FileTypeDistribution[]
+}

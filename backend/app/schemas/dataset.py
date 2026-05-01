@@ -49,3 +49,28 @@ class FileUploadResponse(BaseModel):
     object_name: str
     size_bytes: int
     content_type: str
+
+
+class FileVersionFileResponse(BaseModel):
+    file_name: str
+    size_bytes: int
+    content_type: str
+    last_modified: datetime
+
+
+class FileTypeDistribution(BaseModel):
+    extension: str
+    count: int
+    total_size_bytes: int
+
+
+class VersionStatsResponse(BaseModel):
+    version_id: uuid.UUID
+    version_number: int
+    file_count: int
+    total_size_bytes: int
+    file_type_distribution: list[FileTypeDistribution]
+
+
+class FileDownloadRequest(BaseModel):
+    file_name: str

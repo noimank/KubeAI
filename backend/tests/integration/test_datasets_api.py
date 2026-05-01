@@ -295,3 +295,137 @@ async def test_delete_version_not_found(mock_to_thread, mock_enforce, mock_get_m
         headers=user_headers,
     )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.endpoints.datasets.get_minio_client")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.dataset_service.asyncio.to_thread")
+async def test_list_version_files(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+    mock_minio = _mock_minio()
+    mock_get_minio.return_value = mock_minio
+    _tenant, token = await _create_tenant_with_user(client, admin_headers)
+    user_headers = {"Authorization": f"Bearer {token}"}
+
+    create_resp = await client.post(
+        "/api/datasets",
+        json={"name": "files-ds", "description": "Files test"},
+        headers=user_headers,
+    )
+    dataset_id = create_resp.json()["data"]["id"]
+
+    version_resp = await client.post(
+        f"/api/datasets/{dataset_id}/versions",
+        json={"description": "v1"},
+        headers=user_headers,
+    )
+    version_id = version_resp.json()["data"]["id"]
+
+    mock_to_thread.return_value = [
+        {
+            "object_name": f"datasets/{dataset_id}/v1/data.csv",
+            "size": 1024,
+            "content_type": "text/csv",
+            "last_modified": "2026-05-01T00:00:00Z",
+        },
+    ]
+
+    response = await client.get(
+        f"/api/datasets/{dataset_id}/versions/{version_id}/files",
+        headers=user_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert len(body["data"]) == 1
+    assert body["data"][0]["file_name"] == "data.csv"
+    assert body["data"][0]["size_bytes"] == 1024
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.endpoints.datasets.get_minio_client")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.dataset_service.asyncio.to_thread")
+async def test_get_version_stats(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+    mock_minio = _mock_minio()
+    mock_get_minio.return_value = mock_minio
+    _tenant, token = await _create_tenant_with_user(client, admin_headers)
+    user_headers = {"Authorization": f"Bearer {token}"}
+
+    create_resp = await client.post(
+        "/api/datasets",
+        json={"name": "stats-ds", "description": "Stats test"},
+        headers=user_headers,
+    )
+    dataset_id = create_resp.json()["data"]["id"]
+
+    version_resp = await client.post(
+        f"/api/datasets/{dataset_id}/versions",
+        json={"description": "v1"},
+        headers=user_headers,
+    )
+    version_id = version_resp.json()["data"]["id"]
+
+    mock_to_thread.return_value = [
+        {
+            "object_name": f"datasets/{dataset_id}/v1/a.csv",
+            "size": 100,
+            "content_type": "text/csv",
+            "last_modified": "2026-05-01T00:00:00Z",
+        },
+        {
+            "object_name": f"datasets/{dataset_id}/v1/b.csv",
+            "size": 200,
+            "content_type": "text/csv",
+            "last_modified": "2026-05-01T00:00:00Z",
+        },
+    ]
+
+    response = await client.get(
+        f"/api/datasets/{dataset_id}/versions/{version_id}/stats",
+        headers=user_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["file_count"] == 2
+    assert body["data"]["total_size_bytes"] == 300
+    assert len(body["data"]["file_type_distribution"]) == 1
+    assert body["data"]["file_type_distribution"][0]["extension"] == ".csv"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.endpoints.datasets.get_minio_client")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.dataset_service.asyncio.to_thread")
+async def test_get_file_download_url(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+    mock_minio = _mock_minio()
+    mock_minio.presigned_get_url = MagicMock(return_value="https://minio.example.com/download-url")
+    mock_get_minio.return_value = mock_minio
+    _tenant, token = await _create_tenant_with_user(client, admin_headers)
+    user_headers = {"Authorization": f"Bearer {token}"}
+
+    create_resp = await client.post(
+        "/api/datasets",
+        json={"name": "download-ds", "description": "Download test"},
+        headers=user_headers,
+    )
+    dataset_id = create_resp.json()["data"]["id"]
+
+    version_resp = await client.post(
+        f"/api/datasets/{dataset_id}/versions",
+        json={"description": "v1"},
+        headers=user_headers,
+    )
+    version_id = version_resp.json()["data"]["id"]
+
+    mock_to_thread.return_value = "https://minio.example.com/download-url"
+
+    response = await client.post(
+        f"/api/datasets/{dataset_id}/versions/{version_id}/files/download-url",
+        json={"file_name": "data.csv"},
+        headers=user_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"] == "https://minio.example.com/download-url"

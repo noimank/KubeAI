@@ -18,7 +18,10 @@ from app.schemas.dataset import (
     DatasetResponse,
     DatasetVersionCreateRequest,
     DatasetVersionResponse,
+    FileDownloadRequest,
     FileUploadResponse,
+    FileVersionFileResponse,
+    VersionStatsResponse,
 )
 from app.services.dataset_service import DatasetService
 
@@ -245,6 +248,60 @@ async def delete_dataset(
         audit_context=_audit_ctx(request, user),
     )
     return BaseResponse(message="数据集删除成功")
+
+
+@router.get(
+    "/{dataset_id}/versions/{version_id}/files",
+    response_model=BaseResponse[list[FileVersionFileResponse]],
+)
+async def list_version_files(
+    dataset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: DbDep,
+    minio: MinioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
+) -> BaseResponse[list[FileVersionFileResponse]]:
+    tenant_id = _require_tenant_id(user)
+    service = DatasetService(db, minio)
+    files = await service.list_version_files(dataset_id, version_id, tenant_id)
+    data = [FileVersionFileResponse(**f) for f in files]
+    return BaseResponse(data=data, message="查询成功")
+
+
+@router.get(
+    "/{dataset_id}/versions/{version_id}/stats",
+    response_model=BaseResponse[VersionStatsResponse],
+)
+async def get_version_stats(
+    dataset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: DbDep,
+    minio: MinioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
+) -> BaseResponse[VersionStatsResponse]:
+    tenant_id = _require_tenant_id(user)
+    service = DatasetService(db, minio)
+    stats = await service.get_version_stats(dataset_id, version_id, tenant_id)
+    data = VersionStatsResponse(**stats)
+    return BaseResponse(data=data, message="查询成功")
+
+
+@router.post(
+    "/{dataset_id}/versions/{version_id}/files/download-url",
+    response_model=BaseResponse[str],
+)
+async def get_file_download_url(
+    dataset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    body: FileDownloadRequest,
+    db: DbDep,
+    minio: MinioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
+) -> BaseResponse[str]:
+    tenant_id = _require_tenant_id(user)
+    service = DatasetService(db, minio)
+    url = await service.get_file_download_url(dataset_id, version_id, body.file_name, tenant_id)
+    return BaseResponse(data=url, message="获取成功")
 
 
 def _require_tenant_id(user: Any) -> uuid.UUID:

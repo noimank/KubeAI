@@ -62,6 +62,7 @@ def mock_minio():
     m.upload_stream = MagicMock()
     m.list_objects = MagicMock(return_value=[])
     m.delete_objects = MagicMock()
+    m.presigned_get_url = MagicMock(return_value="https://minio.example.com/presigned-url")
     return m
 
 
@@ -396,3 +397,178 @@ class TestDeleteVersion:
             )
 
             mock_audit.log_action.assert_called_once()
+
+
+class TestListVersionFiles:
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_list_version_files_success(self, mock_to_thread, service, mock_db, mock_minio):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=2)
+        dataset.versions = [version]
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+
+        prefix = f"datasets/{dataset.id}/v2/"
+        mock_to_thread.return_value = [
+            {
+                "object_name": f"{prefix}data.csv",
+                "size": 1024,
+                "content_type": "text/csv",
+                "last_modified": _NOW,
+            },
+            {
+                "object_name": f"{prefix}image.png",
+                "size": 2048,
+                "content_type": "image/png",
+                "last_modified": _NOW,
+            },
+        ]
+
+        files = await service.list_version_files(dataset.id, version.id, dataset.tenant_id)
+
+        assert len(files) == 2
+        assert files[0]["file_name"] == "data.csv"
+        assert files[0]["size_bytes"] == 1024
+        assert files[1]["file_name"] == "image.png"
+        assert files[1]["size_bytes"] == 2048
+
+    async def test_list_version_files_dataset_not_found(self, service, mock_db):
+        mock_db.execute.return_value = _sync_result(None)
+
+        with pytest.raises(NotFoundException, match="数据集不存在"):
+            await service.list_version_files(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+
+    async def test_list_version_files_version_not_found(self, service, mock_db):
+        dataset = _make_dataset()
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(None)]
+
+        with pytest.raises(NotFoundException, match="数据集版本不存在"):
+            await service.list_version_files(dataset.id, uuid.uuid4(), dataset.tenant_id)
+
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_list_version_files_empty(self, mock_to_thread, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        dataset.versions = [version]
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        mock_to_thread.return_value = []
+
+        files = await service.list_version_files(dataset.id, version.id, dataset.tenant_id)
+
+        assert files == []
+
+
+class TestGetVersionStats:
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_get_version_stats_success(self, mock_to_thread, service, mock_db, mock_minio):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        dataset.versions = [version]
+        mock_db.execute.side_effect = [
+            _sync_result(dataset),
+            _sync_result(version),
+            _sync_result(dataset),
+            _sync_result(version),
+        ]
+        prefix = f"datasets/{dataset.id}/v1/"
+        mock_to_thread.return_value = [
+            {
+                "object_name": f"{prefix}data.csv",
+                "size": 100,
+                "content_type": "text/csv",
+                "last_modified": _NOW,
+            },
+            {
+                "object_name": f"{prefix}config.json",
+                "size": 200,
+                "content_type": "application/json",
+                "last_modified": _NOW,
+            },
+            {
+                "object_name": f"{prefix}report.csv",
+                "size": 300,
+                "content_type": "text/csv",
+                "last_modified": _NOW,
+            },
+        ]
+
+        stats = await service.get_version_stats(dataset.id, version.id, dataset.tenant_id)
+
+        assert stats["version_id"] == str(version.id)
+        assert stats["version_number"] == 1
+        assert stats["file_count"] == 3
+        assert stats["total_size_bytes"] == 600
+
+        distribution = stats["file_type_distribution"]
+        assert len(distribution) == 2
+        csv_dist = next(d for d in distribution if d["extension"] == ".csv")
+        assert csv_dist["count"] == 2
+        assert csv_dist["total_size_bytes"] == 400
+        json_dist = next(d for d in distribution if d["extension"] == ".json")
+        assert json_dist["count"] == 1
+        assert json_dist["total_size_bytes"] == 200
+
+    async def test_get_version_stats_dataset_not_found(self, service, mock_db):
+        mock_db.execute.return_value = _sync_result(None)
+
+        with pytest.raises(NotFoundException, match="数据集不存在"):
+            await service.get_version_stats(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+
+
+class TestGetFileDownloadUrl:
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_get_download_url_success(self, mock_to_thread, service, mock_db, mock_minio):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=3)
+        dataset.versions = [version]
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        mock_to_thread.return_value = "https://minio.example.com/presigned-url"
+
+        url = await service.get_file_download_url(dataset.id, version.id, "data.csv", dataset.tenant_id)
+
+        assert url == "https://minio.example.com/presigned-url"
+        mock_to_thread.assert_called_once_with(
+            mock_minio.presigned_get_url,
+            dataset.tenant_id,
+            f"datasets/{dataset.id}/v3/data.csv",
+        )
+
+    async def test_get_download_url_dataset_not_found(self, service, mock_db):
+        mock_db.execute.return_value = _sync_result(None)
+
+        with pytest.raises(NotFoundException, match="数据集不存在"):
+            await service.get_file_download_url(uuid.uuid4(), uuid.uuid4(), "file.txt", uuid.uuid4())
+
+    async def test_download_url_version_not_found(self, service, mock_db):
+        dataset = _make_dataset()
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(None)]
+
+        with pytest.raises(NotFoundException, match="数据集版本不存在"):
+            await service.get_file_download_url(dataset.id, uuid.uuid4(), "file.txt", dataset.tenant_id)
+
+
+class TestComputeFileTypeDistribution:
+    def test_distribution_basic(self, service):
+        files = [
+            {"file_name": "a.csv", "size_bytes": 100},
+            {"file_name": "b.csv", "size_bytes": 200},
+            {"file_name": "c.json", "size_bytes": 50},
+        ]
+        result = service._compute_file_type_distribution(files)
+
+        assert len(result) == 2
+        assert result[0]["extension"] == ".csv"
+        assert result[0]["count"] == 2
+        assert result[0]["total_size_bytes"] == 300
+        assert result[1]["extension"] == ".json"
+
+    def test_distribution_no_extension(self, service):
+        files = [{"file_name": "README", "size_bytes": 10}]
+        result = service._compute_file_type_distribution(files)
+
+        assert len(result) == 1
+        assert result[0]["extension"] == "(无扩展名)"
+        assert result[0]["count"] == 1
+
+    def test_distribution_empty(self, service):
+        result = service._compute_file_type_distribution([])
+        assert result == []
