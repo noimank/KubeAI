@@ -163,6 +163,41 @@ class DatasetService:
         )
         return list(result.scalars().all()), total
 
+    async def delete_version(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        audit_context: dict[str, Any] | None = None,
+    ) -> None:
+        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        version = await self._get_version_or_fail(version_id, dataset_id)
+
+        # TODO: Epic 5 实现训练任务后，检查版本是否被引用  # noqa: RUF003
+        # training_jobs = await self.db.execute(
+        #     select(TrainingJob).where(TrainingJob.dataset_version_id == version_id)
+        # )
+        # if training_jobs.scalars().first():
+        #     raise ConflictException("该版本被训练任务引用，无法删除")  # noqa: RUF003
+
+        prefix = f"datasets/{dataset_id}/v{version.version_number}/"
+        objects = await asyncio.to_thread(self.minio.list_objects, tenant_id, prefix)
+        if objects:
+            await asyncio.to_thread(self.minio.delete_objects, tenant_id, [o["object_name"] for o in objects])
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.DELETE,
+                resource_type=ResourceType.DATASET,
+                resource_id=str(version_id),
+                detail={"dataset_id": str(dataset_id), "version_number": version.version_number},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        await self.db.delete(version)
+        await self.db.flush()
+
     async def delete_dataset(
         self,
         dataset_id: uuid.UUID,

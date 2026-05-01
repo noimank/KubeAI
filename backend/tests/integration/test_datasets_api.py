@@ -236,3 +236,62 @@ async def test_list_datasets_with_keyword(mock_enforce, mock_get_minio, client, 
     body = response.json()
     assert body["data"]["total"] >= 1
     assert any(ds["name"] == "unique-keyword-ds" for ds in body["data"]["items"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.endpoints.datasets.get_minio_client")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.dataset_service.asyncio.to_thread")
+async def test_delete_version(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+    mock_get_minio.return_value = _mock_minio()
+    _tenant, token = await _create_tenant_with_user(client, admin_headers)
+    user_headers = {"Authorization": f"Bearer {token}"}
+
+    create_resp = await client.post(
+        "/api/datasets",
+        json={"name": "del-version-ds", "description": "Version delete test"},
+        headers=user_headers,
+    )
+    dataset_id = create_resp.json()["data"]["id"]
+
+    version_resp = await client.post(
+        f"/api/datasets/{dataset_id}/versions",
+        json={"description": "To be deleted"},
+        headers=user_headers,
+    )
+    version_id = version_resp.json()["data"]["id"]
+
+    response = await client.delete(
+        f"/api/datasets/{dataset_id}/versions/{version_id}",
+        headers=user_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+    detail_resp = await client.get(f"/api/datasets/{dataset_id}", headers=user_headers)
+    versions = detail_resp.json()["data"]["versions"]
+    assert not any(v["id"] == version_id for v in versions)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@patch("app.api.endpoints.datasets.get_minio_client")
+@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+@patch("app.services.dataset_service.asyncio.to_thread")
+async def test_delete_version_not_found(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+    mock_get_minio.return_value = _mock_minio()
+    _tenant, token = await _create_tenant_with_user(client, admin_headers)
+    user_headers = {"Authorization": f"Bearer {token}"}
+
+    create_resp = await client.post(
+        "/api/datasets",
+        json={"name": "del-version-notfound", "description": "test"},
+        headers=user_headers,
+    )
+    dataset_id = create_resp.json()["data"]["id"]
+
+    fake_version_id = str(uuid.uuid4())
+    response = await client.delete(
+        f"/api/datasets/{dataset_id}/versions/{fake_version_id}",
+        headers=user_headers,
+    )
+    assert response.status_code == 404

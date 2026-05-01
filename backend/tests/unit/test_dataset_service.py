@@ -334,3 +334,65 @@ class TestDeleteDataset:
             )
 
             mock_audit.log_action.assert_called_once()
+
+
+class TestDeleteVersion:
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_delete_version_success(self, mock_to_thread, service, mock_db, mock_minio):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        mock_db.delete = AsyncMock()
+
+        mock_to_thread.side_effect = [[{"object_name": f"datasets/{dataset.id}/v1/file.csv"}], None]
+
+        await service.delete_version(dataset.id, version.id, dataset.tenant_id)
+
+        mock_db.delete.assert_called_once_with(version)
+        mock_db.flush.assert_called()
+
+    async def test_delete_version_dataset_not_found(self, service, mock_db):
+        mock_db.execute.return_value = _sync_result(None)
+
+        with pytest.raises(NotFoundException, match="数据集不存在"):
+            await service.delete_version(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+
+    async def test_delete_version_not_found(self, service, mock_db):
+        dataset = _make_dataset()
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(None)]
+
+        with pytest.raises(NotFoundException, match="数据集版本不存在"):
+            await service.delete_version(dataset.id, uuid.uuid4(), dataset.tenant_id)
+
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_delete_version_no_objects(self, mock_to_thread, service, mock_db, mock_minio):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        mock_db.delete = AsyncMock()
+        mock_to_thread.return_value = []
+
+        await service.delete_version(dataset.id, version.id, dataset.tenant_id)
+
+        mock_db.delete.assert_called_once_with(version)
+
+    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
+    async def test_delete_version_with_audit(self, mock_to_thread, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=2)
+        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        mock_db.delete = AsyncMock()
+        mock_to_thread.return_value = []
+
+        with patch("app.services.dataset_service.AuditService") as mock_audit_cls:
+            mock_audit = AsyncMock()
+            mock_audit_cls.return_value = mock_audit
+
+            await service.delete_version(
+                dataset.id,
+                version.id,
+                dataset.tenant_id,
+                audit_context={"user_id": uuid.uuid4(), "ip_address": "127.0.0.1"},
+            )
+
+            mock_audit.log_action.assert_called_once()

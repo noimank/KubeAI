@@ -10,6 +10,7 @@ import { useThemeStore } from '@/stores/themeStore'
 const NAVIGATE_MAP: Record<string, string> = {
   '/dashboard': '工作台',
   '/datasets': '数据集',
+  '/datasets/:id': '数据集详情',
   '/training-jobs': '训练任务',
   '/experiments': '实验追踪',
   '/models': '模型仓库',

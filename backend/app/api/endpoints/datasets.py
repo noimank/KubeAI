@@ -209,6 +209,26 @@ async def upload_files(
     return BaseResponse(data=data, message="文件上传成功")
 
 
+@router.delete("/{dataset_id}/versions/{version_id}", response_model=BaseResponse[None])
+async def delete_version(
+    dataset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: DbDep,
+    minio: MinioDep,
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("datasets", "manage"))],
+) -> BaseResponse[None]:
+    tenant_id = _require_tenant_id(user)
+    service = DatasetService(db, minio)
+    await service.delete_version(
+        dataset_id=dataset_id,
+        version_id=version_id,
+        tenant_id=tenant_id,
+        audit_context=_audit_ctx(request, user),
+    )
+    return BaseResponse(message="版本删除成功")
+
+
 @router.delete("/{dataset_id}", response_model=BaseResponse[None])
 async def delete_dataset(
     dataset_id: uuid.UUID,

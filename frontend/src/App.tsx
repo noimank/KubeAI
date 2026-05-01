@@ -1,6 +1,6 @@
 import { useMemo, lazy, Suspense, useEffect } from 'react'
 import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import zhCN from 'antd/locale/zh_CN'
 import MainLayout from './layouts/MainLayout'
@@ -16,6 +16,7 @@ const OAuthCallbackPage = lazy(() => import('./pages/login/callback'))
 const RegisterPage = lazy(() => import('./pages/register'))
 const DashboardPage = lazy(() => import('./pages/dashboard'))
 const DatasetsPage = lazy(() => import('./pages/datasets'))
+const DatasetDetailPage = lazy(() => import('./pages/datasets/detail'))
 const TrainingJobsPage = lazy(() => import('./pages/training-jobs'))
 const ExperimentsPage = lazy(() => import('./pages/experiments'))
 const ModelsPage = lazy(() => import('./pages/models'))
@@ -163,10 +164,13 @@ export default function App() {
                       path="datasets"
                       element={
                         <PermissionGuard permission="datasets:read">
-                          <DatasetsPage />
+                          <Outlet />
                         </PermissionGuard>
                       }
-                    />
+                    >
+                      <Route index element={<DatasetsPage />} />
+                      <Route path=":id" element={<DatasetDetailPage />} />
+                    </Route>
                     <Route
                       path="training-jobs"
                       element={

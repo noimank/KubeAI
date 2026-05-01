@@ -24,3 +24,7 @@ export interface Dataset {
   createdAt: string
   updatedAt: string
 }
+
+export interface DatasetDetail extends Dataset {
+  versions: DatasetVersion[]
+}
