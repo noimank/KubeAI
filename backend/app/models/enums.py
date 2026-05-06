@@ -47,3 +47,4 @@ class ResourceType(enum.StrEnum):
     INVITATION = "invitation"
     CREDENTIAL = "credential"
     DATASET = "dataset"
+    IMAGE = "image"
