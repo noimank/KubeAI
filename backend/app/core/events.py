@@ -24,12 +24,7 @@ def get_minio_client() -> MinIOClient:
 
 async def _init_admin_user() -> None:
     async with async_session_factory() as session:
-        stmt = select(User).where(User.username == "admin")
-        result = await session.execute(stmt)
-        admin = result.scalar_one_or_none()
-        if admin is not None:
-            return
-
+        # Ensure default tenant exists
         tenant_result = await session.execute(select(Tenant).where(Tenant.name == "default"))
         tenant = tenant_result.scalar_one_or_none()
         if tenant is None:
@@ -42,17 +37,49 @@ async def _init_admin_user() -> None:
             session.add(tenant)
             await session.flush()
 
-        admin = User(
-            username="admin",
-            email="admin@163.com",
-            hashed_password=hash_password("Admin123456"),
-            role=UserRole.ADMIN,
-            is_active=True,
-            tenant_id=tenant.id,
-        )
-        session.add(admin)
+        # Ensure K8s namespace for default tenant
+        if not tenant.k8s_namespace_name:
+            _ensure_default_tenant_k8s(tenant)
+
+        # Ensure admin user exists
+        stmt = select(User).where(User.username == "admin")
+        result = await session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            session.add(
+                User(
+                    username="admin",
+                    email="admin@163.com",
+                    hashed_password=hash_password("Admin123456"),
+                    role=UserRole.ADMIN,
+                    is_active=True,
+                    tenant_id=tenant.id,
+                )
+            )
+            logger.info("admin_user_created", username="admin")
+
         await session.commit()
-        logger.info("admin_user_created", username="admin")
+
+
+def _ensure_default_tenant_k8s(tenant: Tenant) -> None:
+    from app.integrations.k8s.namespace import create_namespace, make_namespace_name
+    from app.integrations.k8s.network_policy import create_tenant_network_policy
+    from app.integrations.k8s.resource_quota import build_tenant_resource_quota, create_resource_quota
+
+    namespace = make_namespace_name(str(tenant.id))
+    try:
+        create_namespace(namespace)
+        quota = build_tenant_resource_quota(
+            gpu_limit=tenant.gpu_limit,
+            cpu_limit=tenant.cpu_limit,
+            memory_limit=tenant.memory_limit,
+            storage_limit=tenant.storage_limit,
+        )
+        create_resource_quota(namespace, quota)
+        create_tenant_network_policy(namespace)
+        tenant.k8s_namespace_name = namespace
+        logger.info("default_tenant_namespace_ready", namespace=namespace)
+    except Exception as e:
+        logger.warning("default_tenant_namespace_failed", error=str(e))
 
 
 async def on_startup() -> None:

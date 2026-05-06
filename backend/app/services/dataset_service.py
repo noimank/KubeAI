@@ -58,6 +58,7 @@ class DatasetService:
                 **audit_context,
             )
 
+        await self.db.commit()
         return dataset
 
     async def upload_files_to_version(
@@ -104,6 +105,7 @@ class DatasetService:
         version.total_size_bytes += total_size
         await self.db.flush()
         await self.db.refresh(version)
+        await self.db.commit()
 
         return results
 
@@ -133,6 +135,7 @@ class DatasetService:
         self.db.add(version)
         await self.db.flush()
         await self.db.refresh(version)
+        await self.db.commit()
         return version
 
     async def get_dataset(self, dataset_id: uuid.UUID, tenant_id: uuid.UUID) -> Dataset:
@@ -197,7 +200,7 @@ class DatasetService:
             )
 
         await self.db.delete(version)
-        await self.db.flush()
+        await self.db.commit()
 
     async def delete_dataset(
         self,
@@ -222,7 +225,7 @@ class DatasetService:
             )
 
         await self.db.delete(dataset)
-        await self.db.flush()
+        await self.db.commit()
 
     async def list_version_files(
         self,
@@ -237,9 +240,9 @@ class DatasetService:
         return [
             {
                 "file_name": obj["object_name"].removeprefix(prefix),
-                "size_bytes": obj["size"],
-                "content_type": obj["content_type"],
-                "last_modified": obj["last_modified"],
+                "size_bytes": obj["size"] or 0,
+                "content_type": obj["content_type"] or "application/octet-stream",
+                "last_modified": obj.get("last_modified"),
             }
             for obj in objects
         ]
@@ -291,13 +294,17 @@ class DatasetService:
         version_id: uuid.UUID,
         tenant_id: uuid.UUID,
     ) -> dict[str, Any]:
-        from app.integrations.k8s.namespace import make_namespace_name
+        from app.integrations.k8s.namespace import make_namespace_name, namespace_exists
         from app.integrations.k8s.pvc import create_pvc, make_dataset_pvc_name
 
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
 
         namespace = make_namespace_name(str(tenant_id))
+        if not await asyncio.to_thread(namespace_exists, namespace):
+            from app.core.exceptions import BadRequestException
+
+            raise BadRequestException("租户 K8s 命名空间不存在，请联系管理员")  # noqa: RUF001
         pvc_name = make_dataset_pvc_name(str(dataset_id), str(version_id))
         mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
 
@@ -322,7 +329,7 @@ class DatasetService:
         tenant_id: uuid.UUID,
     ) -> dict[str, Any]:
         from app.integrations.k8s.namespace import make_namespace_name
-        from app.integrations.k8s.pvc import get_pvc, make_dataset_pvc_name
+        from app.integrations.k8s.pvc import make_dataset_pvc_name, pvc_exists
 
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
@@ -330,6 +337,11 @@ class DatasetService:
         namespace = make_namespace_name(str(tenant_id))
         pvc_name = make_dataset_pvc_name(str(dataset_id), str(version_id))
         mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
+
+        if not await asyncio.to_thread(pvc_exists, namespace, pvc_name):
+            raise NotFoundException(message=f"版本 v{version.version_number} 尚未挂载")
+
+        from app.integrations.k8s.pvc import get_pvc
 
         pvc = await asyncio.to_thread(get_pvc, namespace, pvc_name)
 

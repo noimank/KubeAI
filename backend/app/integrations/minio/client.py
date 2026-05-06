@@ -101,17 +101,28 @@ class MinIOClient(BaseIntegration):
         bucket = self._bucket_name(tenant_id)
         try:
             objects = self._client.list_objects(bucket, prefix=prefix, recursive=True)
-            return [
-                {
-                    "object_name": obj.object_name,
-                    "size": obj.size,
-                    "content_type": obj.content_type,
-                    "last_modified": obj.last_modified,
-                }
-                for obj in objects
-                if not obj.is_dir
-            ]
+            result: list[dict[str, Any]] = []
+            for obj in objects:
+                if obj.is_dir:
+                    continue
+                try:
+                    result.append(
+                        {
+                            "object_name": obj.object_name or "",
+                            "size": obj.size if obj.size is not None else 0,
+                            "content_type": obj.content_type or "application/octet-stream",
+                            "last_modified": obj.last_modified,
+                        }
+                    )
+                except Exception as exc:
+                    name = getattr(obj, "object_name", "<unknown>")
+                    logger.warning("跳过无法读取的 MinIO 对象 %s: %s", name, exc)
+            return result
         except S3Error as e:
+            if e.code == "NoSuchBucket":
+                return []
+            raise ExternalServiceException(f"MinIO 列出对象失败: {e}") from e
+        except Exception as e:
             raise ExternalServiceException(f"MinIO 列出对象失败: {e}") from e
 
     @with_retry()

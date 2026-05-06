@@ -53,9 +53,9 @@ class FileUploadResponse(BaseModel):
 
 class FileVersionFileResponse(BaseModel):
     file_name: str
-    size_bytes: int
-    content_type: str
-    last_modified: datetime
+    size_bytes: int = 0
+    content_type: str = "application/octet-stream"
+    last_modified: datetime | None = None
 
 
 class FileTypeDistribution(BaseModel):
