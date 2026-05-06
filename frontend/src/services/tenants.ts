@@ -10,6 +10,7 @@ import type {
   InvitationCreateRequest,
   TenantMember,
   UpdateMemberRoleRequest,
+  AddMemberRequest,
 } from '@/types/tenant'
 
 export async function getTenants(
@@ -92,6 +93,14 @@ export async function cancelInvitation(
 }
 
 // --- Members ---
+
+export async function addMember(
+  tenantId: string,
+  data: AddMemberRequest,
+): Promise<BaseResponse<TenantMember>> {
+  const res = await api.post<BaseResponse<TenantMember>>(`/tenants/${tenantId}/members`, data)
+  return res.data
+}
 
 export async function listMembers(tenantId: string): Promise<BaseResponse<TenantMember[]>> {
   const res = await api.get<BaseResponse<TenantMember[]>>(`/tenants/${tenantId}/members`)

@@ -12,6 +12,7 @@ from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.tenant import (
+    AddMemberRequest,
     InvitationResponse,
     InviteMemberRequest,
     QuotaUsageResponse,
@@ -269,6 +270,27 @@ async def cancel_invitation(
 
 
 # --- Member Endpoints ---
+
+
+@router.post("/{tenant_id}/members", response_model=BaseResponse[TenantMemberResponse])
+async def add_member(
+    tenant_id: uuid.UUID,
+    req: AddMemberRequest,
+    db: DbDep,
+    request: Request,
+    current_user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+) -> BaseResponse[TenantMemberResponse]:
+    service = TenantService(db)
+    user = await service.add_member(tenant_id, req.user_id, req.role, audit_context=_audit_ctx(request, current_user))
+    data = TenantMemberResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+        joined_at=user.created_at,
+    )
+    return BaseResponse(data=data, message="成员添加成功")
 
 
 @router.get("/{tenant_id}/members", response_model=BaseResponse[list[TenantMemberResponse]])

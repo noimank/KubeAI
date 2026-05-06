@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Button, Card, Form, Input, Result, Space, Spin, message } from 'antd'
+import { Button, Card, Form, Input, Result, Space, Spin } from 'antd'
 import { getInvitationInfo, acceptInvitation } from '@/services/auth'
+import { getMessageInstance } from '@/utils/messageHolder'
 import { useAuthStore } from '@/stores/authStore'
 import type { InvitationInfo } from '@/types/tenant'
 
@@ -63,7 +64,7 @@ export default function InvitePage() {
       if (res.success && res.data) {
         setTokens(res.data.accessToken, res.data.refreshToken)
         await initializeAuth()
-        message.success('注册成功，已加入租户')
+        getMessageInstance()?.success('注册成功，已加入租户')
         navigate('/dashboard', { replace: true })
       }
     } catch {
@@ -80,7 +81,7 @@ export default function InvitePage() {
       if (res.success && res.data) {
         setTokens(res.data.accessToken, res.data.refreshToken)
         await initializeAuth()
-        message.success('已加入租户')
+        getMessageInstance()?.success('已加入租户')
         navigate('/dashboard', { replace: true })
       }
     } catch {

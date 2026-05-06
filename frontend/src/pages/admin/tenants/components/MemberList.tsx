@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Button, Popconfirm, Select, Space, Table, Tag, message } from 'antd'
+import { Button, Popconfirm, Select, Space, Table, Tag } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import { getMessageInstance } from '@/utils/messageHolder'
 import { listMembers, removeMember, updateMemberRole } from '@/services/tenants'
 import type { TenantMember } from '@/types/tenant'
 
@@ -51,7 +52,7 @@ export default function MemberList({ tenantId }: Props) {
   const handleRoleChange = async (userId: string, newRole: string) => {
     try {
       await updateMemberRole(tenantId, userId, { role: newRole })
-      message.success('角色更新成功')
+      getMessageInstance()?.success('角色更新成功')
       setEditingId(null)
       fetchMembers()
     } catch {
@@ -62,7 +63,7 @@ export default function MemberList({ tenantId }: Props) {
   const handleRemove = async (userId: string) => {
     try {
       await removeMember(tenantId, userId)
-      message.success('成员已移除')
+      getMessageInstance()?.success('成员已移除')
       fetchMembers()
     } catch {
       // interceptor handles error toast

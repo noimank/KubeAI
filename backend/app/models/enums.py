@@ -33,6 +33,7 @@ class AuditAction(enum.StrEnum):
     ACCEPT_INVITE = "accept_invite"
     CANCEL_INVITE = "cancel_invite"
     UPDATE_ROLE = "update_role"
+    ADD_MEMBER = "add_member"
     REMOVE_MEMBER = "remove_member"
     UPDATE_QUOTA = "update_quota"
     UPLOAD = "upload"

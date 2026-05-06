@@ -10,6 +10,7 @@ export type AuditAction =
   | 'invite'
   | 'accept_invite'
   | 'cancel_invite'
+  | 'add_member'
   | 'update_role'
   | 'remove_member'
   | 'update_quota'

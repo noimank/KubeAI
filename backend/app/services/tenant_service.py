@@ -359,6 +359,42 @@ class TenantService:
 
     # --- Member Management ---
 
+    async def add_member(
+        self,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        role: UserRole,
+        audit_context: dict[str, Any] | None = None,
+    ) -> User:
+        await self.get_tenant(tenant_id)
+
+        result = await self.db.execute(select(User).where(User.id == user_id, User.deleted_at.is_(None)))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise NotFoundException("用户不存在")
+        if user.tenant_id == tenant_id:
+            raise ConflictException("该用户已在此租户中")
+        if user.tenant_id is not None:
+            raise ConflictException("该用户已属于其他租户, 请先将其移出原租户")
+
+        user.tenant_id = tenant_id
+        user.role = role
+        await self.db.flush()
+        await self.db.refresh(user)
+
+        if audit_context:
+            audit_svc = AuditService(self.db)
+            await audit_svc.log_action(
+                action=AuditAction.ADD_MEMBER,
+                resource_type=ResourceType.MEMBERSHIP,
+                resource_id=str(user.id),
+                detail={"username": user.username, "email": user.email, "role": role.value},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        return user
+
     async def list_members(self, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
         await self.get_tenant(tenant_id)
         result = await self.db.execute(

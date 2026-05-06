@@ -105,3 +105,8 @@ class TenantMemberResponse(BaseModel):
 
 class UpdateMemberRoleRequest(BaseModel):
     role: UserRole = Field(..., description="仅限 engineer/mlops/annotator")
+
+
+class AddMemberRequest(BaseModel):
+    user_id: uuid.UUID
+    role: UserRole = Field(..., description="仅限 engineer/mlops/annotator")

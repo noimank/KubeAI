@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Button, Form, Input, Select, message } from 'antd'
+import { Button, Form, Input, Select } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
+import { getMessageInstance } from '@/utils/messageHolder'
 import { createInvitation } from '@/services/tenants'
 
 const ROLE_OPTIONS = [
@@ -27,7 +28,7 @@ export default function InviteMemberModal({ tenantId, onSuccess }: Props) {
         const baseUrl = window.location.origin
         const link = `${baseUrl}/invite?token=${res.data.token}`
         setInviteLink(link)
-        message.success('邀请创建成功')
+        getMessageInstance()?.success('邀请创建成功')
         onSuccess?.()
       }
     } catch {
@@ -40,7 +41,7 @@ export default function InviteMemberModal({ tenantId, onSuccess }: Props) {
   const handleCopy = () => {
     if (inviteLink) {
       navigator.clipboard.writeText(inviteLink)
-      message.success('邀请链接已复制')
+      getMessageInstance()?.success('邀请链接已复制')
     }
   }
 

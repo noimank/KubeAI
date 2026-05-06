@@ -72,6 +72,11 @@ export interface UpdateMemberRoleRequest {
   role: string
 }
 
+export interface AddMemberRequest {
+  userId: string
+  role: string
+}
+
 export interface AcceptInvitationRequest {
   token: string
   username?: string

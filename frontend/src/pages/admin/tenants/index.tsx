@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Button, Modal, Popconfirm, Space, Table, Tag, message } from 'antd'
+import { Button, Modal, Popconfirm, Space, Table, Tag } from 'antd'
 import { Link } from 'react-router-dom'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -9,6 +9,7 @@ import TenantEditForm from './components/TenantEditForm'
 import QuotaEditor from './components/QuotaEditor'
 import MemberList from './components/MemberList'
 import InviteMemberModal from './components/InviteMemberModal'
+import AddMemberModal from './components/AddMemberModal'
 import {
   getTenants,
   createTenant,
@@ -17,6 +18,7 @@ import {
   deleteTenant,
 } from '@/services/tenants'
 import type { Tenant, TenantUpdateRequest } from '@/types/tenant'
+import { getMessageInstance } from '@/utils/messageHolder'
 
 const STATUS_COLORS: Record<string, string> = {
   active: 'green',
@@ -41,6 +43,7 @@ export default function TenantsPage() {
   const [memberModalOpen, setMemberModalOpen] = useState(false)
   const [memberTenant, setMemberTenant] = useState<Tenant | null>(null)
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false)
 
   const {
     data: res,
@@ -62,7 +65,7 @@ export default function TenantsPage() {
     description?: string
   }) => {
     await createTenant(values)
-    message.success('租户创建成功')
+    getMessageInstance()?.success('租户创建成功')
     setCreateModalOpen(false)
     refetch()
   }
@@ -71,7 +74,7 @@ export default function TenantsPage() {
     if (!editingTenant) return
     try {
       await updateTenant(editingTenant.id, values)
-      message.success('租户更新成功')
+      getMessageInstance()?.success('租户更新成功')
       setEditModalOpen(false)
       setEditingTenant(null)
       refetch()
@@ -84,7 +87,7 @@ export default function TenantsPage() {
     const targetStatus = record.status === 'active' ? 'disabled' : 'active'
     try {
       await toggleTenantStatus(record.id, targetStatus)
-      message.success(targetStatus === 'disabled' ? '租户已禁用' : '租户已恢复')
+      getMessageInstance()?.success(targetStatus === 'disabled' ? '租户已禁用' : '租户已恢复')
       refetch()
     } catch {
       // interceptor handles error toast
@@ -95,7 +98,7 @@ export default function TenantsPage() {
     if (!deletingTenant) return
     try {
       await deleteTenant(deletingTenant.id)
-      message.success('租户删除成功')
+      getMessageInstance()?.success('租户删除成功')
       setDeleteModalOpen(false)
       setDeletingTenant(null)
       refetch()
@@ -355,7 +358,8 @@ export default function TenantsPage() {
       >
         {memberTenant && (
           <div>
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Button onClick={() => setAddMemberModalOpen(true)}>添加成员</Button>
               <Button type="primary" onClick={() => setInviteModalOpen(true)}>
                 邀请成员
               </Button>
@@ -374,6 +378,25 @@ export default function TenantsPage() {
       >
         {memberTenant && (
           <InviteMemberModal tenantId={memberTenant.id} onSuccess={() => refetch()} />
+        )}
+      </Modal>
+
+      <Modal
+        title="添加成员"
+        open={addMemberModalOpen}
+        onCancel={() => setAddMemberModalOpen(false)}
+        footer={null}
+        destroyOnHidden
+        width={640}
+      >
+        {memberTenant && (
+          <AddMemberModal
+            tenantId={memberTenant.id}
+            onSuccess={() => {
+              setAddMemberModalOpen(false)
+              refetch()
+            }}
+          />
         )}
       </Modal>
     </>

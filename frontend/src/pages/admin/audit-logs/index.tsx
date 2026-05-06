@@ -20,6 +20,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   accept_invite: '接受邀请',
   cancel_invite: '取消邀请',
   update_role: '变更角色',
+  add_member: '添加成员',
   remove_member: '移除成员',
   update_quota: '调整配额',
 }
@@ -37,6 +38,7 @@ const ACTION_COLORS: Record<string, string> = {
   accept_invite: 'green',
   cancel_invite: 'orange',
   update_role: 'blue',
+  add_member: 'green',
   remove_member: 'red',
   update_quota: 'geekblue',
 }

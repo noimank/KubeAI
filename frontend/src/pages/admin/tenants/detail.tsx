@@ -71,6 +71,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   invite: '邀请',
   accept_invite: '接受邀请',
   cancel_invite: '取消邀请',
+  add_member: '添加成员',
   update_role: '变更角色',
   remove_member: '移除成员',
   update_quota: '调整配额',

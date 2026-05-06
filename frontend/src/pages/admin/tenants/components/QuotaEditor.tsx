@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Button, Form, Input, InputNumber, Modal, Progress, Space, message } from 'antd'
+import { Button, Form, Input, InputNumber, Progress, Space } from 'antd'
+import { getMessageInstance } from '@/utils/messageHolder'
+import { getModalInstance } from '@/utils/modalHolder'
 import { getTenantQuotaUsage, updateTenantQuota } from '@/services/tenants'
 import type { QuotaUsage, Tenant, TenantQuotaUpdateRequest } from '@/types/tenant'
 
@@ -30,14 +32,14 @@ export default function QuotaEditor({ tenant, onSuccess }: Props) {
     setLoading(true)
     try {
       await updateTenantQuota(tenant.id, values)
-      message.success('配额更新成功')
+      getMessageInstance()?.success('配额更新成功')
       onSuccess()
     } catch (err: unknown) {
       const errResp = err as { response?: { status?: number; data?: { message?: string } } }
       if (errResp.response?.status === 422 && usage) {
         const errMsg = errResp.response.data?.message ?? ''
         if (errMsg.includes('使用量')) {
-          Modal.confirm({
+          getModalInstance()?.confirm({
             title: '配额调整确认',
             content: errMsg,
             okText: '强制调整',
@@ -46,7 +48,7 @@ export default function QuotaEditor({ tenant, onSuccess }: Props) {
             onOk: async () => {
               try {
                 await updateTenantQuota(tenant.id, { ...values, force: true })
-                message.success('配额更新成功')
+                getMessageInstance()?.success('配额更新成功')
                 onSuccess()
               } catch {
                 // interceptor handles error toast

@@ -8,6 +8,7 @@ import AuthLayout from './layouts/AuthLayout'
 import AuthGuard from './components/AuthGuard'
 import PermissionGuard from './components/PermissionGuard'
 import { setMessageInstance } from './utils/messageHolder'
+import { setModalInstance } from './utils/modalHolder'
 import { useAuthStore } from './stores/authStore'
 import { useThemeStore } from './stores/themeStore'
 
@@ -51,11 +52,12 @@ function LoadingFallback() {
   )
 }
 
-function MessageHolder() {
-  const { message } = AntApp.useApp()
+function ContextHolder() {
+  const { message, modal } = AntApp.useApp()
   useMemo(() => {
     setMessageInstance(message)
-  }, [message])
+    setModalInstance(modal)
+  }, [message, modal])
   return null
 }
 
@@ -141,7 +143,7 @@ export default function App() {
   return (
     <ConfigProvider locale={zhCN} theme={themeConfig}>
       <AntApp>
-        <MessageHolder />
+        <ContextHolder />
         <QueryClientProvider client={queryClient}>
           <BrowserRouter>
             <Suspense fallback={<LoadingFallback />}>
