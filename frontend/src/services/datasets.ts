@@ -1,13 +1,21 @@
+import axios, { type InternalAxiosRequestConfig } from 'axios'
+
 import { api } from './api'
 import type { BaseResponse, PageData } from '@/types/api'
 import type {
   Dataset,
+  DatasetCreateParams,
   DatasetDetail,
   DatasetMountInfo,
   DatasetVersion,
   VersionFile,
   VersionStats,
 } from '@/types/dataset'
+
+export async function createDataset(params: DatasetCreateParams): Promise<DatasetDetail> {
+  const res = await api.post<BaseResponse<DatasetDetail>>('/datasets', params)
+  return res.data.data!
+}
 
 export async function getDatasets(params: {
   current: number
@@ -107,11 +115,19 @@ export async function mountDatasetVersion(
 export async function getDatasetMountInfo(
   datasetId: string,
   versionId: string,
-): Promise<DatasetMountInfo> {
-  const res = await api.get<BaseResponse<DatasetMountInfo>>(
-    `/datasets/${datasetId}/versions/${versionId}/mount`,
-  )
-  return res.data.data!
+): Promise<DatasetMountInfo | null> {
+  try {
+    const res = await api.get<BaseResponse<DatasetMountInfo>>(
+      `/datasets/${datasetId}/versions/${versionId}/mount`,
+      { _skipErrorHandler: true } as InternalAxiosRequestConfig,
+    )
+    return res.data.data!
+  } catch (e) {
+    if (axios.isAxiosError(e) && e.response?.status === 404) {
+      return null
+    }
+    throw e
+  }
 }
 
 export async function unmountDatasetVersion(

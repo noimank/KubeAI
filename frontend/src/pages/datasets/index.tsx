@@ -1,31 +1,66 @@
 import { useState, useCallback } from 'react'
-import { Button, Input, Popconfirm, Space, Table } from 'antd'
-import { Link } from 'react-router-dom'
+import { Button, DatePicker, Input, Modal, Popconfirm, Space, Table } from 'antd'
+import { Link, useNavigate } from 'react-router-dom'
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
-import { deleteDataset, getDatasets } from '@/services/datasets'
+import { createDataset, deleteDataset, getDatasets } from '@/services/datasets'
 import { formatFileSize } from '@/utils/format'
 import type { Dataset } from '@/types/dataset'
 
 export default function DatasetsPage() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [keyword, setKeyword] = useState<string>()
   const [searchText, setSearchText] = useState('')
+  const [dateRange, setDateRange] = useState<[string, string] | undefined>()
+
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
 
   const hasPermission = useRbacStore((s) => s.hasPermission)
+  const canWrite = hasPermission('datasets:write')
   const canManage = hasPermission('datasets:manage')
 
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ['datasets', page, pageSize, keyword],
-    queryFn: () => getDatasets({ current: page, pageSize, keyword }),
+  const { data, isLoading } = useQuery({
+    queryKey: ['datasets', page, pageSize, keyword, dateRange],
+    queryFn: () =>
+      getDatasets({
+        current: page,
+        pageSize,
+        keyword,
+        startDate: dateRange?.[0],
+        endDate: dateRange?.[1],
+      }),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (values: { name: string; description?: string }) => createDataset(values),
+    onSuccess: (detail) => {
+      getMessageInstance()?.success('数据集创建成功')
+      setCreateModalOpen(false)
+      setNewName('')
+      setNewDesc('')
+      navigate(`/datasets/${detail.id}`)
+    },
   })
 
   const handleSearch = useCallback((value: string) => {
     setKeyword(value || undefined)
+    setPage(1)
+  }, [])
+
+  const handleDateRangeChange = useCallback((_: unknown, dateStrings: [string, string]) => {
+    if (dateStrings[0] && dateStrings[1]) {
+      setDateRange([dateStrings[0], dateStrings[1]])
+    } else {
+      setDateRange(undefined)
+    }
     setPage(1)
   }, [])
 
@@ -38,7 +73,7 @@ export default function DatasetsPage() {
     try {
       await deleteDataset(id)
       getMessageInstance()?.success('数据集删除成功')
-      refetch()
+      queryClient.invalidateQueries({ queryKey: ['datasets'] })
     } catch {
       // interceptor handles error toast
     }
@@ -109,21 +144,35 @@ export default function DatasetsPage() {
     },
   ]
 
+  const handleCreateOk = () => {
+    const trimmed = newName.trim()
+    if (!trimmed) return
+    if (trimmed.length > 200) return
+    createMutation.mutate({ name: trimmed, description: newDesc.trim() || undefined })
+  }
+
   return (
     <div style={{ padding: 0 }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <Input.Search
-          placeholder="搜索数据集名称"
-          allowClear
-          style={{ width: 320 }}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          onSearch={handleSearch}
-          prefix={<SearchOutlined />}
-        />
-        {canManage && (
-          <Button type="primary" icon={<PlusOutlined />}>
-            上传数据集
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <Space>
+          <Input.Search
+            placeholder="搜索数据集名称"
+            allowClear
+            style={{ width: 280 }}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            onSearch={handleSearch}
+            prefix={<SearchOutlined />}
+          />
+          <DatePicker.RangePicker
+            placeholder={['开始日期', '结束日期']}
+            onChange={handleDateRangeChange}
+            style={{ width: 260 }}
+          />
+        </Space>
+        {canWrite && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
+            创建数据集
           </Button>
         )}
       </div>
@@ -147,13 +196,51 @@ export default function DatasetsPage() {
               <p style={{ color: 'var(--text-tertiary)', marginBottom: 16 }}>
                 还没有数据集，上传你的第一批数据开始吧
               </p>
-              <Button type="primary" icon={<PlusOutlined />}>
-                上传数据集
-              </Button>
+              {canWrite && (
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setCreateModalOpen(true)}
+                >
+                  创建数据集
+                </Button>
+              )}
             </div>
           ),
         }}
       />
+
+      <Modal
+        title="创建数据集"
+        open={createModalOpen}
+        onCancel={() => {
+          setCreateModalOpen(false)
+          setNewName('')
+          setNewDesc('')
+        }}
+        onOk={handleCreateOk}
+        confirmLoading={createMutation.isPending}
+        okText="创建"
+        cancelText="取消"
+        destroyOnHidden
+        okButtonProps={{ disabled: !newName.trim() || newName.trim().length > 200 }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
+          <Input
+            placeholder="数据集名称（必填，最多 200 字符）"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            maxLength={200}
+            showCount
+          />
+          <Input.TextArea
+            placeholder="数据集描述（可选）"
+            value={newDesc}
+            onChange={(e) => setNewDesc(e.target.value)}
+            rows={3}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

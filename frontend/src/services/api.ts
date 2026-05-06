@@ -6,6 +6,7 @@ import { getMessageInstance } from '@/utils/messageHolder'
 declare module 'axios' {
   interface InternalAxiosRequestConfig {
     _retry?: boolean
+    _skipErrorHandler?: boolean
   }
 }
 
@@ -45,6 +46,9 @@ api.interceptors.request.use((config) => {
   if (config.data && !(config.data instanceof FormData)) {
     config.data = transformKeys(config.data, toSnakeCase)
   }
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type']
+  }
   if (config.params) {
     config.params = transformKeys(config.params, toSnakeCase)
   }
@@ -65,6 +69,10 @@ api.interceptors.response.use(
     const { status, data } = error.response
     const errorMessage = data?.message || ''
     const originalRequest = error.config
+
+    if (originalRequest?._skipErrorHandler) {
+      return Promise.reject(error)
+    }
 
     if (status === 401 && !originalRequest._retry) {
       if (originalRequest.url?.includes('/auth/refresh')) {

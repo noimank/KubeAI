@@ -33,7 +33,7 @@ export interface VersionFile {
   fileName: string
   sizeBytes: number
   contentType: string
-  lastModified: string
+  lastModified?: string
 }
 
 export interface FileTypeDistribution {
@@ -48,6 +48,11 @@ export interface VersionStats {
   fileCount: number
   totalSizeBytes: number
   fileTypeDistribution: FileTypeDistribution[]
+}
+
+export interface DatasetCreateParams {
+  name: string
+  description?: string
 }
 
 export interface DatasetMountInfo {
