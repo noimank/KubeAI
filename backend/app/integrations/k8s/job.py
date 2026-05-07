@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 
 KANIKO_IMAGE = "gcr.io/kaniko-project/executor:latest"
 HARBOR_SECRET_NAME = "harbor-credentials"
+KANIKO_CPU_REQUEST = "500m"
+KANIKO_MEMORY_REQUEST = "1Gi"
+KANIKO_CPU_LIMIT = "2"
+KANIKO_MEMORY_LIMIT = "4Gi"
 
 
 @with_retry(max_retries=2)
@@ -56,6 +60,17 @@ def create_build_job(
     harbor_url: str,
     kaniko_image: str = KANIKO_IMAGE,
 ) -> client.V1Job:
+    kaniko_args = [
+        "--dockerfile=Dockerfile",
+        "--context=dir:///workspace",
+        f"--destination={destination}",
+        "--verbosity=info",
+    ]
+    if harbor_url.startswith("https://"):
+        kaniko_args.append("--skip-tls-verify")
+    else:
+        kaniko_args.append("--insecure")
+
     job = client.V1Job(
         api_version="batch/v1",
         kind="Job",
@@ -70,14 +85,11 @@ def create_build_job(
                         client.V1Container(
                             name="kaniko",
                             image=kaniko_image,
-                            args=[
-                                "--dockerfile=Dockerfile",
-                                "--context=dir:///workspace",
-                                f"--destination={destination}",
-                                f"--registry-mirror={harbor_url}",
-                                "--insecure",
-                                "--verbosity=info",
-                            ],
+                            resources=client.V1ResourceRequirements(
+                                requests={"cpu": KANIKO_CPU_REQUEST, "memory": KANIKO_MEMORY_REQUEST},
+                                limits={"cpu": KANIKO_CPU_LIMIT, "memory": KANIKO_MEMORY_LIMIT},
+                            ),
+                            args=kaniko_args,
                             volume_mounts=[
                                 client.V1VolumeMount(
                                     name="dockerfile",

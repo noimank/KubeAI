@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, or_, select
 
 from app.core.config import settings
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
@@ -13,6 +15,8 @@ from app.integrations.k8s import secret as k8s_secret
 from app.models.enums import AuditAction, BuildStatus, ResourceType
 from app.models.image import Image
 from app.services.audit_service import AuditService
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import uuid
@@ -51,6 +55,29 @@ class ImageService:
 
     async def get_image(self, image_id: uuid.UUID) -> Image:
         return await self._get_image_or_fail(image_id)
+
+    async def list_selectable_images(self, tenant_id: uuid.UUID) -> list[Image]:
+        stmt = (
+            select(Image)
+            .where(
+                Image.deleted_at.is_(None),
+                Image.is_enabled.is_(True),
+                or_(
+                    and_(Image.source == "preset", Image.tenant_id.is_(None)),
+                    and_(
+                        Image.source == "custom",
+                        Image.tenant_id == tenant_id,
+                        Image.build_status == BuildStatus.SUCCEEDED,
+                    ),
+                ),
+            )
+            .order_by(
+                case((Image.source == "preset", 0), else_=1),
+                Image.created_at.desc(),
+            )
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def create_image(
         self,
@@ -199,7 +226,7 @@ class ImageService:
         job_name = k8s_job.make_job_name(image_id_str)
         cm_name = k8s_job.make_configmap_name(image_id_str)
 
-        try:
+        def _run_build_job() -> None:
             harbor_project = f"{settings.HARBOR_PROJECT_PREFIX}{tenant_id}"
             harbor_client.ensure_project(harbor_project)
 
@@ -226,6 +253,8 @@ class ImageService:
             )
             k8s_job.submit_job(namespace=namespace, job=job_obj)
 
+        try:
+            await asyncio.to_thread(_run_build_job)
             image.build_job_name = job_name
             await self.db.flush()
         except Exception:
@@ -242,6 +271,7 @@ class ImageService:
             )
 
         await self.db.commit()
+        await self.db.refresh(image)
         return image
 
     async def get_build_log(self, image_id: uuid.UUID) -> str:
@@ -251,11 +281,7 @@ class ImageService:
             return ""
 
         namespace = f"{K8S_NAMESPACE_PREFIX}{image.tenant_id}"
-
-        if image.build_status in (BuildStatus.SUCCEEDED, BuildStatus.FAILED):
-            return k8s_job.get_job_logs(namespace=namespace, job_name=image.build_job_name)
-
-        return k8s_job.get_job_logs(namespace=namespace, job_name=image.build_job_name)
+        return await asyncio.to_thread(k8s_job.get_job_logs, namespace=namespace, job_name=image.build_job_name)
 
     async def rebuild_image(
         self,
@@ -273,31 +299,39 @@ class ImageService:
 
         namespace = f"{K8S_NAMESPACE_PREFIX}{image.tenant_id}"
         if image.build_job_name:
-            k8s_job.delete_job(namespace=namespace, job_name=image.build_job_name)
+            old_cm_name = k8s_job.make_configmap_name(str(image.id))
+            try:
+                await asyncio.to_thread(k8s_job.delete_configmap, namespace=namespace, name=old_cm_name)
+            except Exception:
+                logger.warning("Failed to delete old ConfigMap %s in rebuild", old_cm_name, exc_info=True)
+            await asyncio.to_thread(k8s_job.delete_job, namespace=namespace, job_name=image.build_job_name)
 
         image_id_str = str(image.id)
         job_name = k8s_job.make_job_name(image_id_str)
         cm_name = k8s_job.make_configmap_name(image_id_str)
 
-        k8s_job.create_configmap(
-            namespace=namespace,
-            name=cm_name,
-            data={"Dockerfile": image.dockerfile or ""},
-        )
+        def _run_rebuild() -> None:
+            k8s_job.create_configmap(
+                namespace=namespace,
+                name=cm_name,
+                data={"Dockerfile": image.dockerfile or ""},
+            )
 
-        destination = harbor_client.make_harbor_image_ref(
-            tenant_id=str(image.tenant_id),
-            name=image.name,
-            tag=image.tag,
-        )
-        job_obj = k8s_job.create_build_job(
-            namespace=namespace,
-            job_name=job_name,
-            dockerfile_configmap=cm_name,
-            destination=destination,
-            harbor_url=settings.HARBOR_URL,
-        )
-        k8s_job.submit_job(namespace=namespace, job=job_obj)
+            destination = harbor_client.make_harbor_image_ref(
+                tenant_id=str(image.tenant_id),
+                name=image.name,
+                tag=image.tag,
+            )
+            job_obj = k8s_job.create_build_job(
+                namespace=namespace,
+                job_name=job_name,
+                dockerfile_configmap=cm_name,
+                destination=destination,
+                harbor_url=settings.HARBOR_URL,
+            )
+            k8s_job.submit_job(namespace=namespace, job=job_obj)
+
+        await asyncio.to_thread(_run_rebuild)
 
         image.build_status = BuildStatus.PENDING
         image.build_job_name = job_name
@@ -313,6 +347,7 @@ class ImageService:
             )
 
         await self.db.commit()
+        await self.db.refresh(image)
         return image
 
     async def sync_build_status(self, image: Image) -> Image:
@@ -322,7 +357,7 @@ class ImageService:
             return image
 
         namespace = f"{K8S_NAMESPACE_PREFIX}{image.tenant_id}"
-        status = k8s_job.get_job_status(namespace=namespace, job_name=image.build_job_name)
+        status = await asyncio.to_thread(k8s_job.get_job_status, namespace=namespace, job_name=image.build_job_name)
 
         if status.get("status") == "succeeded":
             image.build_status = BuildStatus.PUSHING
@@ -341,8 +376,16 @@ class ImageService:
         else:
             image.build_status = BuildStatus.PENDING
 
+        if image.build_status in (BuildStatus.SUCCEEDED, BuildStatus.FAILED):
+            cm_name = k8s_job.make_configmap_name(str(image.id))
+            try:
+                await asyncio.to_thread(k8s_job.delete_configmap, namespace=namespace, name=cm_name)
+            except Exception:
+                logger.warning("Failed to delete ConfigMap %s in namespace %s", cm_name, namespace, exc_info=True)
+
         await self.db.flush()
         await self.db.commit()
+        await self.db.refresh(image)
         return image
 
     async def _get_image_or_fail(self, image_id: uuid.UUID) -> Image:

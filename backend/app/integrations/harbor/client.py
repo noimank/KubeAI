@@ -84,7 +84,7 @@ class HarborClient(BaseIntegration):
                 harbor_host: {"auth": auth_str},
             }
         }
-        return {".dockerconfigjson": json.dumps(docker_config)}
+        return {"config.json": json.dumps(docker_config)}
 
 
 harbor_client = HarborClient()
