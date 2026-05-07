@@ -24,6 +24,7 @@ const ModelsPage = lazy(() => import('./pages/models'))
 const InferencePage = lazy(() => import('./pages/inference'))
 const DevEnvironmentsPage = lazy(() => import('./pages/dev-environments'))
 const ImagesPage = lazy(() => import('./pages/images'))
+const ImageDetailPage = lazy(() => import('./pages/images/detail'))
 const AnnotationsPage = lazy(() => import('./pages/annotations'))
 const MonitoringPage = lazy(() => import('./pages/monitoring'))
 const ForbiddenPage = lazy(() => import('./pages/403'))
@@ -217,10 +218,13 @@ export default function App() {
                       path="images"
                       element={
                         <PermissionGuard permission="images:read">
-                          <ImagesPage />
+                          <Outlet />
                         </PermissionGuard>
                       }
-                    />
+                    >
+                      <Route index element={<ImagesPage />} />
+                      <Route path=":id" element={<ImageDetailPage />} />
+                    </Route>
                     <Route
                       path="annotations"
                       element={

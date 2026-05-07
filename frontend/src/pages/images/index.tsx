@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Button,
   Drawer,
@@ -204,6 +205,7 @@ export default function ImagesPage() {
       dataIndex: 'name',
       ellipsis: true,
       width: 180,
+      render: (name: string, record: Image) => <Link to={`/images/${record.id}`}>{name}</Link>,
     },
     {
       title: '标签',
@@ -254,6 +256,13 @@ export default function ImagesPage() {
       width: 280,
       render: (_: unknown, record: Image) => (
         <Space size="small">
+          {record.source === 'custom' && (
+            <Link to={`/images/${record.id}`}>
+              <Button type="link" size="small">
+                查看详情
+              </Button>
+            </Link>
+          )}
           {record.source === 'custom' && record.buildStatus && (
             <Button type="link" size="small" onClick={() => openLogDrawer(record.id)}>
               日志
@@ -363,8 +372,21 @@ export default function ImagesPage() {
         onChange={handleTableChange}
         locale={{
           emptyText: (
-            <Empty description="还没有镜像，添加第一个镜像开始吧">
-              {canManage && (
+            <Empty
+              description={
+                sourceFilter === 'custom'
+                  ? '还没有自定义镜像，构建你的第一个镜像开始吧'
+                  : sourceFilter === 'preset'
+                    ? '还没有预置镜像，添加第一个镜像开始吧'
+                    : '还没有镜像，添加第一个镜像开始吧'
+              }
+            >
+              {sourceFilter === 'custom' && canBuild && (
+                <Button type="primary" icon={<BuildOutlined />} onClick={openBuildModal}>
+                  构建自定义镜像
+                </Button>
+              )}
+              {sourceFilter !== 'custom' && canManage && (
                 <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
                   添加镜像
                 </Button>
