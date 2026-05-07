@@ -309,7 +309,7 @@ class TestDeleteDataset:
         await service.delete_dataset(dataset.id, dataset.tenant_id)
 
         mock_db.delete.assert_called_once_with(dataset)
-        mock_db.flush.assert_called()
+        mock_db.commit.assert_called()
 
     async def test_delete_dataset_not_found(self, service, mock_db):
         mock_db.execute.return_value = _sync_result(None)
@@ -350,7 +350,7 @@ class TestDeleteVersion:
         await service.delete_version(dataset.id, version.id, dataset.tenant_id)
 
         mock_db.delete.assert_called_once_with(version)
-        mock_db.flush.assert_called()
+        mock_db.commit.assert_called()
 
     async def test_delete_version_dataset_not_found(self, service, mock_db):
         mock_db.execute.return_value = _sync_result(None)

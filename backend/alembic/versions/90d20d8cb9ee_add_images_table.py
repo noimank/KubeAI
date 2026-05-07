@@ -1,7 +1,7 @@
 """add images table
 
 Revision ID: 90d20d8cb9ee
-Revises: 9fa0e6cdfef5
+Revises: 66ce65777a98
 Create Date: 2026-05-06 13:45:58.989466
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "90d20d8cb9ee"
-down_revision: str | Sequence[str] | None = "9fa0e6cdfef5"
+down_revision: str | Sequence[str] | None = "66ce65777a98"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
