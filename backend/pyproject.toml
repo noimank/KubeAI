@@ -34,6 +34,7 @@ dev = [
     "pytest-asyncio",
     "httpx",
     "pre-commit",
+    "types-requests>=2.33.0.20260503",
 ]
 
 [tool.pytest.ini_options]

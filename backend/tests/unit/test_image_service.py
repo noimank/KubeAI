@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.exceptions import ConflictException, NotFoundException
+from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
+from app.models.enums import BuildStatus
 from app.models.image import Image
 from app.services.image_service import ImageService
 
@@ -25,6 +26,28 @@ def _make_image(**overrides):
         "image_ref": "pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime",
         "source": "preset",
         "is_enabled": True,
+    }
+    defaults.update(overrides)
+    img = Image(**defaults)
+    img.id = uuid.uuid4()
+    img.created_at = _NOW
+    img.updated_at = _NOW
+    img.deleted_at = None
+    return img
+
+
+def _make_custom_image(**overrides):
+    tenant_id = overrides.pop("tenant_id", uuid.uuid4())
+    defaults = {
+        "name": "my-custom",
+        "tag": "v1.0",
+        "image_ref": "harbor.local/kubeai-test/my-custom:v1.0",
+        "source": "custom",
+        "is_enabled": True,
+        "tenant_id": tenant_id,
+        "build_status": BuildStatus.SUCCEEDED,
+        "dockerfile": "FROM python:3.12\nRUN pip install numpy",
+        "build_job_name": "image-build-abcdef12",
     }
     defaults.update(overrides)
     img = Image(**defaults)
@@ -82,6 +105,18 @@ class TestListImages:
         mock_db.execute.side_effect = [count_result, rows_result]
 
         await service.list_images(source="preset")
+        assert mock_db.execute.call_count == 2
+
+    async def test_list_with_tenant_filter(self, service, mock_db):
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        rows_result = MagicMock()
+        rows_result.scalars.return_value.all.return_value = []
+
+        mock_db.execute.side_effect = [count_result, rows_result]
+
+        tenant_id = uuid.uuid4()
+        await service.list_images(tenant_id=tenant_id)
         assert mock_db.execute.call_count == 2
 
 
@@ -264,3 +299,165 @@ class TestToggleImage:
             )
 
             mock_audit.log_action.assert_called_once()
+
+
+class TestBuildImage:
+    @patch("app.services.image_service.k8s_secret")
+    @patch("app.services.image_service.k8s_job")
+    @patch("app.services.image_service.harbor_client")
+    async def test_build_image_success(self, mock_harbor, mock_job, mock_secret, service, mock_db):
+        mock_harbor.ensure_project.return_value = {"name": "kubeai-test"}
+        mock_harbor.make_harbor_dockerconfig.return_value = {".dockerconfigjson": "{}"}
+        mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-img:v1"
+        mock_job.make_job_name.return_value = "image-build-test"
+        mock_job.make_configmap_name.return_value = "dockerfile-test"
+        mock_job.create_configmap.return_value = MagicMock()
+        mock_job.create_build_job.return_value = MagicMock()
+        mock_job.submit_job.return_value = MagicMock()
+        mock_secret.create_secret.return_value = MagicMock()
+
+        tenant_id = uuid.uuid4()
+        result = await service.build_image(
+            dockerfile="FROM python:3.12",
+            name="my-img",
+            tag="v1",
+            description="test",
+            tenant_id=tenant_id,
+        )
+
+        assert result.source == "custom"
+        assert result.build_status == BuildStatus.PENDING
+        assert result.tenant_id == tenant_id
+        assert result.is_enabled is False
+        mock_harbor.ensure_project.assert_called_once()
+        mock_job.submit_job.assert_called_once()
+
+    async def test_build_image_empty_dockerfile(self, service, mock_db):
+        with pytest.raises(BadRequestException, match="Dockerfile"):
+            await service.build_image(
+                dockerfile="   ",
+                name="my-img",
+                tag="v1",
+                description="test",
+                tenant_id=uuid.uuid4(),
+            )
+
+    @patch("app.services.image_service.k8s_job")
+    @patch("app.services.image_service.harbor_client")
+    async def test_build_image_k8s_failure_marks_failed(self, mock_harbor, mock_job, service, mock_db):
+        mock_harbor.ensure_project.side_effect = Exception("K8s unavailable")
+
+        tenant_id = uuid.uuid4()
+        with pytest.raises(Exception, match="K8s unavailable"):
+            await service.build_image(
+                dockerfile="FROM python:3.12",
+                name="my-img",
+                tag="v1",
+                description="test",
+                tenant_id=tenant_id,
+            )
+
+
+class TestRebuildImage:
+    async def test_rebuild_not_custom(self, service, mock_db):
+        image = _make_image(source="preset")
+        mock_db.execute.return_value = _sync_result(image)
+
+        with pytest.raises(BadRequestException, match="仅自定义镜像"):
+            await service.rebuild_image(image.id)
+
+    async def test_rebuild_no_tenant(self, service, mock_db):
+        image = _make_custom_image(source="custom", tenant_id=None, build_status=BuildStatus.FAILED)
+        mock_db.execute.return_value = _sync_result(image)
+
+        with pytest.raises(BadRequestException, match="缺少租户信息"):
+            await service.rebuild_image(image.id)
+
+    async def test_rebuild_wrong_status(self, service, mock_db):
+        image = _make_custom_image(build_status=BuildStatus.BUILDING)
+        mock_db.execute.return_value = _sync_result(image)
+
+        with pytest.raises(BadRequestException, match="仅失败或已完成"):
+            await service.rebuild_image(image.id)
+
+    @patch("app.services.image_service.k8s_job")
+    @patch("app.services.image_service.harbor_client")
+    async def test_rebuild_success(self, mock_harbor, mock_job, service, mock_db):
+        image = _make_custom_image(build_status=BuildStatus.FAILED)
+        mock_db.execute.return_value = _sync_result(image)
+
+        mock_job.make_job_name.return_value = "image-build-test"
+        mock_job.make_configmap_name.return_value = "dockerfile-test"
+        mock_job.create_configmap.return_value = MagicMock()
+        mock_job.create_build_job.return_value = MagicMock()
+        mock_job.submit_job.return_value = MagicMock()
+        mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-custom:v1.0"
+
+        result = await service.rebuild_image(image.id)
+
+        assert result.build_status == BuildStatus.PENDING
+        assert result.is_enabled is False
+        mock_job.submit_job.assert_called_once()
+
+
+class TestGetBuildLog:
+    @patch("app.services.image_service.k8s_job")
+    async def test_get_build_log_success(self, mock_job, service, mock_db):
+        image = _make_custom_image(build_status=BuildStatus.SUCCEEDED)
+        mock_db.execute.return_value = _sync_result(image)
+        mock_job.get_job_logs.return_value = "Step 1/5: FROM python:3.12\nStep 2/5: RUN pip install numpy"
+
+        result = await service.get_build_log(image.id)
+        assert "FROM python:3.12" in result
+
+    async def test_get_build_log_no_job(self, service, mock_db):
+        image = _make_image()
+        mock_db.execute.return_value = _sync_result(image)
+
+        result = await service.get_build_log(image.id)
+        assert result == ""
+
+
+class TestSyncBuildStatus:
+    @patch("app.services.image_service.k8s_job")
+    @patch("app.services.image_service.harbor_client")
+    async def test_sync_to_succeeded(self, mock_harbor, mock_job, service, mock_db):
+        tenant_id = uuid.uuid4()
+        image = _make_custom_image(
+            tenant_id=tenant_id,
+            build_status=BuildStatus.BUILDING,
+        )
+        mock_job.get_job_status.return_value = {"status": "succeeded", "active": False}
+        mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-custom:v1.0"
+
+        result = await service.sync_build_status(image)
+
+        assert result.build_status == BuildStatus.SUCCEEDED
+        assert result.is_enabled is True
+        assert result.image_ref == "harbor.local/kubeai-test/my-custom:v1.0"
+
+    @patch("app.services.image_service.k8s_job")
+    async def test_sync_to_failed(self, mock_job, service, mock_db):
+        image = _make_custom_image(build_status=BuildStatus.BUILDING)
+        mock_job.get_job_status.return_value = {"status": "failed", "active": False}
+
+        result = await service.sync_build_status(image)
+        assert result.build_status == BuildStatus.FAILED
+
+    @patch("app.services.image_service.k8s_job")
+    async def test_sync_still_running(self, mock_job, service, mock_db):
+        image = _make_custom_image(build_status=BuildStatus.PENDING)
+        mock_job.get_job_status.return_value = {"status": "running", "active": True}
+
+        result = await service.sync_build_status(image)
+        assert result.build_status == BuildStatus.BUILDING
+
+    async def test_sync_no_job_name(self, service, mock_db):
+        image = _make_image()
+        result = await service.sync_build_status(image)
+        assert result == image
+
+    async def test_sync_already_succeeded(self, service, mock_db):
+        image = _make_custom_image(build_status=BuildStatus.SUCCEEDED)
+        result = await service.sync_build_status(image)
+        assert result == image

@@ -37,6 +37,8 @@ class AuditAction(enum.StrEnum):
     REMOVE_MEMBER = "remove_member"
     UPDATE_QUOTA = "update_quota"
     UPLOAD = "upload"
+    BUILD = "build"
+    REBUILD = "rebuild"
 
 
 class ResourceType(enum.StrEnum):
@@ -48,3 +50,11 @@ class ResourceType(enum.StrEnum):
     CREDENTIAL = "credential"
     DATASET = "dataset"
     IMAGE = "image"
+
+
+class BuildStatus(enum.StrEnum):
+    PENDING = "pending"
+    BUILDING = "building"
+    PUSHING = "pushing"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"

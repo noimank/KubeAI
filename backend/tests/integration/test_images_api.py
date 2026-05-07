@@ -139,6 +139,16 @@ class TestListImages:
         assert data["total"] >= 1
         assert any("UniqueKeywordTest" in img["name"] for img in data["items"])
 
+    @pytest.mark.asyncio(loop_scope="session")
+    @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+    async def test_list_images_with_source_filter(self, _, client: AsyncClient, admin_headers):
+        resp = await client.get(
+            "/api/images",
+            params={"source": "preset"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+
 
 class TestGetImage:
     @pytest.mark.asyncio(loop_scope="session")
@@ -199,3 +209,38 @@ class TestToggleImage:
         resp = await client.patch(f"/api/images/{image['id']}/toggle", headers=admin_headers)
         assert resp.status_code == 200
         assert resp.json()["data"]["is_enabled"] is True
+
+
+class TestBuildImageEndpoint:
+    @pytest.mark.asyncio(loop_scope="session")
+    @patch("app.services.image_service.k8s_job")
+    @patch("app.services.image_service.k8s_secret")
+    @patch("app.services.image_service.harbor_client")
+    @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+    async def test_build_image_no_tenant(
+        self, _, mock_harbor, mock_secret, mock_job, client: AsyncClient, admin_headers
+    ):
+        """Admin without tenant_id should get 403 when trying to build"""
+        resp = await client.post(
+            "/api/images/build",
+            json={
+                "dockerfile": "FROM python:3.12",
+                "name": "test-build",
+                "tag": "v1",
+            },
+            headers=admin_headers,
+        )
+        assert resp.status_code == 403
+
+
+class TestGetBuildLogEndpoint:
+    @pytest.mark.asyncio(loop_scope="session")
+    @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+    async def test_get_build_log_preset_image(self, _, client: AsyncClient, admin_headers):
+        """Preset images should return empty log"""
+        image = await _create_image(client, admin_headers)
+
+        resp = await client.get(f"/api/images/{image['id']}/build-log", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["log"] == ""

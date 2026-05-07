@@ -22,6 +22,7 @@ class ACTION(enum.StrEnum):
     READ = "read"
     WRITE = "write"
     MANAGE = "manage"
+    BUILD = "build"
 
 
 # (sub, obj, act)
@@ -38,6 +39,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("engineer", "experiments", "write"),
     ("engineer", "models", "read"),
     ("engineer", "images", "read"),
+    ("engineer", "images", "build"),
     ("engineer", "dev_environments", "read"),
     ("engineer", "dev_environments", "write"),
     ("engineer", "inference_services", "read"),
@@ -48,6 +50,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("mlops", "models", "write"),
     ("mlops", "inference_services", "manage"),
     ("mlops", "images", "read"),
+    ("mlops", "images", "build"),
     ("mlops", "dev_environments", "manage"),
     ("mlops", "monitoring", "read"),
     ("mlops", "audit_logs", "read"),

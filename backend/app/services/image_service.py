@@ -4,8 +4,13 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 
-from app.core.exceptions import ConflictException, NotFoundException
-from app.models.enums import AuditAction, ResourceType
+from app.core.config import settings
+from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
+from app.integrations.base import K8S_NAMESPACE_PREFIX
+from app.integrations.harbor.client import harbor_client
+from app.integrations.k8s import job as k8s_job
+from app.integrations.k8s import secret as k8s_secret
+from app.models.enums import AuditAction, BuildStatus, ResourceType
 from app.models.image import Image
 from app.services.audit_service import AuditService
 
@@ -23,10 +28,14 @@ class ImageService:
         self,
         keyword: str | None = None,
         source: str | None = None,
+        tenant_id: uuid.UUID | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Image], int]:
         query = select(Image).where(Image.deleted_at.is_(None))
+
+        if tenant_id is not None:
+            query = query.where((Image.tenant_id == tenant_id) | (Image.tenant_id.is_(None)))
         if keyword:
             query = query.where(Image.name.ilike(f"%{keyword}%"))
         if source:
@@ -155,6 +164,184 @@ class ImageService:
                 **audit_context,
             )
 
+        await self.db.commit()
+        return image
+
+    async def build_image(
+        self,
+        dockerfile: str,
+        name: str,
+        tag: str,
+        description: str | None,
+        tenant_id: uuid.UUID,
+        audit_context: dict[str, Any] | None = None,
+    ) -> Image:
+        if not dockerfile.strip():
+            raise BadRequestException("Dockerfile 内容不能为空")
+
+        image = Image(
+            name=name,
+            tag=tag,
+            image_ref=f"pending-{name}:{tag}",
+            description=description,
+            source="custom",
+            tenant_id=tenant_id,
+            build_status=BuildStatus.PENDING,
+            dockerfile=dockerfile,
+            is_enabled=False,
+        )
+        self.db.add(image)
+        await self.db.flush()
+        await self.db.refresh(image)
+
+        image_id_str = str(image.id)
+        namespace = f"{K8S_NAMESPACE_PREFIX}{tenant_id}"
+        job_name = k8s_job.make_job_name(image_id_str)
+        cm_name = k8s_job.make_configmap_name(image_id_str)
+
+        try:
+            harbor_project = f"{settings.HARBOR_PROJECT_PREFIX}{tenant_id}"
+            harbor_client.ensure_project(harbor_project)
+
+            harbor_dockerconfig = harbor_client.make_harbor_dockerconfig()
+            k8s_secret.create_secret(
+                namespace=namespace,
+                name=k8s_job.HARBOR_SECRET_NAME,
+                data=harbor_dockerconfig,
+            )
+
+            k8s_job.create_configmap(namespace=namespace, name=cm_name, data={"Dockerfile": dockerfile})
+
+            destination = harbor_client.make_harbor_image_ref(
+                tenant_id=str(tenant_id),
+                name=name,
+                tag=tag,
+            )
+            job_obj = k8s_job.create_build_job(
+                namespace=namespace,
+                job_name=job_name,
+                dockerfile_configmap=cm_name,
+                destination=destination,
+                harbor_url=settings.HARBOR_URL,
+            )
+            k8s_job.submit_job(namespace=namespace, job=job_obj)
+
+            image.build_job_name = job_name
+            await self.db.flush()
+        except Exception:
+            image.build_status = BuildStatus.FAILED
+            await self.db.flush()
+            raise
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.BUILD,
+                resource_id=str(image.id),
+                detail={"name": name},
+                **audit_context,
+            )
+
+        await self.db.commit()
+        return image
+
+    async def get_build_log(self, image_id: uuid.UUID) -> str:
+        image = await self._get_image_or_fail(image_id)
+
+        if not image.build_job_name or not image.tenant_id:
+            return ""
+
+        namespace = f"{K8S_NAMESPACE_PREFIX}{image.tenant_id}"
+
+        if image.build_status in (BuildStatus.SUCCEEDED, BuildStatus.FAILED):
+            return k8s_job.get_job_logs(namespace=namespace, job_name=image.build_job_name)
+
+        return k8s_job.get_job_logs(namespace=namespace, job_name=image.build_job_name)
+
+    async def rebuild_image(
+        self,
+        image_id: uuid.UUID,
+        audit_context: dict[str, Any] | None = None,
+    ) -> Image:
+        image = await self._get_image_or_fail(image_id)
+
+        if image.source != "custom":
+            raise BadRequestException("仅自定义镜像支持重新构建")
+        if not image.tenant_id:
+            raise BadRequestException("镜像缺少租户信息")
+        if image.build_status not in (BuildStatus.FAILED, BuildStatus.SUCCEEDED):
+            raise BadRequestException("仅失败或已完成的镜像可重新构建")
+
+        namespace = f"{K8S_NAMESPACE_PREFIX}{image.tenant_id}"
+        if image.build_job_name:
+            k8s_job.delete_job(namespace=namespace, job_name=image.build_job_name)
+
+        image_id_str = str(image.id)
+        job_name = k8s_job.make_job_name(image_id_str)
+        cm_name = k8s_job.make_configmap_name(image_id_str)
+
+        k8s_job.create_configmap(
+            namespace=namespace,
+            name=cm_name,
+            data={"Dockerfile": image.dockerfile or ""},
+        )
+
+        destination = harbor_client.make_harbor_image_ref(
+            tenant_id=str(image.tenant_id),
+            name=image.name,
+            tag=image.tag,
+        )
+        job_obj = k8s_job.create_build_job(
+            namespace=namespace,
+            job_name=job_name,
+            dockerfile_configmap=cm_name,
+            destination=destination,
+            harbor_url=settings.HARBOR_URL,
+        )
+        k8s_job.submit_job(namespace=namespace, job=job_obj)
+
+        image.build_status = BuildStatus.PENDING
+        image.build_job_name = job_name
+        image.is_enabled = False
+        await self.db.flush()
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.REBUILD,
+                resource_id=str(image.id),
+                detail={"name": image.name},
+                **audit_context,
+            )
+
+        await self.db.commit()
+        return image
+
+    async def sync_build_status(self, image: Image) -> Image:
+        if not image.build_job_name or not image.tenant_id:
+            return image
+        if image.build_status in (BuildStatus.SUCCEEDED, BuildStatus.FAILED):
+            return image
+
+        namespace = f"{K8S_NAMESPACE_PREFIX}{image.tenant_id}"
+        status = k8s_job.get_job_status(namespace=namespace, job_name=image.build_job_name)
+
+        if status.get("status") == "succeeded":
+            image.build_status = BuildStatus.PUSHING
+            destination = harbor_client.make_harbor_image_ref(
+                tenant_id=str(image.tenant_id),
+                name=image.name,
+                tag=image.tag,
+            )
+            image.image_ref = destination
+            image.build_status = BuildStatus.SUCCEEDED
+            image.is_enabled = True
+        elif status.get("status") == "failed":
+            image.build_status = BuildStatus.FAILED
+        elif status.get("status") == "running":
+            image.build_status = BuildStatus.BUILDING
+        else:
+            image.build_status = BuildStatus.PENDING
+
+        await self.db.flush()
         await self.db.commit()
         return image
 
