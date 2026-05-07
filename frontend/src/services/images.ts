@@ -5,6 +5,7 @@ import type {
   ImageBuildLog,
   ImageBuildParams,
   ImageCreateParams,
+  ImageSelectable,
   ImageUpdateParams,
 } from '@/types/image'
 
@@ -58,5 +59,10 @@ export async function getBuildLog(id: string): Promise<ImageBuildLog> {
 
 export async function rebuildImage(id: string): Promise<Image> {
   const res = await api.post<BaseResponse<Image>>(`/images/${id}/rebuild`)
+  return res.data.data!
+}
+
+export async function getSelectableImages(): Promise<ImageSelectable[]> {
+  const res = await api.get<BaseResponse<ImageSelectable[]>>('/images/selectable')
   return res.data.data!
 }

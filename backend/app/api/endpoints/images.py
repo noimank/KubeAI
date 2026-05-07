@@ -12,6 +12,7 @@ from app.schemas.image import (
     ImageBuildRequest,
     ImageCreateRequest,
     ImageResponse,
+    ImageSelectableResponse,
     ImageUpdateRequest,
 )
 from app.services.image_service import ImageService
@@ -82,6 +83,27 @@ async def list_images(
     image_list = [_to_response(img) for img in items]
     page_data = PageData(items=image_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
+
+
+@router.get("/selectable", response_model=BaseResponse[list[ImageSelectableResponse]])
+async def list_selectable_images(
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("images", "read"))],
+) -> BaseResponse[list[ImageSelectableResponse]]:
+    tenant_id = await _require_tenant_id(user)
+    service = ImageService(db)
+    images = await service.list_selectable_images(tenant_id)
+    data = [
+        ImageSelectableResponse(
+            id=img.id,
+            name=img.name,
+            tag=img.tag,
+            image_ref=img.image_ref,
+            source=img.source,
+        )
+        for img in images
+    ]
+    return BaseResponse(data=data, message="获取成功")
 
 
 @router.get("/{image_id}", response_model=BaseResponse[ImageResponse])

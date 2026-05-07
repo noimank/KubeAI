@@ -392,9 +392,13 @@ export default function ImagesPage() {
             rules={[
               { required: true, message: '请输入镜像名称' },
               { max: 200, message: '名称不能超过200字符' },
+              {
+                pattern: /^[a-z0-9][a-z0-9._-]*$/,
+                message: '只能包含小写字母、数字、点、下划线和连字符，且以字母或数字开头',
+              },
             ]}
           >
-            <Input placeholder="如 PyTorch 2.1" maxLength={200} showCount />
+            <Input placeholder="如 pytorch-2.1" maxLength={200} showCount />
           </Form.Item>
           <Form.Item
             name="tag"
@@ -402,6 +406,10 @@ export default function ImagesPage() {
             rules={[
               { required: true, message: '请输入镜像标签' },
               { max: 100, message: '标签不能超过100字符' },
+              {
+                pattern: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/,
+                message: '只能包含字母、数字、点、下划线和连字符，且以字母或数字开头',
+              },
             ]}
           >
             <Input placeholder="如 2.1.0-cuda12.1" maxLength={100} showCount />
@@ -455,6 +463,10 @@ export default function ImagesPage() {
             rules={[
               { required: true, message: '请输入目标镜像名称' },
               { max: 200, message: '名称不能超过200字符' },
+              {
+                pattern: /^[a-z0-9][a-z0-9._-]*$/,
+                message: '只能包含小写字母、数字、点、下划线和连字符，且以字母或数字开头',
+              },
             ]}
           >
             <Input placeholder="如 my-training-env" maxLength={200} showCount />
@@ -465,6 +477,10 @@ export default function ImagesPage() {
             rules={[
               { required: true, message: '请输入目标标签' },
               { max: 100, message: '标签不能超过100字符' },
+              {
+                pattern: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/,
+                message: '只能包含字母、数字、点、下划线和连字符，且以字母或数字开头',
+              },
             ]}
           >
             <Input placeholder="如 v1.0" maxLength={100} showCount />

@@ -461,3 +461,53 @@ class TestSyncBuildStatus:
         image = _make_custom_image(build_status=BuildStatus.SUCCEEDED)
         result = await service.sync_build_status(image)
         assert result == image
+
+
+class TestListSelectableImages:
+    async def test_returns_empty(self, service, mock_db):
+        rows_result = MagicMock()
+        rows_result.scalars.return_value.all.return_value = []
+        mock_db.execute.return_value = rows_result
+
+        result = await service.list_selectable_images(uuid.uuid4())
+        assert result == []
+
+    async def test_returns_enabled_preset_and_custom(self, service, mock_db):
+        preset = _make_image(source="preset", is_enabled=True)
+        preset.tenant_id = None
+        tenant_id = uuid.uuid4()
+        custom = _make_custom_image(tenant_id=tenant_id, is_enabled=True, build_status=BuildStatus.SUCCEEDED)
+
+        rows_result = MagicMock()
+        rows_result.scalars.return_value.all.return_value = [preset, custom]
+        mock_db.execute.return_value = rows_result
+
+        result = await service.list_selectable_images(tenant_id)
+        assert len(result) == 2
+        assert result[0].source == "preset"
+        assert result[1].source == "custom"
+
+    async def test_tenant_isolation(self, service, mock_db):
+        rows_result = MagicMock()
+        rows_result.scalars.return_value.all.return_value = []
+        mock_db.execute.return_value = rows_result
+
+        other_tenant = uuid.uuid4()
+        await service.list_selectable_images(other_tenant)
+        mock_db.execute.assert_called_once()
+
+    async def test_excludes_disabled_images(self, service, mock_db):
+        rows_result = MagicMock()
+        rows_result.scalars.return_value.all.return_value = []
+        mock_db.execute.return_value = rows_result
+
+        await service.list_selectable_images(uuid.uuid4())
+        mock_db.execute.assert_called_once()
+
+    async def test_excludes_unsucceeded_custom_images(self, service, mock_db):
+        rows_result = MagicMock()
+        rows_result.scalars.return_value.all.return_value = []
+        mock_db.execute.return_value = rows_result
+
+        await service.list_selectable_images(uuid.uuid4())
+        mock_db.execute.assert_called_once()

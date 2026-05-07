@@ -40,3 +40,11 @@ export interface ImageBuildLog {
   buildStatus?: BuildStatus
   log: string
 }
+
+export interface ImageSelectable {
+  id: string
+  name: string
+  tag: string
+  imageRef: string
+  source: string
+}

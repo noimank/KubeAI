@@ -244,3 +244,62 @@ class TestGetBuildLogEndpoint:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["log"] == ""
+
+
+class TestListSelectableImages:
+    @pytest.mark.asyncio(loop_scope="session")
+    @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+    async def test_selectable_requires_tenant(self, _, client: AsyncClient, admin_headers):
+        """Admin without tenant_id should get 403"""
+        resp = await client.get("/api/images/selectable", headers=admin_headers)
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio(loop_scope="session")
+    @patch("app.api.deps.CasbinEnforcer.enforce", return_value=False)
+    async def test_selectable_requires_permission(self, _, client: AsyncClient, admin_headers):
+        """User without images:read permission should get 403"""
+        resp = await client.get("/api/images/selectable", headers=admin_headers)
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio(loop_scope="session")
+    @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
+    async def test_selectable_success_with_tenant(self, _, client: AsyncClient, admin_headers):
+        """User with tenant_id should get selectable images"""
+        from sqlalchemy import select
+
+        from app.core.database import async_session_factory
+        from app.models.tenant import Tenant
+        from app.models.user import User
+
+        async with async_session_factory() as db:
+            result = await db.execute(select(User).order_by(User.created_at.desc()).limit(1))
+            user = result.scalar_one()
+
+            tenant = Tenant(
+                name=_unique("tenant"),
+                display_name="Test Tenant",
+                k8s_namespace_name=f"kubeai-test-{uuid.uuid4().hex[:8]}",
+                cpu_limit="10",
+                memory_limit="20Gi",
+                gpu_limit=5,
+                storage_limit="100Gi",
+            )
+            db.add(tenant)
+            await db.flush()
+            await db.refresh(tenant)
+
+            user.tenant_id = tenant.id
+            await db.commit()
+
+        try:
+            resp = await client.get("/api/images/selectable", headers=admin_headers)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["success"] is True
+            assert isinstance(data["data"], list)
+        finally:
+            async with async_session_factory() as db:
+                result = await db.execute(select(User).where(User.id == user.id))
+                u = result.scalar_one()
+                u.tenant_id = None
+                await db.commit()
