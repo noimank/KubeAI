@@ -1,0 +1,75 @@
+# -- Production environment overrides
+backend:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+frontend:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: kubeai.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - kubeai.example.com
+      secretName: kubeai-tls
+
+postgresql:
+  auth:
+    postgresPassword: ""  # MUST be set via --set or sealed secrets
+  primary:
+    persistence:
+      size: 50Gi
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+
+redis:
+  auth:
+    enabled: true
+    password: ""  # MUST be set
+
+minio:
+  auth:
+    rootUser: ""  # MUST be set
+    rootPassword: ""  # MUST be set
+  persistence:
+    size: 200Gi
+
+harbor:
+  enabled: true
+  expose:
+    type: ingress
+    ingress:
+      hosts:
+        core: harbor.kubeai.example.com
+  persistence:
+    persistentVolumeClaim:
+      registry:
+        size: 200Gi
+
+volcano:
+  custom:
+    scheduler:
+      replicas: 2

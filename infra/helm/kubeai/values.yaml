@@ -1,0 +1,164 @@
+# -- Global settings
+global:
+  namespace: kubeai
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# -- Backend configuration
+backend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: kubeai-backend
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  migration:
+    enabled: true
+  env:
+    APP_NAME: KubeAI
+    APP_VERSION: "0.1.0"
+    DEBUG: "false"
+    API_PREFIX: /api
+    DB_POOL_SIZE: "20"
+    DB_MAX_OVERFLOW: "10"
+    REDIS_MAX_CONNECTIONS: "20"
+    ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+    REFRESH_TOKEN_EXPIRE_DAYS: "7"
+    IDLE_TIMEOUT_MINUTES: "30"
+    OIDC_ENABLED: "false"
+    MINIO_SECURE: "false"
+    MINIO_BUCKET_PREFIX: "kubeai-datasets-"
+    HARBOR_PROJECT_PREFIX: "kubeai-"
+    FRONTEND_URL: "http://localhost:30000"
+  secrets:
+    SECRET_KEY: ""
+    DATABASE_URL: ""
+    REDIS_URL: ""
+    MINIO_ENDPOINT: ""
+    MINIO_ACCESS_KEY: ""
+    MINIO_SECRET_KEY: ""
+    HARBOR_URL: ""
+    HARBOR_USERNAME: ""
+    HARBOR_PASSWORD: ""
+
+# -- Frontend configuration
+frontend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: kubeai-frontend
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+# -- Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: kubeai.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# -- PostgreSQL sub-chart
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: "kubeai-postgres"
+    database: kubeai
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+# -- Redis
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+  service:
+    type: ClusterIP
+    nodePort: null
+  persistence:
+    enabled: true
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# -- MinIO
+minio:
+  enabled: true
+  image:
+    repository: minio/minio
+    tag: "latest"
+  auth:
+    rootUser: minioadmin
+    rootPassword: "kubeai-minio"
+  service:
+    type: ClusterIP
+    nodePorts:
+      api: null
+      console: null
+  persistence:
+    enabled: true
+    size: 50Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# -- Volcano scheduler (required for training jobs)
+volcano:
+  enabled: true
+  custom:
+    enableQueue: true
+    scheduler:
+      replicas: 1
+
+# -- Harbor registry (disabled by default - resource intensive)
+harbor:
+  enabled: false
+  expose:
+    type: ingress
+    ingress:
+      hosts:
+        core: harbor.kubeai.local
+  internalTLS:
+    enabled: false
+  persistence:
+    persistentVolumeClaim:
+      registry:
+        size: 50Gi
+  harborAdminPassword: "Harbor12345"

@@ -1,0 +1,44 @@
+apiVersion: v2
+name: kubeai
+description: KubeAI - Kubernetes-native AI/ML Platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ai
+  - ml
+  - kubernetes
+  - training
+maintainers:
+  - name: noimank
+    email: noimank@163.com
+
+dependencies:
+  - name: postgresql
+    version: "16.7.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+    alias: postgresql
+
+  - name: volcano
+    version: "1.14.x"
+    repository: https://volcano-sh.github.io/helm-charts
+    condition: volcano.enabled
+    alias: volcano
+
+  - name: harbor
+    version: "1.16.0"
+    repository: https://helm.goharbor.io
+    condition: harbor.enabled
+    alias: harbor
+
+  # Post-MVP dependencies (uncomment when needed):
+  # - name: kserve
+  #   version: "0.14.x"
+  #   repository: https://kserve.github.io/charts
+  #   condition: kserve.enabled
+  # - name: keda
+  #   version: "2.16.x"
+  #   repository: https://kedacore.github.io/charts
+  #   condition: keda.enabled
+  # Label Studio, MLflow, JupyterHub: to be added post-MVP

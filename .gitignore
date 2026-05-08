@@ -9,15 +9,27 @@ wheels/
 # Virtual environments
 .venv
 backend/.venv
+
 # Environment files
 .env
 backend/.env
+
 # IDE
 .idea
-.claude
 .vscode
-data
+.claude
+
+# Local data (docker volumes)
+data/
+
 # BMAD
 _bmad
 _bmad-output
 
+# Frontend
+frontend/node_modules
+frontend/dist
+
+# Infrastructure
+infra/helm/kubeai/charts/
+infra/helm/kubeai/Chart.lock

@@ -1,0 +1,17 @@
+.git
+.github
+.claude
+_bmad
+_bmad-output
+data
+docs
+infra
+*.md
+!README.md
+frontend/node_modules
+frontend/dist
+backend/.venv
+backend/__pycache__
+backend/.pytest_cache
+backend/.mypy_cache
+backend/.ruff_cache

@@ -1,0 +1,52 @@
+{{- if .Values.backend.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kubeai.backend.fullname" . }}
+  labels:
+    {{- include "kubeai.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubeai.backend.fullname" . }}
+  labels:
+    {{- include "kubeai.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, create, delete, watch]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, create, delete]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, create, delete]
+  - apiGroups: [""]
+    resources: [resourcequotas]
+    verbs: [get, list, create, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, create, delete]
+  - apiGroups: [batch.volcano.sh]
+    resources: [jobs]
+    verbs: [get, list, create, delete, watch]
+  - apiGroups: [scheduling.volcano.sh]
+    resources: [queues, podgroups]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubeai.backend.fullname" . }}
+  labels:
+    {{- include "kubeai.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubeai.backend.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubeai.backend.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

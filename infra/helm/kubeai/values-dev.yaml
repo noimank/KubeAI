@@ -1,0 +1,62 @@
+# -- Dev environment: infrastructure services only, run backend/frontend locally
+
+backend:
+  enabled: false
+
+frontend:
+  enabled: false
+
+# Override Bitnami images with official images (Bitnami free images deprecated since Aug 2025)
+postgresql:
+  image:
+    registry: docker.io
+    repository: postgres
+    tag: "17-alpine"
+  auth:
+    postgresPassword: "postgres"
+  primary:
+    persistence:
+      size: 5Gi
+    service:
+      type: NodePort
+      nodePorts:
+        postgresql: 30432
+    extraEnvVars:
+      - name: POSTGRES_DB
+        value: "kubeai"
+      - name: PGDATA
+        value: /bitnami/postgresql/data
+    extraVolumes:
+      - name: run
+        emptyDir: {}
+    extraVolumeMounts:
+      - name: run
+        mountPath: /var/run/postgresql
+
+redis:
+  service:
+    type: NodePort
+    nodePort: 30379
+
+minio:
+  auth:
+    rootUser: "minioadmin"
+    rootPassword: "minioadmin"
+  service:
+    type: NodePort
+    nodePorts:
+      api: 30900
+      console: 30901
+  persistence:
+    size: 10Gi
+
+harbor:
+  enabled: false
+
+volcano:
+  custom:
+    scheduler:
+      replicas: 1
+
+ingress:
+  enabled: false
