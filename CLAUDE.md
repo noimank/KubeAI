@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-KubeAI is a Kubernetes-native AI/ML platform with multi-tenant RBAC. Monorepo with FastAPI backend (`backend/`) and React frontend (`frontend/`). All user-facing text is in Chinese (zh-CN) — no i18n library, strings are hardcoded.
+KubeAI is a Kubernetes-native AI/ML platform with multi-tenant RBAC. Monorepo with FastAPI backend (`backend/`) and React frontend (`frontend/`). Deployed via Helm chart (`infra/helm/kubeai/`). All user-facing text is in Chinese (zh-CN) — no i18n library, strings are hardcoded.
 
 ## Development Commands
 
@@ -48,7 +48,7 @@ pnpm install
 # Run dev server (port 3000, proxies /api → localhost:8000)
 pnpm dev
 
-# Build
+# Build (tsc -b then vite build)
 pnpm build
 
 # Lint & format
@@ -66,8 +66,14 @@ pnpm test:watch
 ### Infrastructure (from project root)
 
 ```bash
-# Start PostgreSQL 17 + Redis 7 (data persisted to ./data/)
-docker compose -f docker-compose.dev.yml up -d
+# Deploy all services via Helm (PostgreSQL, Redis, MinIO, Volcano, Harbor, backend, frontend)
+helm install kubeai infra/helm/kubeai/ \
+  -f infra/helm/kubeai/values-dev.yaml \
+  -n kubeai --create-namespace
+
+# Docker build (from project root)
+docker build -t kubeai-backend -f infra/images/backend/Dockerfile .
+docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
 ```
 
 ## Architecture
@@ -81,13 +87,27 @@ docker compose -f docker-compose.dev.yml up -d
 - **Auth flow**: JWT access/refresh tokens (HS256). `app/core/security.py` for hashing and token creation. `app/core/token_blacklist.py` uses Redis to revoke tokens by JTI. Account lockout after 5 failed attempts (Redis TTL 15 min)
 - **RBAC**: Casbin enforcer (`app/core/casbin.py`) with policy model at `app/core/rbac_model.conf`. Roles: admin > mlops > engineer > annotator. Policies seeded from `app/core/permissions.py`. `manage` action in Casbin matcher matches all actions
 - **Dependency injection**: `app/api/deps.py` — `CurrentUser` (JWT auth + blacklist check), `require_permission(resource, action)`, `require_tenant_access()`. Note: `get_db()` is defined in both `app/core/database.py` and `app/api/deps.py`; endpoints use the one in `deps.py`
-- **Services**: Constructor-injected with `AsyncSession` (and optionally Redis). `AuthService` handles register/login/lockout/refresh/logout. `TenantService` orchestrates K8s namespace + ResourceQuota + NetworkPolicy with rollback on failure. `CredentialService` is a sync wrapper around K8s Secrets (no DB). `OAuthService` handles OIDC/OAuth2 via authlib with Redis-cached discovery docs
+- **Services**: Constructor-injected with `AsyncSession` (and optionally Redis/MinIO). Key services:
+  - `AuthService` — register/login/lockout/refresh/logout
+  - `TenantService` — K8s namespace + ResourceQuota + NetworkPolicy with rollback on failure
+  - `CredentialService` — sync wrapper around K8s Secrets (no DB)
+  - `OAuthService` — OIDC/OAuth2 via authlib with Redis-cached discovery docs
+  - `DatasetService` — MinIO-backed dataset/version management with presigned URLs
+  - `ImageService` — custom image builds via K8s Jobs, push to Harbor registry
+  - `TrainingJobService` — creates Volcano VCJobs, manages PVCs for dataset mounts, tracks quota
+  - `AuditService` — records audit logs for resource operations
 - **Multi-tenancy**: Three layers — DB-level (`TenantMixin` + FK), app-level (`TenantMiddleware` + `require_tenant_access`), infra-level (K8s NetworkPolicy per namespace isolating tenant traffic)
-- **K8s integration**: `app/integrations/k8s/` wraps the synchronous `kubernetes` Python client (CoreV1Api, NetworkingV1Api) with `@with_retry` exponential backoff. Namespace prefix: `kubeai-`. **Important**: K8s calls are synchronous — they block the async event loop
+- **External integrations** (`app/integrations/`):
+  - `k8s/` — synchronous `kubernetes` Python client (CoreV1Api, NetworkingV1Api, BatchV1Api) with `@with_retry` exponential backoff. Handles namespace, PVC, Secret, Job, ResourceQuota, NetworkPolicy. **Important**: K8s calls are synchronous — they block the async event loop
+  - `volcano/` — Volcano batch scheduler via K8s CustomObjectsApi (`batch.volcano.sh/v1alpha1` VCJobs). Maps Volcano phases to internal status (Pending→pending, Running→running, Completed→succeeded, etc.)
+  - `harbor/` — Harbor REST API client for container registry management (projects, repos, robots)
+  - `minio/` — MinIO/S3 client for dataset file storage (buckets, presigned upload/download URLs)
+  - All integrations inherit from `BaseIntegration` with `@with_retry` support. Namespace prefix: `kubeai-`
 - **API responses**: All endpoints return `BaseResponse[T]` wrapper (`{success, message, data}`)
 - **Exceptions**: `AppException` hierarchy in `app/core/exceptions.py` — caught by error handler middleware returning `BaseResponse` with appropriate HTTP status. All default messages are in Chinese
+- **Startup**: `app/core/events.py` — initializes Redis, Casbin, seeds admin user (`admin`/`Admin123456`) and default tenant, creates MinIO client singleton (accessed via `get_minio_client()`)
 - **Tests**: `asyncio_mode = "auto"` in pytest config. `conftest.py` provides session-scoped `event_loop` + `httpx.AsyncClient` with `ASGITransport` for in-process testing. Unit tests in `tests/unit/`, integration in `tests/integration/`
-- **Stubs**: Many endpoint files exist in `app/api/endpoints/` (datasets, training_jobs, etc.) but are **not yet mounted** in `router.py` — only `auth`, `credentials`, and `tenants` routers are active
+- **Mounted routers** (`router.py`): auth, credentials, datasets, images, tenants, training_jobs, users, audit_logs
 
 ### Frontend (`frontend/`)
 
@@ -101,9 +121,17 @@ docker compose -f docker-compose.dev.yml up -d
 - **Tailwind**: Preflight disabled to coexist with Ant Design. Dark mode via `[data-theme="dark"]` attribute selector
 - **Tests**: Vitest with jsdom, `@testing-library/react`. Test files mirror `src/` structure under `tests/`
 
+### Infrastructure (`infra/`)
+
+- **Helm chart**: `infra/helm/kubeai/` — deploys PostgreSQL 17, Redis 7, MinIO, Volcano scheduler, Harbor registry, backend, and frontend. Dependencies managed via Chart.lock
+- **Docker images**: `infra/images/backend/Dockerfile`, `infra/images/frontend/Dockerfile`
+- **CI/CD**: `.github/workflows/` — `ci.yml` runs backend lint+test, frontend lint+test, and helm lint on PRs to main/dev
+
 ### Key Conventions
 
 - Backend API uses snake_case; frontend auto-transforms to camelCase
 - All API responses wrapped in `BaseResponse` (`{success, message, data}`)
 - Backend: Python 3.12+, Ruff (line-length 120, double quotes), mypy strict with pydantic plugin
 - Frontend: pnpm, ESLint 9 flat config, Prettier (no semicolons, single quotes, 100 char width, 2-space indent), Vitest
+- `get_db()` exists in both `app/core/database.py` and `app/api/deps.py` — endpoints must use the one from `deps.py`
+- K8s calls are synchronous and block the async event loop — use `asyncio.to_thread()` when calling from async code
