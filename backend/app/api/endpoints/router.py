@@ -6,6 +6,7 @@ from app.api.endpoints.credentials import router as credentials_router
 from app.api.endpoints.datasets import router as datasets_router
 from app.api.endpoints.images import router as images_router
 from app.api.endpoints.tenants import router as tenants_router
+from app.api.endpoints.training_jobs import router as training_jobs_router
 from app.api.endpoints.users import router as users_router
 from app.schemas.base import BaseResponse
 
@@ -24,5 +25,6 @@ api_router.include_router(credentials_router)
 api_router.include_router(datasets_router)
 api_router.include_router(images_router)
 api_router.include_router(tenants_router)
+api_router.include_router(training_jobs_router)
 api_router.include_router(users_router)
 api_router.include_router(audit_logs_router)

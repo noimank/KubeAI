@@ -19,6 +19,8 @@ const DashboardPage = lazy(() => import('./pages/dashboard'))
 const DatasetsPage = lazy(() => import('./pages/datasets'))
 const DatasetDetailPage = lazy(() => import('./pages/datasets/detail'))
 const TrainingJobsPage = lazy(() => import('./pages/training-jobs'))
+const TrainingJobCreatePage = lazy(() => import('./pages/training-jobs/create'))
+const TrainingJobDetailPage = lazy(() => import('./pages/training-jobs/detail'))
 const ExperimentsPage = lazy(() => import('./pages/experiments'))
 const ModelsPage = lazy(() => import('./pages/models'))
 const InferencePage = lazy(() => import('./pages/inference'))
@@ -178,10 +180,14 @@ export default function App() {
                       path="training-jobs"
                       element={
                         <PermissionGuard permission="training_jobs:read">
-                          <TrainingJobsPage />
+                          <Outlet />
                         </PermissionGuard>
                       }
-                    />
+                    >
+                      <Route index element={<TrainingJobsPage />} />
+                      <Route path="create" element={<TrainingJobCreatePage />} />
+                      <Route path=":id" element={<TrainingJobDetailPage />} />
+                    </Route>
                     <Route
                       path="experiments"
                       element={

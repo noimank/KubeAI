@@ -50,6 +50,7 @@ class ResourceType(enum.StrEnum):
     CREDENTIAL = "credential"
     DATASET = "dataset"
     IMAGE = "image"
+    TRAINING_JOB = "training_job"
 
 
 class BuildStatus(enum.StrEnum):
@@ -58,3 +59,13 @@ class BuildStatus(enum.StrEnum):
     PUSHING = "pushing"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+
+
+class TrainingJobStatus(enum.StrEnum):
+    PENDING = "pending"
+    QUEUED = "queued"
+    INITIALIZING = "initializing"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    STOPPED = "stopped"
