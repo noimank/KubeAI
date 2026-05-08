@@ -323,7 +323,7 @@ async def test_list_version_files(mock_to_thread, mock_enforce, mock_get_minio, 
 
     mock_to_thread.return_value = [
         {
-            "object_name": f"datasets/{dataset_id}/v1/data.csv",
+            "object_name": "datasets/files-ds/v1/data.csv",
             "size": 1024,
             "content_type": "text/csv",
             "last_modified": "2026-05-01T00:00:00Z",

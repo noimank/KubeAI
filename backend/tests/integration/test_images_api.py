@@ -50,7 +50,7 @@ def admin_headers(client):
 
 async def _create_image(client: AsyncClient, headers: dict, **overrides) -> dict:
     defaults = {
-        "name": _unique("PyTorch"),
+        "name": _unique("pytorch"),
         "tag": "2.1.0-cuda12.1",
         "image_ref": f"{_unique('img')}/pytorch:2.1.0-cuda12.1",
     }
@@ -67,7 +67,7 @@ class TestCreateImage:
         resp = await client.post(
             "/api/images",
             json={
-                "name": "PyTorch 2.1",
+                "name": "pytorch-2.1",
                 "tag": "2.1.0-cuda12.1",
                 "image_ref": f"{_unique('img')}/pytorch:2.1.0",
             },
@@ -75,7 +75,7 @@ class TestCreateImage:
         )
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert data["name"] == "PyTorch 2.1"
+        assert data["name"] == "pytorch-2.1"
         assert data["source"] == "preset"
         assert data["is_enabled"] is True
 
@@ -102,7 +102,7 @@ class TestCreateImage:
         resp = await client.post(
             "/api/images",
             json={
-                "name": "Test",
+                "name": "test",
                 "tag": "1.0",
                 "image_ref": f"{_unique('test')}/img:1.0",
             },
@@ -127,17 +127,17 @@ class TestListImages:
     @pytest.mark.asyncio(loop_scope="session")
     @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
     async def test_list_images_with_keyword(self, _, client: AsyncClient, admin_headers):
-        await _create_image(client, admin_headers, name="UniqueKeywordTest")
+        await _create_image(client, admin_headers, name="uniquekeywordtest")
 
         resp = await client.get(
             "/api/images",
-            params={"keyword": "UniqueKeywordTest"},
+            params={"keyword": "uniquekeywordtest"},
             headers=admin_headers,
         )
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["total"] >= 1
-        assert any("UniqueKeywordTest" in img["name"] for img in data["items"])
+        assert any("uniquekeywordtest" in img["name"] for img in data["items"])
 
     @pytest.mark.asyncio(loop_scope="session")
     @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
@@ -175,11 +175,11 @@ class TestUpdateImage:
 
         resp = await client.put(
             f"/api/images/{image['id']}",
-            json={"name": "Updated Name"},
+            json={"name": "updated-name"},
             headers=admin_headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["data"]["name"] == "Updated Name"
+        assert resp.json()["data"]["name"] == "updated-name"
 
 
 class TestDeleteImage:

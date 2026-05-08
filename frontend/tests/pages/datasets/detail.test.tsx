@@ -32,6 +32,9 @@ vi.mock('@/services/datasets', () => ({
   getVersionFiles: vi.fn(),
   getVersionStats: vi.fn(),
   getFileDownloadUrl: vi.fn(),
+  mountDatasetVersion: vi.fn(),
+  getDatasetMountInfo: vi.fn(),
+  unmountDatasetVersion: vi.fn(),
 }))
 
 const mockGetDatasetDetail = vi.mocked(await import('@/services/datasets')).getDatasetDetail

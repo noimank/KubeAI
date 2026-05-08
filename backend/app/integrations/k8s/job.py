@@ -3,7 +3,7 @@ import logging
 from kubernetes import client  # type: ignore[import-untyped]
 from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
 
-from app.integrations.base import with_retry
+from app.integrations.base import sanitize_k8s_name, with_retry
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
@@ -165,7 +165,7 @@ def get_job_logs(namespace: str, job_name: str) -> str:
 
     pod_name = pods.items[0].metadata.name
     try:
-        logs = core_v1.read_namespaced_pod_log(name=pod_name, namespace=namespace)
+        logs: str = core_v1.read_namespaced_pod_log(name=pod_name, namespace=namespace)
         return logs
     except ApiException:
         return ""
@@ -189,9 +189,9 @@ def delete_job(namespace: str, job_name: str) -> None:
         raise
 
 
-def make_job_name(image_id: str) -> str:
-    return f"image-build-{image_id[:8]}"
+def make_job_name(image_name: str) -> str:
+    return f"image-build-{sanitize_k8s_name(image_name)}"
 
 
-def make_configmap_name(image_id: str) -> str:
-    return f"dockerfile-{image_id[:8]}"
+def make_configmap_name(image_name: str) -> str:
+    return f"dockerfile-{sanitize_k8s_name(image_name)}"

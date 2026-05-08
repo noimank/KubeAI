@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from minio import Minio
 from minio.error import S3Error
 
 from app.core.config import settings
 from app.core.exceptions import ExternalServiceException
-from app.integrations.base import BaseIntegration, with_retry
-
-if TYPE_CHECKING:
-    import uuid
+from app.integrations.base import BaseIntegration, sanitize_k8s_name, with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +24,8 @@ class MinIOClient(BaseIntegration):
         )
         self._prefix = settings.MINIO_BUCKET_PREFIX
 
-    def _bucket_name(self, tenant_id: uuid.UUID | str) -> str:
-        return f"{self._prefix}{tenant_id}"
+    def _bucket_name(self, tenant_name: str) -> str:
+        return f"{self._prefix}{sanitize_k8s_name(tenant_name)}"
 
     @with_retry()
     def health_check(self) -> bool:
@@ -40,8 +37,8 @@ class MinIOClient(BaseIntegration):
             raise ExternalServiceException(f"MinIO 连接失败: {e}") from e
 
     @with_retry()
-    def ensure_bucket(self, tenant_id: uuid.UUID | str) -> str:
-        bucket = self._bucket_name(tenant_id)
+    def ensure_bucket(self, tenant_name: str) -> str:
+        bucket = self._bucket_name(tenant_name)
         try:
             if not self._client.bucket_exists(bucket):
                 self._client.make_bucket(bucket)
@@ -53,13 +50,13 @@ class MinIOClient(BaseIntegration):
     @with_retry()
     def upload_file(
         self,
-        tenant_id: uuid.UUID | str,
+        tenant_name: str,
         object_name: str,
         file_path: str,
         content_type: str = "application/octet-stream",
         part_size: int = 10 * 1024 * 1024,
     ) -> str:
-        bucket = self._bucket_name(tenant_id)
+        bucket = self._bucket_name(tenant_name)
         try:
             result = self._client.fput_object(
                 bucket_name=bucket,
@@ -75,14 +72,14 @@ class MinIOClient(BaseIntegration):
     @with_retry()
     def upload_stream(
         self,
-        tenant_id: uuid.UUID | str,
+        tenant_name: str,
         object_name: str,
         data: Any,
         length: int,
         content_type: str = "application/octet-stream",
         part_size: int = 10 * 1024 * 1024,
     ) -> str:
-        bucket = self._bucket_name(tenant_id)
+        bucket = self._bucket_name(tenant_name)
         try:
             result = self._client.put_object(
                 bucket_name=bucket,
@@ -97,8 +94,8 @@ class MinIOClient(BaseIntegration):
             raise ExternalServiceException(f"MinIO 流式上传失败: {e}") from e
 
     @with_retry()
-    def list_objects(self, tenant_id: uuid.UUID | str, prefix: str = "") -> list[dict[str, Any]]:
-        bucket = self._bucket_name(tenant_id)
+    def list_objects(self, tenant_name: str, prefix: str = "") -> list[dict[str, Any]]:
+        bucket = self._bucket_name(tenant_name)
         try:
             objects = self._client.list_objects(bucket, prefix=prefix, recursive=True)
             result: list[dict[str, Any]] = []
@@ -126,8 +123,8 @@ class MinIOClient(BaseIntegration):
             raise ExternalServiceException(f"MinIO 列出对象失败: {e}") from e
 
     @with_retry()
-    def get_object_info(self, tenant_id: uuid.UUID | str, object_name: str) -> dict[str, Any]:
-        bucket = self._bucket_name(tenant_id)
+    def get_object_info(self, tenant_name: str, object_name: str) -> dict[str, Any]:
+        bucket = self._bucket_name(tenant_name)
         try:
             stat = self._client.stat_object(bucket, object_name)
             return {
@@ -140,26 +137,24 @@ class MinIOClient(BaseIntegration):
             raise ExternalServiceException(f"MinIO 获取对象信息失败: {e}") from e
 
     @with_retry()
-    def presigned_get_url(
-        self, tenant_id: uuid.UUID | str, object_name: str, expires: timedelta = timedelta(hours=2)
-    ) -> str:
-        bucket = self._bucket_name(tenant_id)
+    def presigned_get_url(self, tenant_name: str, object_name: str, expires: timedelta = timedelta(hours=2)) -> str:
+        bucket = self._bucket_name(tenant_name)
         try:
             return self._client.presigned_get_object(bucket, object_name, expires=expires)
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 生成预签名 URL 失败: {e}") from e
 
     @with_retry()
-    def delete_object(self, tenant_id: uuid.UUID | str, object_name: str) -> None:
-        bucket = self._bucket_name(tenant_id)
+    def delete_object(self, tenant_name: str, object_name: str) -> None:
+        bucket = self._bucket_name(tenant_name)
         try:
             self._client.remove_object(bucket, object_name)
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 删除对象失败: {e}") from e
 
     @with_retry()
-    def delete_objects(self, tenant_id: uuid.UUID | str, object_names: list[str]) -> None:
-        bucket = self._bucket_name(tenant_id)
+    def delete_objects(self, tenant_name: str, object_names: list[str]) -> None:
+        bucket = self._bucket_name(tenant_name)
         try:
             for name in object_names:
                 self._client.remove_object(bucket, name)

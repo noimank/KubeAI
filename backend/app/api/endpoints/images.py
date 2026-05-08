@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +39,7 @@ async def _require_tenant_id(user: Any) -> uuid.UUID:
         from app.core.exceptions import ForbiddenException
 
         raise ForbiddenException("需要租户上下文才能操作自定义镜像")
-    return tenant_id
+    return cast("uuid.UUID", tenant_id)
 
 
 def _to_response(img: Image) -> ImageResponse:

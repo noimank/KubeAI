@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 class DatasetCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
+    display_name: str | None = Field(None, max_length=200)
     description: str | None = None
 
 
@@ -28,6 +29,7 @@ class DatasetVersionResponse(BaseModel):
 class DatasetResponse(BaseModel):
     id: uuid.UUID
     name: str
+    display_name: str | None = None
     description: str | None = None
     tenant_id: uuid.UUID
     created_by: uuid.UUID

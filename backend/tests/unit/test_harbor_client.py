@@ -76,9 +76,9 @@ class TestMakeHarborImageRef:
 class TestMakeHarborDockerconfig:
     def test_dockerconfig(self, harbor):
         config = harbor.make_harbor_dockerconfig()
-        assert ".dockerconfigjson" in config
+        assert "config.json" in config
         import json
 
-        parsed = json.loads(config[".dockerconfigjson"])
+        parsed = json.loads(config["config.json"])
         assert "auths" in parsed
         assert "harbor.kubeai.local" in parsed["auths"]

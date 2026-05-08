@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
@@ -10,6 +10,7 @@ from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 
 class Image(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "images"
+    __table_args__ = (UniqueConstraint("tenant_id", "name", "tag", name="uq_image_tenant_name_tag"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False, comment="镜像名称")

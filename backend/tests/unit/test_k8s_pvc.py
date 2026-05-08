@@ -20,16 +20,16 @@ def _make_mock_pvc(name: str = "test-pvc", phase: str = "Bound") -> MagicMock:
 
 class TestMakeDatasetPvcName:
     def test_format(self):
-        name = make_dataset_pvc_name("abcdef1234567890", "fedcba0987654321")
-        assert name == "dataset-abcdef12-vfedcba09"
+        name = make_dataset_pvc_name("my-dataset", 3)
+        assert name == "dataset-my-dataset-v3"
 
-    def test_short_id(self):
-        name = make_dataset_pvc_name("abc", "def")
-        assert name == "dataset-abc-vdef"
+    def test_sanitized_name(self):
+        name = make_dataset_pvc_name("My Dataset!", 1)
+        assert name == "dataset-my-dataset-v1"
 
-    def test_exact_8_chars(self):
-        name = make_dataset_pvc_name("12345678", "87654321")
-        assert name == "dataset-12345678-v87654321"
+    def test_version_number(self):
+        name = make_dataset_pvc_name("test-data", 42)
+        assert name == "dataset-test-data-v42"
 
 
 class TestCreatePvc:

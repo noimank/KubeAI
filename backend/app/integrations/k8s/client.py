@@ -23,11 +23,13 @@ def get_k8s_clients() -> dict[str, Any]:
     core_v1 = client.CoreV1Api()
     networking_v1 = client.NetworkingV1Api()
     batch_v1 = client.BatchV1Api()
+    custom_objects = client.CustomObjectsApi()
 
     _k8s_clients = {
         "core_v1": core_v1,
         "networking_v1": networking_v1,
         "batch_v1": batch_v1,
+        "custom_objects": custom_objects,
     }
     return _k8s_clients
 

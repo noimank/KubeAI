@@ -1,10 +1,10 @@
 import logging
-from typing import Any
+from typing import Any, cast
 
-import requests  # type: ignore[import-untyped]
+import requests  # type: ignore[import-untyped, unused-ignore]
 
 from app.core.config import settings
-from app.integrations.base import BaseIntegration, with_retry
+from app.integrations.base import BaseIntegration, sanitize_k8s_name, with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class HarborClient(BaseIntegration):
     def ensure_project(self, project_name: str) -> dict[str, Any]:
         existing = self.get_project(project_name)
         if existing:
-            return existing
+            return cast("dict[str, Any]", existing)
 
         resp = requests.post(
             f"{self.base_url}/api/v2.0/projects",
@@ -65,11 +65,11 @@ class HarborClient(BaseIntegration):
         projects = resp.json()
         for p in projects:
             if p.get("name") == project_name:
-                return p
+                return cast("dict[str, Any]", p)
         return None
 
-    def make_harbor_image_ref(self, tenant_id: str, name: str, tag: str) -> str:
-        project = f"{settings.HARBOR_PROJECT_PREFIX}{tenant_id}"
+    def make_harbor_image_ref(self, tenant_name: str, name: str, tag: str) -> str:
+        project = f"{settings.HARBOR_PROJECT_PREFIX}{sanitize_k8s_name(tenant_name)}"
         harbor_host = self.base_url.replace("http://", "").replace("https://", "")
         return f"{harbor_host}/{project}/{name}:{tag}"
 

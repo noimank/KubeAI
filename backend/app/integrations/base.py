@@ -9,6 +9,13 @@ logger = logging.getLogger(__name__)
 K8S_NAMESPACE_PREFIX = "kubeai-"
 
 
+def sanitize_k8s_name(name: str, max_length: int = 63) -> str:
+    result = "".join(c if c.isalnum() or c == "-" else "-" for c in name.lower()).strip("-")
+    while "--" in result:
+        result = result.replace("--", "-")
+    return result[:max_length].strip("-") or "default"
+
+
 def with_retry(max_retries: int = 3, backoff_base: float = 1.0) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)

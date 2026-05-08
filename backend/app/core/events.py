@@ -65,7 +65,7 @@ def _ensure_default_tenant_k8s(tenant: Tenant) -> None:
     from app.integrations.k8s.network_policy import create_tenant_network_policy
     from app.integrations.k8s.resource_quota import build_tenant_resource_quota, create_resource_quota
 
-    namespace = make_namespace_name(str(tenant.id))
+    namespace = make_namespace_name(tenant.name)
     try:
         create_namespace(namespace)
         quota = build_tenant_resource_quota(

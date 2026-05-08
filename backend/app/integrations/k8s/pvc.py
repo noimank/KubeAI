@@ -3,7 +3,7 @@ import logging
 from kubernetes import client  # type: ignore[import-untyped]
 from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
 
-from app.integrations.base import with_retry
+from app.integrations.base import sanitize_k8s_name, with_retry
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
@@ -76,5 +76,5 @@ def delete_pvc(namespace: str, pvc_name: str) -> None:
         raise
 
 
-def make_dataset_pvc_name(dataset_id: str, version_id: str) -> str:
-    return f"dataset-{dataset_id[:8]}-v{version_id[:8]}"
+def make_dataset_pvc_name(dataset_name: str, version_number: int) -> str:
+    return f"dataset-{sanitize_k8s_name(dataset_name)}-v{version_number}"

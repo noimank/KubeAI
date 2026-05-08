@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Button, DatePicker, Input, Modal, Popconfirm, Space, Table } from 'antd'
+import { Button, DatePicker, Form, Input, Modal, Popconfirm, Space, Table, message } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -21,6 +21,7 @@ export default function DatasetsPage() {
 
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newDisplayName, setNewDisplayName] = useState('')
   const [newDesc, setNewDesc] = useState('')
 
   const hasPermission = useRbacStore((s) => s.hasPermission)
@@ -40,7 +41,8 @@ export default function DatasetsPage() {
   })
 
   const createMutation = useMutation({
-    mutationFn: (values: { name: string; description?: string }) => createDataset(values),
+    mutationFn: (values: { name: string; displayName?: string; description?: string }) =>
+      createDataset(values),
     onSuccess: (detail) => {
       getMessageInstance()?.success('数据集创建成功')
       setCreateModalOpen(false)
@@ -82,7 +84,8 @@ export default function DatasetsPage() {
   const columns: ColumnsType<Dataset> = [
     {
       title: '名称',
-      dataIndex: 'name',
+      dataIndex: 'displayName',
+      render: (displayName: string | undefined, record: Dataset) => displayName || record.name,
       ellipsis: true,
     },
     {
@@ -148,7 +151,15 @@ export default function DatasetsPage() {
     const trimmed = newName.trim()
     if (!trimmed) return
     if (trimmed.length > 200) return
-    createMutation.mutate({ name: trimmed, description: newDesc.trim() || undefined })
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(trimmed)) {
+      message.warning('数据集名称仅支持小写字母、数字和中划线，且以字母或数字开头')
+      return
+    }
+    createMutation.mutate({
+      name: trimmed,
+      displayName: newDisplayName.trim() || undefined,
+      description: newDesc.trim() || undefined,
+    })
   }
 
   return (
@@ -216,6 +227,7 @@ export default function DatasetsPage() {
         onCancel={() => {
           setCreateModalOpen(false)
           setNewName('')
+          setNewDisplayName('')
           setNewDesc('')
         }}
         onOk={handleCreateOk}
@@ -225,21 +237,36 @@ export default function DatasetsPage() {
         destroyOnHidden
         okButtonProps={{ disabled: !newName.trim() || newName.trim().length > 200 }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
-          <Input
-            placeholder="数据集名称（必填，最多 200 字符）"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            maxLength={200}
-            showCount
-          />
-          <Input.TextArea
-            placeholder="数据集描述（可选）"
-            value={newDesc}
-            onChange={(e) => setNewDesc(e.target.value)}
-            rows={3}
-          />
-        </div>
+        <Form layout="vertical" style={{ marginTop: 8 }}>
+          <Form.Item label="数据集名称" required>
+            <Input
+              placeholder="仅支持小写字母、数字和中划线"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              maxLength={200}
+              showCount
+            />
+          </Form.Item>
+          <Form.Item label="显示名称">
+            <Input
+              placeholder="可选，支持中文"
+              value={newDisplayName}
+              onChange={(e) => setNewDisplayName(e.target.value)}
+              maxLength={200}
+              showCount
+            />
+          </Form.Item>
+          <Form.Item label="描述">
+            <Input.TextArea
+              placeholder="可选"
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+              rows={3}
+              maxLength={500}
+              showCount
+            />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   )

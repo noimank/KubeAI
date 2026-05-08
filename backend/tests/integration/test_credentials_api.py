@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -27,6 +27,12 @@ def mock_credential_service():
 
 
 @pytest.fixture
+def mock_tenant_name():
+    with patch("app.api.endpoints.credentials._get_tenant_name", new=AsyncMock(return_value="test-tenant")):
+        yield
+
+
+@pytest.fixture
 def override_user():
     user = None
 
@@ -44,7 +50,7 @@ def override_user():
 
 class TestCreateCredential:
     @pytest.mark.asyncio
-    async def test_create_credential_success(self, mock_credential_service, override_user):
+    async def test_create_credential_success(self, mock_credential_service, mock_tenant_name, override_user):
         tenant_id = uuid.uuid4()
         override_user(_make_user(tenant_id=tenant_id))
 
@@ -62,7 +68,7 @@ class TestCreateCredential:
         mock_credential_service.store_credential.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_credential_no_tenant(self, mock_credential_service, override_user):
+    async def test_create_credential_no_tenant(self, mock_credential_service, mock_tenant_name, override_user):
         override_user(_make_user(tenant_id=None))
 
         transport = ASGITransport(app=app)
@@ -77,7 +83,7 @@ class TestCreateCredential:
 
 class TestDeleteCredential:
     @pytest.mark.asyncio
-    async def test_delete_credential_success(self, mock_credential_service, override_user):
+    async def test_delete_credential_success(self, mock_credential_service, mock_tenant_name, override_user):
         tenant_id = uuid.uuid4()
         override_user(_make_user(tenant_id=tenant_id))
 

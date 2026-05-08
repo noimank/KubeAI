@@ -4,7 +4,7 @@ import logging
 from kubernetes import client  # type: ignore[import-untyped]
 from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
 
-from app.integrations.base import with_retry
+from app.integrations.base import sanitize_k8s_name, with_retry
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
@@ -68,5 +68,5 @@ def get_secret(namespace: str, name: str) -> dict[str, str] | None:
         raise
 
 
-def make_secret_name(tenant_id: str, credential_name: str) -> str:
-    return f"credential-{tenant_id}-{credential_name}"
+def make_secret_name(tenant_name: str, credential_name: str) -> str:
+    return f"credential-{sanitize_k8s_name(tenant_name)}-{sanitize_k8s_name(credential_name)}"

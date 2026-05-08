@@ -68,7 +68,7 @@ class TestCreateTenant:
 
         assert result.name == "test"
         assert result.display_name == "Test"
-        assert result.k8s_namespace_name == f"kubeai-{result.id}"
+        assert result.k8s_namespace_name == "kubeai-test"
         mock_create_ns.assert_called_once()
         mock_create_quota.assert_called_once()
         mock_create_np.assert_called_once()

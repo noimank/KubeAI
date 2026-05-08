@@ -55,7 +55,7 @@ class TenantService:
         self.db.add(tenant)
         await self.db.flush()
 
-        namespace = make_namespace_name(str(tenant.id))
+        namespace = make_namespace_name(tenant.name)
         try:
             create_namespace(namespace)
             try:

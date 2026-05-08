@@ -3,7 +3,7 @@ import logging
 from kubernetes import client  # type: ignore[import-untyped]
 from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
 
-from app.integrations.base import K8S_NAMESPACE_PREFIX, with_retry
+from app.integrations.base import K8S_NAMESPACE_PREFIX, sanitize_k8s_name, with_retry
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,12 @@ def create_namespace(name: str, labels: dict[str, str] | None = None) -> client.
     namespace = client.V1Namespace(
         metadata=client.V1ObjectMeta(name=name, labels=ns_labels),
     )
-    return core_v1.create_namespace(body=namespace)
+    try:
+        return core_v1.create_namespace(body=namespace)
+    except ApiException as e:
+        if e.status == 409:
+            return core_v1.read_namespace(name=name)
+        raise
 
 
 @with_retry(max_retries=3)
@@ -43,5 +48,5 @@ def namespace_exists(name: str) -> bool:
         raise
 
 
-def make_namespace_name(tenant_id: str) -> str:
-    return f"{K8S_NAMESPACE_PREFIX}{tenant_id}"
+def make_namespace_name(tenant_name: str) -> str:
+    return f"{K8S_NAMESPACE_PREFIX}{sanitize_k8s_name(tenant_name)}"

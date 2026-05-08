@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import NotFoundException
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.enums import AuditAction, ResourceType
+from app.models.tenant import Tenant
 from app.services.audit_service import AuditService
 
 if TYPE_CHECKING:
@@ -30,16 +31,25 @@ class DatasetService:
         self.db = db
         self.minio = minio_client
 
+    async def _get_tenant_name(self, tenant_id: uuid.UUID) -> str:
+        result = await self.db.execute(select(Tenant.name).where(Tenant.id == tenant_id))
+        tenant = result.scalar_one_or_none()
+        if not tenant:
+            raise NotFoundException("租户不存在")
+        return tenant
+
     async def create_dataset(
         self,
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str,
+        display_name: str | None = None,
         description: str | None = None,
         audit_context: dict[str, Any] | None = None,
     ) -> Dataset:
         dataset = Dataset(
             name=name,
+            display_name=display_name,
             description=description,
             tenant_id=tenant_id,
             created_by=user_id,
@@ -68,14 +78,15 @@ class DatasetService:
         version_id: uuid.UUID,
         files: list[Any],
     ) -> list[dict[str, Any]]:
-        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
 
-        await asyncio.to_thread(self.minio.ensure_bucket, tenant_id)
+        await asyncio.to_thread(self.minio.ensure_bucket, tenant_name)
 
         results: list[dict[str, Any]] = []
         total_size = 0
-        prefix = f"datasets/{dataset_id}/v{version.version_number}/"
+        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
 
         for file in files:
             object_name = f"{prefix}{file.filename}"
@@ -84,7 +95,7 @@ class DatasetService:
 
             await asyncio.to_thread(
                 self.minio.upload_stream,
-                tenant_id,
+                tenant_name,
                 object_name,
                 BytesIO(content),
                 size,
@@ -116,7 +127,7 @@ class DatasetService:
         user_id: uuid.UUID,
         description: str | None = None,
     ) -> DatasetVersion:
-        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
 
         max_ver = await self.db.execute(
             select(func.max(DatasetVersion.version_number)).where(DatasetVersion.dataset_id == dataset_id)
@@ -127,7 +138,7 @@ class DatasetService:
             dataset_id=dataset_id,
             version_number=next_number,
             description=description,
-            storage_path=f"datasets/{dataset_id}/v{next_number}/",
+            storage_path=f"datasets/{dataset.name}/v{next_number}/",
             file_count=0,
             total_size_bytes=0,
             created_by=user_id,
@@ -174,20 +185,14 @@ class DatasetService:
         tenant_id: uuid.UUID,
         audit_context: dict[str, Any] | None = None,
     ) -> None:
-        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
 
-        # TODO: Epic 5 实现训练任务后，检查版本是否被引用  # noqa: RUF003
-        # training_jobs = await self.db.execute(
-        #     select(TrainingJob).where(TrainingJob.dataset_version_id == version_id)
-        # )
-        # if training_jobs.scalars().first():
-        #     raise ConflictException("该版本被训练任务引用，无法删除")  # noqa: RUF003
-
-        prefix = f"datasets/{dataset_id}/v{version.version_number}/"
-        objects = await asyncio.to_thread(self.minio.list_objects, tenant_id, prefix)
+        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
+        objects = await asyncio.to_thread(self.minio.list_objects, tenant_name, prefix)
         if objects:
-            await asyncio.to_thread(self.minio.delete_objects, tenant_id, [o["object_name"] for o in objects])
+            await asyncio.to_thread(self.minio.delete_objects, tenant_name, [o["object_name"] for o in objects])
 
         if audit_context:
             await self._log_audit(
@@ -209,10 +214,11 @@ class DatasetService:
         audit_context: dict[str, Any] | None = None,
     ) -> None:
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
 
-        objects = await asyncio.to_thread(self.minio.list_objects, tenant_id, f"datasets/{dataset_id}/")
+        objects = await asyncio.to_thread(self.minio.list_objects, tenant_name, f"datasets/{dataset.name}/")
         if objects:
-            await asyncio.to_thread(self.minio.delete_objects, tenant_id, [o["object_name"] for o in objects])
+            await asyncio.to_thread(self.minio.delete_objects, tenant_name, [o["object_name"] for o in objects])
 
         if audit_context:
             await self._log_audit(
@@ -233,10 +239,11 @@ class DatasetService:
         version_id: uuid.UUID,
         tenant_id: uuid.UUID,
     ) -> list[dict[str, Any]]:
-        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
-        prefix = f"datasets/{dataset_id}/v{version.version_number}/"
-        objects = await asyncio.to_thread(self.minio.list_objects, tenant_id, prefix)
+        tenant_name = await self._get_tenant_name(tenant_id)
+        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
+        objects = await asyncio.to_thread(self.minio.list_objects, tenant_name, prefix)
         return [
             {
                 "file_name": obj["object_name"].removeprefix(prefix),
@@ -272,10 +279,11 @@ class DatasetService:
         file_name: str,
         tenant_id: uuid.UUID,
     ) -> str:
-        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
-        object_name = f"datasets/{dataset_id}/v{version.version_number}/{file_name}"
-        return await asyncio.to_thread(self.minio.presigned_get_url, tenant_id, object_name)
+        tenant_name = await self._get_tenant_name(tenant_id)
+        object_name = f"datasets/{dataset.name}/v{version.version_number}/{file_name}"
+        return await asyncio.to_thread(self.minio.presigned_get_url, tenant_name, object_name)
 
     def _compute_file_type_distribution(self, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ext_counter: dict[str, dict[str, Any]] = {}
@@ -299,13 +307,14 @@ class DatasetService:
 
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
 
-        namespace = make_namespace_name(str(tenant_id))
+        namespace = make_namespace_name(tenant_name)
         if not await asyncio.to_thread(namespace_exists, namespace):
             from app.core.exceptions import BadRequestException
 
             raise BadRequestException("租户 K8s 命名空间不存在，请联系管理员")  # noqa: RUF001
-        pvc_name = make_dataset_pvc_name(str(dataset_id), str(version_id))
+        pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
         mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
 
         size_bytes = version.total_size_bytes or 0
@@ -333,9 +342,10 @@ class DatasetService:
 
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
 
-        namespace = make_namespace_name(str(tenant_id))
-        pvc_name = make_dataset_pvc_name(str(dataset_id), str(version_id))
+        namespace = make_namespace_name(tenant_name)
+        pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
         mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
 
         if not await asyncio.to_thread(pvc_exists, namespace, pvc_name):
@@ -351,7 +361,7 @@ class DatasetService:
             "access_mode": "ReadWriteMany",
             "storage_request": pvc.spec.resources.requests.get("storage", "0Gi"),
             "pvc_status": pvc.status.phase if pvc.status else "Unknown",
-            "minio_bucket": str(tenant_id),
+            "minio_bucket": tenant_name,
             "minio_prefix": version.storage_path,
         }
 
@@ -364,11 +374,12 @@ class DatasetService:
         from app.integrations.k8s.namespace import make_namespace_name
         from app.integrations.k8s.pvc import delete_pvc, make_dataset_pvc_name
 
-        await self._get_dataset_or_fail(dataset_id, tenant_id)
-        await self._get_version_or_fail(version_id, dataset_id)
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
+        version = await self._get_version_or_fail(version_id, dataset_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
 
-        namespace = make_namespace_name(str(tenant_id))
-        pvc_name = make_dataset_pvc_name(str(dataset_id), str(version_id))
+        namespace = make_namespace_name(tenant_name)
+        pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
         await asyncio.to_thread(delete_pvc, namespace, pvc_name)
 
     async def _get_dataset_or_fail(self, dataset_id: uuid.UUID, tenant_id: uuid.UUID) -> Dataset:

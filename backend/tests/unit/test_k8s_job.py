@@ -137,9 +137,13 @@ class TestDeleteJob:
 
 class TestNaming:
     def test_make_job_name(self):
-        name = k8s_job.make_job_name("abcdef12-3456-7890")
-        assert name == "image-build-abcdef12"
+        name = k8s_job.make_job_name("my-image")
+        assert name == "image-build-my-image"
 
     def test_make_configmap_name(self):
-        name = k8s_job.make_configmap_name("abcdef12-3456-7890")
-        assert name == "dockerfile-abcdef12"
+        name = k8s_job.make_configmap_name("my-image")
+        assert name == "dockerfile-my-image"
+
+    def test_make_job_name_sanitized(self):
+        name = k8s_job.make_job_name("My_Image:v1.0")
+        assert name == "image-build-my-image-v1-0"

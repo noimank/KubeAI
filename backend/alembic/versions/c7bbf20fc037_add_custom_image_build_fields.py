@@ -46,11 +46,13 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_images_tenant_id"), "images", ["tenant_id"], unique=False)
     op.create_foreign_key(None, "images", "tenants", ["tenant_id"], ["id"], ondelete="CASCADE")
+    op.create_unique_constraint("uq_image_tenant_name_tag", "images", ["tenant_id", "name", "tag"])
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     op.drop_constraint(None, "images", type_="foreignkey")
+    op.drop_constraint("uq_image_tenant_name_tag", "images", type_="unique")
     op.drop_index(op.f("ix_images_tenant_id"), table_name="images")
     op.drop_column("images", "build_job_name")
     op.drop_column("images", "dockerfile")

@@ -13,6 +13,7 @@ export interface DatasetVersion {
 export interface Dataset {
   id: string
   name: string
+  displayName?: string
   description?: string
   tenantId: string
   createdBy: string
@@ -52,6 +53,7 @@ export interface VersionStats {
 
 export interface DatasetCreateParams {
   name: string
+  displayName?: string
   description?: string
 }
 

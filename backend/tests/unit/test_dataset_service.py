@@ -18,9 +18,10 @@ def _sync_result(value):
 _NOW = datetime(2026, 4, 30, 12, 0, 0, tzinfo=UTC)
 
 
-def _make_dataset(name="test-dataset", tenant_id=None):
+def _make_dataset(name="test-dataset", display_name=None, tenant_id=None):
     ds = Dataset(
         name=name,
+        display_name=display_name,
         description="test description",
         tenant_id=tenant_id or uuid.uuid4(),
         created_by=uuid.uuid4(),
@@ -68,7 +69,9 @@ def mock_minio():
 
 @pytest.fixture
 def service(mock_db, mock_minio):
-    return DatasetService(mock_db, mock_minio)
+    svc = DatasetService(mock_db, mock_minio)
+    svc._get_tenant_name = AsyncMock(return_value="default-tenant")
+    return svc
 
 
 class TestCreateDataset:
@@ -345,7 +348,10 @@ class TestDeleteVersion:
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
         mock_db.delete = AsyncMock()
 
-        mock_to_thread.side_effect = [[{"object_name": f"datasets/{dataset.id}/v1/file.csv"}], None]
+        mock_to_thread.side_effect = [
+            [{"object_name": f"datasets/{dataset.name}/v{version.version_number}/file.csv"}],
+            None,
+        ]
 
         await service.delete_version(dataset.id, version.id, dataset.tenant_id)
 
@@ -407,7 +413,7 @@ class TestListVersionFiles:
         dataset.versions = [version]
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
 
-        prefix = f"datasets/{dataset.id}/v2/"
+        prefix = f"datasets/{dataset.name}/v2/"
         mock_to_thread.return_value = [
             {
                 "object_name": f"{prefix}data.csv",
@@ -469,7 +475,7 @@ class TestGetVersionStats:
             _sync_result(dataset),
             _sync_result(version),
         ]
-        prefix = f"datasets/{dataset.id}/v1/"
+        prefix = f"datasets/{dataset.name}/v1/"
         mock_to_thread.return_value = [
             {
                 "object_name": f"{prefix}data.csv",
@@ -528,8 +534,8 @@ class TestGetFileDownloadUrl:
         assert url == "https://minio.example.com/presigned-url"
         mock_to_thread.assert_called_once_with(
             mock_minio.presigned_get_url,
-            dataset.tenant_id,
-            f"datasets/{dataset.id}/v3/data.csv",
+            "default-tenant",
+            f"datasets/{dataset.name}/v3/data.csv",
         )
 
     async def test_get_download_url_dataset_not_found(self, service, mock_db):
@@ -589,7 +595,7 @@ class TestEnsureDatasetPvc:
 
         result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
 
-        assert result["pvc_name"] == f"dataset-{str(dataset.id)[:8]}-v{str(version.id)[:8]}"
+        assert result["pvc_name"] == f"dataset-{dataset.name}-v{version.version_number}"
         assert result["mount_path"] == "/data/datasets/mnist/v1"
         assert result["access_mode"] == "ReadWriteMany"
         assert result["storage_request"] == "1Gi"
@@ -650,7 +656,7 @@ class TestGetDatasetMountInfo:
         assert result["mount_path"] == "/data/datasets/cifar10/v3"
         assert result["pvc_status"] == "Bound"
         assert result["storage_request"] == "5Gi"
-        assert result["minio_bucket"] == str(dataset.tenant_id)
+        assert result["minio_bucket"] == "default-tenant"
         assert result["minio_prefix"] == version.storage_path
 
     async def test_get_mount_info_dataset_not_found(self, service, mock_db):

@@ -69,7 +69,9 @@ def mock_db():
 
 @pytest.fixture
 def service(mock_db):
-    return ImageService(mock_db)
+    svc = ImageService(mock_db)
+    svc._get_tenant_name = AsyncMock(return_value="default-tenant")
+    return svc
 
 
 class TestListImages:

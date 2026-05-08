@@ -26,6 +26,7 @@ def upgrade() -> None:
         "datasets",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("name", sa.String(length=200), nullable=False),
+        sa.Column("display_name", sa.String(length=200), nullable=True),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("created_by", sa.Uuid(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
@@ -36,6 +37,7 @@ def upgrade() -> None:
             ["users.id"],
         ),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("tenant_id", "name", name="uq_dataset_tenant_name"),
     )
     op.create_index(op.f("ix_datasets_tenant_id"), "datasets", ["tenant_id"], unique=False)
     op.create_table(

@@ -56,6 +56,7 @@ def _build_dataset_response(
     return DatasetResponse(
         id=dataset.id,
         name=dataset.name,
+        display_name=dataset.display_name,
         description=dataset.description,
         tenant_id=dataset.tenant_id,
         created_by=dataset.created_by,
@@ -95,6 +96,7 @@ async def create_dataset(
         tenant_id=tenant_id,
         user_id=user.id,
         name=req.name,
+        display_name=req.display_name,
         description=req.description,
         audit_context=_audit_ctx(request, user),
     )
