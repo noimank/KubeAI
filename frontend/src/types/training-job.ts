@@ -53,3 +53,15 @@ export interface TrainingJobCreate {
   priority?: string
   workerCount?: number
 }
+
+export interface PodInfo {
+  podName: string
+  role: string
+  status: string
+}
+
+export interface LogData {
+  lines: string[]
+  hasMore: boolean
+  totalLines: number
+}

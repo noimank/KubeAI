@@ -1,6 +1,7 @@
 import { api } from './api'
 import type { PageData } from '@/types/api'
-import type { TrainingJob, TrainingJobCreate } from '@/types/training-job'
+import type { LogData, PodInfo, TrainingJob, TrainingJobCreate } from '@/types/training-job'
+import { ACCESS_TOKEN_KEY } from '@/stores/authStore'
 
 export async function getTrainingJobs(params: {
   current: number
@@ -32,4 +33,30 @@ export async function createTrainingJob(data: TrainingJobCreate): Promise<Traini
 export async function stopTrainingJob(id: string): Promise<TrainingJob> {
   const res = await api.post(`/training-jobs/${id}/stop`)
   return res.data.data!
+}
+
+export async function getTrainingJobPods(id: string): Promise<PodInfo[]> {
+  const res = await api.get(`/training-jobs/${id}/pods`)
+  return res.data.data!
+}
+
+export async function getTrainingJobLogs(
+  id: string,
+  params?: { podName?: string; tailLines?: number },
+): Promise<LogData> {
+  const res = await api.get(`/training-jobs/${id}/logs`, { params })
+  return res.data.data!
+}
+
+export function buildLogStreamUrl(
+  jobId: string,
+  params?: { podName?: string; tailLines?: number },
+): string {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY)
+  const url = new URL(`${baseURL}/training-jobs/${jobId}/logs/stream`, window.location.origin)
+  url.searchParams.set('token', token || '')
+  if (params?.podName) url.searchParams.set('pod_name', params.podName)
+  if (params?.tailLines) url.searchParams.set('tail_lines', String(params.tailLines))
+  return url.toString()
 }

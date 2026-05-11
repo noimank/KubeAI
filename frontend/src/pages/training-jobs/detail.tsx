@@ -1,9 +1,27 @@
 import { useState } from 'react'
-import { Breadcrumb, Button, Card, Descriptions, Spin, Steps, Tabs, Tag, Typography } from 'antd'
+import {
+  Breadcrumb,
+  Button,
+  Card,
+  Descriptions,
+  Select,
+  Spin,
+  Steps,
+  Tabs,
+  Tag,
+  Typography,
+} from 'antd'
 import { Link, useParams } from 'react-router-dom'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
-import { getTrainingJob } from '@/services/training-jobs'
+import LogStream from '@/components/LogStream'
+import {
+  buildLogStreamUrl,
+  getTrainingJob,
+  getTrainingJobLogs,
+  getTrainingJobPods,
+} from '@/services/training-jobs'
+import { ACCESS_TOKEN_KEY } from '@/stores/authStore'
 import type { TrainingJobStatus } from '@/types/training-job'
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
@@ -22,6 +40,10 @@ const STATUS_STEPS = [
   { key: 'running', title: '运行' },
   { key: 'succeeded', title: '完成' },
 ]
+
+const STREAMABLE_STATUSES: TrainingJobStatus[] = ['pending', 'queued', 'initializing', 'running']
+const HISTORY_STATUSES: TrainingJobStatus[] = ['succeeded', 'failed', 'stopped']
+const NOT_STARTED_STATUSES: TrainingJobStatus[] = ['pending', 'queued']
 
 function getStepIndex(status: TrainingJobStatus): number {
   const map: Record<string, number> = {
@@ -60,6 +82,7 @@ function formatDuration(start?: string, end?: string): string {
 export default function TrainingJobDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [activeTab, setActiveTab] = useState('overview')
+  const [selectedPod, setSelectedPod] = useState<string | undefined>(undefined)
 
   const {
     data: job,
@@ -75,6 +98,24 @@ export default function TrainingJobDetailPage() {
       const status = query.state.data?.status
       return ['pending', 'queued', 'initializing', 'running'].includes(status ?? '') ? 5000 : false
     },
+  })
+
+  // Pod list query (for distributed training)
+  const { data: pods } = useQuery({
+    queryKey: ['trainingJobPods', id],
+    queryFn: () => getTrainingJobPods(id!),
+    enabled: !!id && !!job?.vcjobName && activeTab === 'logs',
+  })
+
+  // History logs query (for completed jobs)
+  const { data: logData, isLoading: logsLoading } = useQuery({
+    queryKey: ['trainingJobLogs', id, selectedPod],
+    queryFn: () =>
+      getTrainingJobLogs(id!, {
+        podName: selectedPod,
+        tailLines: 2000,
+      }),
+    enabled: !!id && activeTab === 'logs' && !!job?.status && HISTORY_STATUSES.includes(job.status),
   })
 
   if (isLoading) {
@@ -96,6 +137,78 @@ export default function TrainingJobDetailPage() {
 
   const statusCfg = STATUS_CONFIG[job.status] || { color: 'default', text: job.status }
   const hpEntries = job.hyperparameters ? Object.entries(job.hyperparameters) : []
+  const isStreamable = STREAMABLE_STATUSES.includes(job.status)
+  const isNotStarted = NOT_STARTED_STATUSES.includes(job.status)
+  const isDistributed = (pods?.length ?? 0) > 1
+
+  // Build SSE URL for streaming mode
+  const token = typeof window !== 'undefined' ? localStorage.getItem(ACCESS_TOKEN_KEY) : ''
+  const streamUrl =
+    isStreamable && id && token
+      ? buildLogStreamUrl(id, { podName: selectedPod, tailLines: 100 })
+      : null
+
+  const logTabContent = (() => {
+    if (isNotStarted) {
+      return (
+        <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+          任务尚未开始，日志将在启动后展示
+        </div>
+      )
+    }
+
+    if (isStreamable) {
+      return (
+        <div style={{ height: 500, display: 'flex', flexDirection: 'column' }}>
+          {isDistributed && (
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
+              <Select
+                size="small"
+                value={selectedPod || pods?.[0]?.podName}
+                onChange={setSelectedPod}
+                style={{ width: 260 }}
+                options={pods?.map((p) => ({
+                  label: `${p.role} (${p.status === 'running' ? '运行中' : p.status})`,
+                  value: p.podName,
+                }))}
+              />
+            </div>
+          )}
+          <div style={{ flex: 1, position: 'relative' }}>
+            <LogStream streamUrl={streamUrl} streamable emptyText="等待日志输出..." />
+          </div>
+        </div>
+      )
+    }
+
+    // History mode (succeeded/failed/stopped)
+    return (
+      <div style={{ height: 500, display: 'flex', flexDirection: 'column' }}>
+        {isDistributed && (
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
+            <Select
+              size="small"
+              value={selectedPod || pods?.[0]?.podName}
+              onChange={setSelectedPod}
+              style={{ width: 260 }}
+              options={pods?.map((p) => ({
+                label: `${p.role} (${p.status})`,
+                value: p.podName,
+              }))}
+            />
+          </div>
+        )}
+        <div style={{ flex: 1, position: 'relative' }}>
+          <LogStream
+            initialLines={logData?.lines}
+            loading={logsLoading}
+            streamable={false}
+            emptyText="暂无历史日志"
+          />
+        </div>
+      </div>
+    )
+  })()
 
   const tabs = [
     {
@@ -176,10 +289,8 @@ export default function TrainingJobDetailPage() {
     {
       key: 'logs',
       label: '日志',
-      disabled: true,
-      children: (
-        <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>将在 Story 5.3 中实现</div>
-      ),
+      disabled: false,
+      children: logTabContent,
     },
     {
       key: 'metrics',
