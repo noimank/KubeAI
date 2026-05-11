@@ -56,6 +56,50 @@ async def stream_pod_logs(
         raw_resp.close()
 
 
+async def get_pod_failure_info(namespace: str, pod_name: str) -> dict[str, Any] | None:
+    k8s = await get_k8s_clients()
+    core_v1: client.CoreV1Api = k8s["core_v1"]
+
+    try:
+        pod = await core_v1.read_namespaced_pod(name=pod_name, namespace=namespace)
+    except ApiException as e:
+        if e.status == 404:
+            logger.warning("Pod %s not found in %s", pod_name, namespace)
+            return None
+        raise
+
+    if not pod.status or not pod.status.container_statuses:
+        return None
+
+    for cs in pod.status.container_statuses:
+        state = cs.state
+        if not state or not state.terminated:
+            continue
+        t = state.terminated
+        return {
+            "exit_code": t.exit_code,
+            "reason": t.reason or "",
+            "message": t.message or "",
+            "signal": t.signal,
+            "finished_at": str(t.finished_at) if t.finished_at else None,
+        }
+
+    for cs in pod.status.container_statuses:
+        state = cs.state
+        if not state or not state.waiting:
+            continue
+        if state.waiting.reason in ("ImagePullBackOff", "ErrImagePull"):
+            return {
+                "exit_code": 0,
+                "reason": state.waiting.reason,
+                "message": state.waiting.message or "",
+                "signal": None,
+                "finished_at": None,
+            }
+
+    return None
+
+
 async def list_vcjob_pods(namespace: str, vcjob_name: str) -> list[dict[str, Any]]:
     k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]

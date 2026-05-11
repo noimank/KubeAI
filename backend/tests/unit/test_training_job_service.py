@@ -345,3 +345,178 @@ class TestListPods:
         result = await service.list_pods(job_id=job.id, tenant_id=job.tenant_id)
 
         assert result == []
+
+
+class TestMapFailureMessage:
+    def test_oom_killed(self):
+        msg = TrainingJobService._map_failure_message({"exit_code": 137, "reason": "OOMKilled", "message": ""})
+        assert "OOM" in msg
+        assert "内存" in msg
+
+    def test_exit_code_137(self):
+        msg = TrainingJobService._map_failure_message({"exit_code": 137, "reason": "Error", "message": ""})
+        assert "SIGKILL" in msg
+
+    def test_image_pull_backoff(self):
+        msg = TrainingJobService._map_failure_message({"exit_code": 0, "reason": "ImagePullBackOff", "message": ""})
+        assert "镜像拉取失败" in msg
+
+    def test_err_image_pull(self):
+        msg = TrainingJobService._map_failure_message({"exit_code": 0, "reason": "ErrImagePull", "message": ""})
+        assert "镜像拉取失败" in msg
+
+    def test_container_cannot_run(self):
+        msg = TrainingJobService._map_failure_message({"exit_code": 1, "reason": "ContainerCannotRun", "message": ""})
+        assert "容器启动失败" in msg
+
+    def test_exit_code_1(self):
+        msg = TrainingJobService._map_failure_message({"exit_code": 1, "reason": "Error", "message": ""})
+        assert "训练脚本执行错误" in msg
+
+    def test_other_exit_code(self):
+        msg = TrainingJobService._map_failure_message({"exit_code": 42, "reason": "Error", "message": ""})
+        assert "退出码: 42" in msg
+
+    def test_zero_exit_code_with_reason(self):
+        msg = TrainingJobService._map_failure_message({"exit_code": 0, "reason": "Unknown", "message": ""})
+        assert "失败" in msg
+
+
+class TestExtractFailureReason:
+    @patch("app.services.training_job_service.get_pod_failure_info")
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_oom_failure(self, mock_list_pods, mock_failure_info, service):
+        mock_list_pods.return_value = [{"pod_name": "pod-1", "role": "master", "status": "failed"}]
+        mock_failure_info.return_value = {
+            "exit_code": 137,
+            "reason": "OOMKilled",
+            "message": "",
+            "signal": None,
+            "finished_at": None,
+        }
+
+        result = await service._extract_failure_reason("ns", "vcjob-1")
+        assert "OOM" in result
+
+    @patch("app.services.training_job_service.get_pod_failure_info")
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_image_pull_failure(self, mock_list_pods, mock_failure_info, service):
+        mock_list_pods.return_value = [{"pod_name": "pod-1", "role": "master", "status": "pending"}]
+        mock_failure_info.return_value = {
+            "exit_code": 0,
+            "reason": "ImagePullBackOff",
+            "message": "",
+            "signal": None,
+            "finished_at": None,
+        }
+
+        result = await service._extract_failure_reason("ns", "vcjob-1")
+        assert "镜像拉取失败" in result
+
+    @patch("app.services.training_job_service.get_pod_failure_info")
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_no_failure_info(self, mock_list_pods, mock_failure_info, service):
+        mock_list_pods.return_value = [{"pod_name": "pod-1", "role": "master", "status": "failed"}]
+        mock_failure_info.return_value = None
+
+        result = await service._extract_failure_reason("ns", "vcjob-1")
+        assert "未能获取具体失败原因" in result
+
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_no_pods(self, mock_list_pods, service):
+        mock_list_pods.return_value = []
+
+        result = await service._extract_failure_reason("ns", "vcjob-1")
+        assert "已被清理" in result
+
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_list_pods_exception(self, mock_list_pods, service):
+        mock_list_pods.side_effect = Exception("K8s error")
+
+        result = await service._extract_failure_reason("ns", "vcjob-1")
+        assert "不可用" in result
+
+    @patch("app.services.training_job_service.get_pod_failure_info")
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_multiple_pods_first_has_reason(self, mock_list_pods, mock_failure_info, service):
+        mock_list_pods.return_value = [
+            {"pod_name": "pod-master", "role": "master", "status": "failed"},
+            {"pod_name": "pod-worker-0", "role": "worker-0", "status": "failed"},
+        ]
+        mock_failure_info.side_effect = [
+            {"exit_code": 137, "reason": "OOMKilled", "message": "", "signal": None, "finished_at": None},
+            {"exit_code": 1, "reason": "Error", "message": "", "signal": None, "finished_at": None},
+        ]
+
+        result = await service._extract_failure_reason("ns", "vcjob-1")
+        assert "OOM" in result
+        assert mock_failure_info.call_count == 1
+
+
+class TestSyncJobStatusWithFailureReason:
+    @patch("app.services.training_job_service.TrainingJobService._extract_failure_reason", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.batch_get_vcjob_phases")
+    async def test_failed_status_extracts_reason(self, mock_phases, mock_extract, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.RUNNING, vcjob_name="training-test-job")
+        tenant = _make_tenant()
+        mock_db.execute.return_value = _sync_result(tenant)
+        mock_phases.return_value = {"training-test-job": "failed"}
+        mock_extract.return_value = "内存不足 (OOM)：训练容器因超出内存限制被终止。"  # noqa: RUF001
+
+        await service._sync_job_status(job)
+
+        assert job.status == TrainingJobStatus.FAILED
+        assert "OOM" in job.error_message
+
+    @patch("app.services.training_job_service.batch_get_vcjob_phases")
+    async def test_succeeded_status_no_error_message(self, mock_phases, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.RUNNING, vcjob_name="training-test-job")
+        tenant = _make_tenant()
+        mock_db.execute.return_value = _sync_result(tenant)
+        mock_phases.return_value = {"training-test-job": "succeeded"}
+
+        await service._sync_job_status(job)
+
+        assert job.status == TrainingJobStatus.SUCCEEDED
+        assert job.error_message is None
+
+
+class TestRetryTrainingJob:
+    @patch("app.services.training_job_service.create_vcjob")
+    @patch("app.services.training_job_service.build_vcjob")
+    @patch("app.services.training_job_service.get_quota_used")
+    async def test_retry_failed_job(self, mock_quota, mock_build, mock_create, service, mock_db):
+        original_job = _make_job(status=TrainingJobStatus.FAILED, vcjob_name="training-test-job")
+        original_job.hyperparameters = {"lr": "0.001", "epochs": "10"}
+        original_job.description = "测试任务"
+        original_job.metrics_port = 6006
+        tenant = _make_tenant()
+        image = _make_image(id=original_job.image_id)
+
+        mock_db.execute.side_effect = [
+            _sync_result(original_job),
+            _sync_result(image),
+            _sync_result(tenant),
+        ]
+        mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
+        mock_build.return_value = {"metadata": {"name": "test-retry"}}
+
+        result = await service.retry_training_job(original_job.id, original_job.tenant_id, uuid.uuid4())
+
+        assert "retry-" in result.name
+        assert result.name.startswith(original_job.name)
+        mock_create.assert_called_once()
+
+    async def test_retry_running_job_raises(self, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.RUNNING)
+        mock_db.execute.return_value = _sync_result(job)
+
+        with pytest.raises(Exception, match="仅失败或已停止"):
+            await service.retry_training_job(job.id, job.tenant_id, uuid.uuid4())
+
+    async def test_retry_succeeded_job_raises(self, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.SUCCEEDED)
+        mock_db.execute.return_value = _sync_result(job)
+
+        with pytest.raises(Exception, match="仅失败或已停止"):
+            await service.retry_training_job(job.id, job.tenant_id, uuid.uuid4())

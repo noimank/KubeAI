@@ -5,26 +5,32 @@ import {
   Button,
   Card,
   Descriptions,
+  Popconfirm,
   Select,
+  Space,
   Spin,
   Steps,
   Tabs,
   Tag,
   Typography,
 } from 'antd'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { DesktopOutlined, ReloadOutlined } from '@ant-design/icons'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import LogStream from '@/components/LogStream'
 import GpuMetricsChart from '@/components/GpuMetricsChart'
+import { useRbacStore } from '@/stores/rbacStore'
 import {
   buildLogStreamUrl,
   getTrainingJob,
   getTrainingJobLogs,
   getTrainingJobMetrics,
   getTrainingJobPods,
+  stopTrainingJob,
+  retryTrainingJob,
 } from '@/services/training-jobs'
 import { ACCESS_TOKEN_KEY } from '@/stores/authStore'
+import { getMessageInstance } from '@/utils/messageHolder'
 import type { TrainingJobStatus } from '@/types/training-job'
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
@@ -87,8 +93,13 @@ function formatDuration(start?: string, end?: string): string {
 
 export default function TrainingJobDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedPod, setSelectedPod] = useState<string | undefined>(undefined)
+  const queryClient = useQueryClient()
+
+  const hasPermission = useRbacStore((s) => s.hasPermission)
+  const canWrite = hasPermission('training_jobs:write')
 
   const {
     data: job,
@@ -103,6 +114,22 @@ export default function TrainingJobDetailPage() {
     refetchInterval: (query) => {
       const status = query.state.data?.status
       return ['pending', 'queued', 'initializing', 'running'].includes(status ?? '') ? 5000 : false
+    },
+  })
+
+  const stopMutation = useMutation({
+    mutationFn: stopTrainingJob,
+    onSuccess: () => {
+      getMessageInstance()?.success('任务已停止')
+      queryClient.invalidateQueries({ queryKey: ['trainingJob', id] })
+    },
+  })
+
+  const retryMutation = useMutation({
+    mutationFn: retryTrainingJob,
+    onSuccess: (newJob) => {
+      getMessageInstance()?.success('重试任务已创建')
+      navigate(`/training-jobs/${newJob.id}`)
     },
   })
 
@@ -296,10 +323,37 @@ export default function TrainingJobDetailPage() {
               status={getStepStatus(job.status)}
               items={STATUS_STEPS.map((s) => ({ title: s.title }))}
             />
-            {job.errorMessage && (
-              <Typography.Text type="danger" style={{ marginTop: 12, display: 'block' }}>
-                错误信息：{job.errorMessage}
-              </Typography.Text>
+            {job.status === 'failed' && job.errorMessage && (
+              <Alert
+                type="error"
+                showIcon
+                style={{ marginTop: 16 }}
+                message="失败原因"
+                description={
+                  <div>
+                    <div>{job.errorMessage}</div>
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ padding: 0, marginTop: 8 }}
+                      onClick={() => setActiveTab('logs')}
+                    >
+                      查看日志 →
+                    </Button>
+                  </div>
+                }
+              />
+            )}
+            {(job.status === 'failed' || job.status === 'stopped') && canWrite && (
+              <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                <Button
+                  type="primary"
+                  loading={retryMutation.isPending}
+                  onClick={() => retryMutation.mutate(id!)}
+                >
+                  重新训练
+                </Button>
+              </div>
             )}
           </Card>
 
@@ -387,9 +441,24 @@ export default function TrainingJobDetailPage() {
         }}
       >
         <h2 style={{ margin: 0 }}>{job.name}</h2>
-        <Button icon={<ReloadOutlined />} loading={isFetching} onClick={() => refetch()}>
-          刷新状态
-        </Button>
+        <Space>
+          <Button icon={<ReloadOutlined />} loading={isFetching} onClick={() => refetch()}>
+            刷新状态
+          </Button>
+          {canWrite && ['running', 'queued', 'pending'].includes(job.status) && (
+            <Popconfirm
+              title="确认停止该训练任务？"
+              description="运行中的训练将被终止"
+              onConfirm={() => stopMutation.mutate(id!)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button danger loading={stopMutation.isPending}>
+                停止任务
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
       </div>
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
     </div>

@@ -118,6 +118,18 @@ async def stop_training_job(
     return BaseResponse(data=_to_response(job), message="任务已停止")
 
 
+@router.post("/{training_job_id}/retry", response_model=BaseResponse[TrainingJobResponse])
+async def retry_training_job(
+    training_job_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("training_jobs", "write"))],
+) -> BaseResponse[TrainingJobResponse]:
+    service = TrainingJobService(db)
+    tenant_id = _require_tenant_id(user)
+    job = await service.retry_training_job(training_job_id, tenant_id, user.id)
+    return BaseResponse(data=_to_response(job), message="重试任务已创建")
+
+
 @router.get("/{training_job_id}/pods", response_model=BaseResponse[list[PodInfoResponse]])
 async def list_training_job_pods(
     training_job_id: uuid.UUID,

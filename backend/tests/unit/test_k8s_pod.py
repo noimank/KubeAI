@@ -161,3 +161,73 @@ class TestGetPodLog:
         await k8s_pod.get_pod_log("ns", "pod-1")
         call_kwargs = mock_k8s_clients["core_v1"].read_namespaced_pod_log.call_args[1]
         assert "container" not in call_kwargs
+
+
+class TestGetPodFailureInfo:
+    def _make_terminated(self, exit_code=0, reason="", message="", signal=None):
+        t = MagicMock()
+        t.exit_code = exit_code
+        t.reason = reason
+        t.message = message
+        t.signal = signal
+        t.finished_at = None
+        return t
+
+    def _make_container_status(self, terminated=None, waiting=None):
+        state = MagicMock()
+        state.terminated = terminated
+        state.waiting = waiting
+        cs = MagicMock()
+        cs.state = state
+        return cs
+
+    async def test_terminated_pod_returns_info(self, mock_k8s_clients):
+        terminated = self._make_terminated(exit_code=137, reason="OOMKilled", message="Out of memory")
+        cs = self._make_container_status(terminated=terminated)
+
+        pod = MagicMock()
+        pod.status.container_statuses = [cs]
+        mock_k8s_clients["core_v1"].read_namespaced_pod = AsyncMock(return_value=pod)
+
+        result = await k8s_pod.get_pod_failure_info("ns", "pod-1")
+        assert result is not None
+        assert result["exit_code"] == 137
+        assert result["reason"] == "OOMKilled"
+
+    async def test_image_pull_backoff(self, mock_k8s_clients):
+        waiting = MagicMock()
+        waiting.reason = "ImagePullBackOff"
+        waiting.message = "Back-off pulling image"
+        cs = self._make_container_status(waiting=waiting)
+
+        pod = MagicMock()
+        pod.status.container_statuses = [cs]
+        mock_k8s_clients["core_v1"].read_namespaced_pod = AsyncMock(return_value=pod)
+
+        result = await k8s_pod.get_pod_failure_info("ns", "pod-1")
+        assert result is not None
+        assert result["reason"] == "ImagePullBackOff"
+
+    async def test_no_container_statuses(self, mock_k8s_clients):
+        pod = MagicMock()
+        pod.status.container_statuses = None
+        mock_k8s_clients["core_v1"].read_namespaced_pod = AsyncMock(return_value=pod)
+
+        result = await k8s_pod.get_pod_failure_info("ns", "pod-1")
+        assert result is None
+
+    async def test_pod_not_found(self, mock_k8s_clients):
+        mock_k8s_clients["core_v1"].read_namespaced_pod = AsyncMock(side_effect=ApiException(status=404))
+
+        result = await k8s_pod.get_pod_failure_info("ns", "missing-pod")
+        assert result is None
+
+    async def test_running_pod_no_failure(self, mock_k8s_clients):
+        cs = self._make_container_status(terminated=None, waiting=None)
+
+        pod = MagicMock()
+        pod.status.container_statuses = [cs]
+        mock_k8s_clients["core_v1"].read_namespaced_pod = AsyncMock(return_value=pod)
+
+        result = await k8s_pod.get_pod_failure_info("ns", "pod-1")
+        assert result is None

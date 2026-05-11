@@ -14,7 +14,7 @@ from app.core.exceptions import (
 )
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
-from app.integrations.k8s.pod import get_pod_log, list_vcjob_pods, stream_pod_logs
+from app.integrations.k8s.pod import get_pod_failure_info, get_pod_log, list_vcjob_pods, stream_pod_logs
 from app.integrations.k8s.pvc import create_pvc, make_dataset_pvc_name, pvc_exists
 from app.integrations.k8s.resource_quota import get_quota_used
 from app.integrations.volcano.client import (
@@ -191,6 +191,8 @@ class TrainingJobService:
                     old_status = job.status
                     job.status = new_status
                     self._update_job_timestamps(job, new_status)
+                    if new_status == TrainingJobStatus.FAILED:
+                        job.error_message = await self._extract_failure_reason(namespace, job.vcjob_name)
                     logger.info("TrainingJob %s status synced (batch): %s -> %s", job.id, old_status, new_status)
             await self.db.commit()
 
@@ -222,6 +224,36 @@ class TrainingJobService:
         await self.db.refresh(job)
         return job
 
+    async def retry_training_job(self, job_id: uuid.UUID, tenant_id: uuid.UUID, user_id: uuid.UUID) -> TrainingJob:
+        job = await self._get_job_or_fail(job_id, tenant_id)
+
+        if job.status not in (TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED):
+            raise ConflictException(f"当前状态为 {job.status}, 仅失败或已停止的任务可以重试")
+
+        timestamp = datetime.now().strftime("%Y%m%d%H%M")
+        new_name = f"{job.name}-retry-{timestamp}"
+
+        return await self.create_training_job(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name=new_name,
+            description=job.description,
+            dataset_id=job.dataset_id,
+            dataset_version_id=job.dataset_version_id,
+            image_id=job.image_id,
+            command=job.command,
+            hyperparameters=[{"key": k, "value": v} for k, v in job.hyperparameters.items()]
+            if job.hyperparameters
+            else None,
+            gpu_count=job.gpu_count,
+            gpu_mode=job.gpu_mode,
+            cpu=job.cpu,
+            memory=job.memory,
+            priority=job.priority,
+            worker_count=job.worker_count,
+            metrics_port=job.metrics_port,
+        )
+
     async def _sync_job_status(self, job: TrainingJob) -> None:
         if not job.vcjob_name:
             return
@@ -237,6 +269,8 @@ class TrainingJobService:
                 old_status = job.status
                 job.status = new_status
                 self._update_job_timestamps(job, new_status)
+                if new_status == TrainingJobStatus.FAILED:
+                    job.error_message = await self._extract_failure_reason(namespace, job.vcjob_name)
                 logger.info(
                     "TrainingJob %s status synced: %s -> %s",
                     job.id,
@@ -245,6 +279,41 @@ class TrainingJobService:
                 )
         except Exception as e:
             logger.warning("Failed to sync VCJob status for %s: %s", job.vcjob_name, e)
+
+    async def _extract_failure_reason(self, namespace: str, vcjob_name: str) -> str:
+        try:
+            pods = await list_vcjob_pods(namespace, vcjob_name)
+        except Exception:
+            return "训练任务已失败，但失败详情不可用（无法查询 Pod 信息）。"  # noqa: RUF001
+
+        if not pods:
+            return "训练任务已失败，但失败详情不可用（任务资源已被清理）。"  # noqa: RUF001
+
+        for pod_info in pods:
+            failure = await get_pod_failure_info(namespace, pod_info["pod_name"])
+            if failure:
+                return self._map_failure_message(failure)
+
+        return "训练任务已失败，但未能获取具体失败原因。"  # noqa: RUF001
+
+    @staticmethod
+    def _map_failure_message(failure: dict[str, Any]) -> str:
+        reason = failure.get("reason", "")
+        exit_code = failure.get("exit_code", -1)
+
+        if reason == "OOMKilled":
+            return "内存不足 (OOM)：训练容器因超出内存限制被终止。建议增加内存配置或优化训练脚本。"  # noqa: RUF001
+        if reason in ("ImagePullBackOff", "ErrImagePull"):
+            return "镜像拉取失败：请检查镜像地址是否正确，以及是否具有拉取权限。"  # noqa: RUF001
+        if reason == "ContainerCannotRun":
+            return "容器启动失败：请检查镜像和启动命令是否正确。"  # noqa: RUF001
+        if exit_code == 137:
+            return "进程被终止 (SIGKILL)：可能是内存不足。建议增加内存或检查训练脚本。"  # noqa: RUF001
+        if exit_code == 1:
+            return "训练脚本执行错误：请查看日志获取详细错误信息。"  # noqa: RUF001
+        if exit_code != 0:
+            return f"训练异常退出 (退出码: {exit_code})：请查看日志获取详细信息。"  # noqa: RUF001
+        return f"训练任务失败 (原因: {reason})：请查看日志获取详细信息。"  # noqa: RUF001
 
     @staticmethod
     def _update_job_timestamps(job: TrainingJob, new_status: TrainingJobStatus) -> None:

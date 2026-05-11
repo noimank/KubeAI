@@ -41,6 +41,11 @@ export async function stopTrainingJob(id: string): Promise<TrainingJob> {
   return res.data.data!
 }
 
+export async function retryTrainingJob(id: string): Promise<TrainingJob> {
+  const res = await api.post(`/training-jobs/${id}/retry`)
+  return res.data.data!
+}
+
 export async function getTrainingJobPods(id: string): Promise<PodInfo[]> {
   const res = await api.get(`/training-jobs/${id}/pods`)
   return res.data.data!
