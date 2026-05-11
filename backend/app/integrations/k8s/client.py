@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from kubernetes_asyncio import client, config  # type: ignore[import-untyped]
+from kubernetes_asyncio import client, config
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ async def get_k8s_clients() -> dict[str, Any]:
         return _k8s_clients
 
     try:
-        config.load_incluster_config()
+        config.load_incluster_config()  # type: ignore[no-untyped-call]
         logger.info("Loaded in-cluster Kubernetes config")
     except config.ConfigException:
         await config.load_kube_config()

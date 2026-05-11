@@ -33,7 +33,7 @@ class HarborClient:
     def ensure_project(self, project_name: str) -> dict[str, Any]:
         existing = self.get_project(project_name)
         if existing:
-            return cast("dict[str, Any]", existing)
+            return existing
 
         resp = httpx.post(
             f"{self.base_url}/api/v2.0/projects",

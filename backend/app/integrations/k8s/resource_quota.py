@@ -1,7 +1,7 @@
 import logging
 
-from kubernetes_asyncio import client  # type: ignore[import-untyped]
-from kubernetes_asyncio.client.rest import ApiException  # type: ignore[import-untyped]
+from kubernetes_asyncio import client
+from kubernetes_asyncio.client.rest import ApiException
 
 from app.integrations.k8s.client import get_k8s_clients
 

@@ -1,7 +1,7 @@
 import logging
 from typing import Any, cast
 
-from kubernetes_asyncio.client.exceptions import ApiException  # type: ignore[import-untyped]
+from kubernetes_asyncio.client.exceptions import ApiException
 
 from app.integrations.base import K8S_NAMESPACE_PREFIX, sanitize_k8s_name
 from app.integrations.k8s.client import get_k8s_clients

@@ -29,6 +29,7 @@ from app.services.audit_service import AuditService
 
 if TYPE_CHECKING:
     import uuid
+    from collections.abc import Awaitable, Callable
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -232,14 +233,14 @@ class TenantService:
 
         namespace = tenant.k8s_namespace_name
         if namespace:
-            for cleanup in [
-                (delete_resource_quota(namespace), "ResourceQuota"),
-                (delete_network_policy(namespace), "NetworkPolicy"),
-                (delete_namespace(namespace), "Namespace"),
-            ]:
-                coro, label = cleanup
+            cleanup_ops: list[tuple[Callable[[str], Awaitable[None]], str]] = [
+                (delete_resource_quota, "ResourceQuota"),
+                (delete_network_policy, "NetworkPolicy"),
+                (delete_namespace, "Namespace"),
+            ]
+            for delete_fn, label in cleanup_ops:
                 try:
-                    await coro
+                    await delete_fn(namespace)
                 except Exception:
                     logger.warning("删除 K8s %s 失败: namespace=%s", label, namespace, exc_info=True)
 
