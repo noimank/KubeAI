@@ -1,9 +1,8 @@
 import logging
 
-from kubernetes import client  # type: ignore[import-untyped]
-from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
+from kubernetes_asyncio import client  # type: ignore[import-untyped]
+from kubernetes_asyncio.client.rest import ApiException  # type: ignore[import-untyped]
 
-from app.integrations.base import with_retry
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
@@ -32,13 +31,12 @@ def build_tenant_resource_quota(
     )
 
 
-@with_retry(max_retries=3)
-def create_resource_quota(namespace: str, quota: client.V1ResourceQuota) -> client.V1ResourceQuota:
-    k8s = get_k8s_clients()
+async def create_resource_quota(namespace: str, quota: client.V1ResourceQuota) -> client.V1ResourceQuota:
+    k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]
 
     try:
-        core_v1.create_namespaced_resource_quota(namespace=namespace, body=quota)
+        await core_v1.create_namespaced_resource_quota(namespace=namespace, body=quota)
         logger.info("Created ResourceQuota %s in namespace %s", RESOURCE_QUOTA_NAME, namespace)
         return quota
     except ApiException as e:
@@ -48,37 +46,35 @@ def create_resource_quota(namespace: str, quota: client.V1ResourceQuota) -> clie
         raise
 
 
-@with_retry(max_retries=3)
-def update_resource_quota(
+async def update_resource_quota(
     namespace: str,
     gpu_limit: int = 0,
     cpu_limit: str = "4",
     memory_limit: str = "8Gi",
     storage_limit: str = "10Gi",
 ) -> client.V1ResourceQuota:
-    k8s = get_k8s_clients()
+    k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]
 
     quota = build_tenant_resource_quota(gpu_limit, cpu_limit, memory_limit, storage_limit)
     try:
-        core_v1.replace_namespaced_resource_quota(name=RESOURCE_QUOTA_NAME, namespace=namespace, body=quota)
+        await core_v1.replace_namespaced_resource_quota(name=RESOURCE_QUOTA_NAME, namespace=namespace, body=quota)
         logger.info("Updated ResourceQuota %s in namespace %s", RESOURCE_QUOTA_NAME, namespace)
     except ApiException as e:
         if e.status == 404:
-            create_resource_quota(namespace=namespace, quota=quota)
+            await create_resource_quota(namespace=namespace, quota=quota)
             logger.info("Created ResourceQuota %s in namespace %s (was missing)", RESOURCE_QUOTA_NAME, namespace)
         else:
             raise
     return quota
 
 
-@with_retry(max_retries=3)
-def delete_resource_quota(namespace: str, name: str = RESOURCE_QUOTA_NAME) -> None:
-    k8s = get_k8s_clients()
+async def delete_resource_quota(namespace: str, name: str = RESOURCE_QUOTA_NAME) -> None:
+    k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]
 
     try:
-        core_v1.delete_namespaced_resource_quota(name=name, namespace=namespace)
+        await core_v1.delete_namespaced_resource_quota(name=name, namespace=namespace)
         logger.info("Deleted ResourceQuota %s from namespace %s", name, namespace)
     except ApiException as e:
         if e.status == 404:
@@ -86,11 +82,11 @@ def delete_resource_quota(namespace: str, name: str = RESOURCE_QUOTA_NAME) -> No
         raise
 
 
-def get_cluster_capacity() -> dict[str, str]:
-    k8s = get_k8s_clients()
+async def get_cluster_capacity() -> dict[str, str]:
+    k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]
 
-    nodes = core_v1.list_node()
+    nodes = await core_v1.list_node()
     total_gpu = 0
     total_cpu = 0
     total_memory = 0
@@ -110,12 +106,12 @@ def get_cluster_capacity() -> dict[str, str]:
     }
 
 
-def get_quota_used(namespace: str) -> dict[str, str]:
-    k8s = get_k8s_clients()
+async def get_quota_used(namespace: str) -> dict[str, str]:
+    k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]
 
     try:
-        rq = core_v1.read_namespaced_resource_quota(name=RESOURCE_QUOTA_NAME, namespace=namespace)
+        rq = await core_v1.read_namespaced_resource_quota(name=RESOURCE_QUOTA_NAME, namespace=namespace)
     except ApiException as e:
         if e.status == 404:
             return {

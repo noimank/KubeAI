@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
-import requests  # type: ignore[import-untyped]
 
 from app.integrations.harbor.client import HarborClient
 
@@ -17,20 +17,20 @@ def harbor():
 
 
 class TestHealthCheck:
-    @patch("app.integrations.harbor.client.requests.get")
+    @patch("app.integrations.harbor.client.httpx.get")
     def test_health_check_ok(self, mock_get, harbor):
         mock_get.return_value = MagicMock(status_code=200)
         assert harbor.health_check() is True
         mock_get.assert_called_once()
 
-    @patch("app.integrations.harbor.client.requests.get")
+    @patch("app.integrations.harbor.client.httpx.get")
     def test_health_check_fail(self, mock_get, harbor):
-        mock_get.side_effect = requests.RequestException("connection error")
+        mock_get.side_effect = httpx.HTTPError("connection error")
         assert harbor.health_check() is False
 
 
 class TestGetProject:
-    @patch("app.integrations.harbor.client.requests.get")
+    @patch("app.integrations.harbor.client.httpx.get")
     def test_get_project_found(self, mock_get, harbor):
         mock_get.return_value = MagicMock(
             status_code=200,
@@ -40,7 +40,7 @@ class TestGetProject:
         assert result is not None
         assert result["name"] == "kubeai-test"
 
-    @patch("app.integrations.harbor.client.requests.get")
+    @patch("app.integrations.harbor.client.httpx.get")
     def test_get_project_not_found(self, mock_get, harbor):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: [])
         result = harbor.get_project("kubeai-missing")
@@ -54,7 +54,7 @@ class TestEnsureProject:
         result = harbor.ensure_project("kubeai-test")
         assert result["name"] == "kubeai-test"
 
-    @patch("app.integrations.harbor.client.requests.post")
+    @patch("app.integrations.harbor.client.httpx.post")
     @patch.object(HarborClient, "get_project")
     def test_ensure_project_create_new(self, mock_get, mock_post, harbor):
         mock_get.side_effect = [

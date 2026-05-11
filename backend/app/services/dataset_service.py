@@ -310,10 +310,11 @@ class DatasetService:
         tenant_name = await self._get_tenant_name(tenant_id)
 
         namespace = make_namespace_name(tenant_name)
-        if not await asyncio.to_thread(namespace_exists, namespace):
+        if not await namespace_exists(namespace):
             from app.core.exceptions import BadRequestException
 
             raise BadRequestException("租户 K8s 命名空间不存在，请联系管理员")  # noqa: RUF001
+
         pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
         mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
 
@@ -321,7 +322,7 @@ class DatasetService:
         size_gb = max(1, -(-size_bytes // (1024**3)))
         storage_request = f"{size_gb}Gi"
 
-        pvc = await asyncio.to_thread(create_pvc, namespace, pvc_name, storage_request)
+        pvc = await create_pvc(namespace, pvc_name, storage_request)
 
         return {
             "pvc_name": pvc_name,
@@ -338,7 +339,7 @@ class DatasetService:
         tenant_id: uuid.UUID,
     ) -> dict[str, Any]:
         from app.integrations.k8s.namespace import make_namespace_name
-        from app.integrations.k8s.pvc import make_dataset_pvc_name, pvc_exists
+        from app.integrations.k8s.pvc import get_pvc, make_dataset_pvc_name, pvc_exists
 
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
@@ -348,12 +349,10 @@ class DatasetService:
         pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
         mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
 
-        if not await asyncio.to_thread(pvc_exists, namespace, pvc_name):
+        if not await pvc_exists(namespace, pvc_name):
             raise NotFoundException(message=f"版本 v{version.version_number} 尚未挂载")
 
-        from app.integrations.k8s.pvc import get_pvc
-
-        pvc = await asyncio.to_thread(get_pvc, namespace, pvc_name)
+        pvc = await get_pvc(namespace, pvc_name)
 
         return {
             "pvc_name": pvc_name,
@@ -380,7 +379,7 @@ class DatasetService:
 
         namespace = make_namespace_name(tenant_name)
         pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
-        await asyncio.to_thread(delete_pvc, namespace, pvc_name)
+        await delete_pvc(namespace, pvc_name)
 
     async def _get_dataset_or_fail(self, dataset_id: uuid.UUID, tenant_id: uuid.UUID) -> Dataset:
         result = await self.db.execute(

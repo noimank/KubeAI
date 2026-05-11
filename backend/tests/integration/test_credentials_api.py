@@ -23,6 +23,8 @@ def _make_user(tenant_id: uuid.UUID | None = None, role: UserRole = UserRole.ENG
 @pytest.fixture
 def mock_credential_service():
     with patch("app.api.endpoints.credentials._credential_service") as mock:
+        mock.store_credential = AsyncMock(return_value="test-secret")
+        mock.delete_credential = AsyncMock()
         yield mock
 
 

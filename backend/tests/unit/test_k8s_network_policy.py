@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.integrations.k8s.network_policy import (
     ALLOWED_NAMESPACES,
@@ -42,40 +42,42 @@ class TestBuildTenantNetworkPolicy:
 
 
 class TestCreateTenantNetworkPolicy:
-    @patch("app.integrations.k8s.network_policy.get_k8s_clients")
-    def test_create_success(self, mock_get_clients):
+    @patch("app.integrations.k8s.network_policy.get_k8s_clients", new_callable=AsyncMock)
+    async def test_create_success(self, mock_get_clients):
         mock_api = MagicMock()
+        mock_api.create_namespaced_network_policy = AsyncMock()
         mock_get_clients.return_value = {"networking_v1": mock_api}
 
-        create_tenant_network_policy("kubeai-test-123")
+        await create_tenant_network_policy("kubeai-test-123")
         mock_api.create_namespaced_network_policy.assert_called_once()
 
-    @patch("app.integrations.k8s.network_policy.get_k8s_clients")
-    def test_create_already_exists(self, mock_get_clients):
-        from kubernetes.client.rest import ApiException
+    @patch("app.integrations.k8s.network_policy.get_k8s_clients", new_callable=AsyncMock)
+    async def test_create_already_exists(self, mock_get_clients):
+        from kubernetes_asyncio.client.rest import ApiException
 
         mock_api = MagicMock()
-        mock_api.create_namespaced_network_policy.side_effect = ApiException(status=409)
+        mock_api.create_namespaced_network_policy = AsyncMock(side_effect=ApiException(status=409))
         mock_get_clients.return_value = {"networking_v1": mock_api}
 
-        create_tenant_network_policy("kubeai-test-123")
+        await create_tenant_network_policy("kubeai-test-123")
 
 
 class TestDeleteNetworkPolicy:
-    @patch("app.integrations.k8s.network_policy.get_k8s_clients")
-    def test_delete_success(self, mock_get_clients):
+    @patch("app.integrations.k8s.network_policy.get_k8s_clients", new_callable=AsyncMock)
+    async def test_delete_success(self, mock_get_clients):
         mock_api = MagicMock()
+        mock_api.delete_namespaced_network_policy = AsyncMock()
         mock_get_clients.return_value = {"networking_v1": mock_api}
 
-        delete_network_policy("kubeai-test-123")
+        await delete_network_policy("kubeai-test-123")
         mock_api.delete_namespaced_network_policy.assert_called_once()
 
-    @patch("app.integrations.k8s.network_policy.get_k8s_clients")
-    def test_delete_not_found(self, mock_get_clients):
-        from kubernetes.client.rest import ApiException
+    @patch("app.integrations.k8s.network_policy.get_k8s_clients", new_callable=AsyncMock)
+    async def test_delete_not_found(self, mock_get_clients):
+        from kubernetes_asyncio.client.rest import ApiException
 
         mock_api = MagicMock()
-        mock_api.delete_namespaced_network_policy.side_effect = ApiException(status=404)
+        mock_api.delete_namespaced_network_policy = AsyncMock(side_effect=ApiException(status=404))
         mock_get_clients.return_value = {"networking_v1": mock_api}
 
-        delete_network_policy("kubeai-test-123")
+        await delete_network_policy("kubeai-test-123")

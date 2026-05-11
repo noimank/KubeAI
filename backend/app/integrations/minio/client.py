@@ -9,12 +9,12 @@ from minio.error import S3Error
 
 from app.core.config import settings
 from app.core.exceptions import ExternalServiceException
-from app.integrations.base import BaseIntegration, sanitize_k8s_name, with_retry
+from app.integrations.base import sanitize_k8s_name
 
 logger = logging.getLogger(__name__)
 
 
-class MinIOClient(BaseIntegration):
+class MinIOClient:
     def __init__(self) -> None:
         self._client = Minio(
             endpoint=settings.MINIO_ENDPOINT,
@@ -27,7 +27,6 @@ class MinIOClient(BaseIntegration):
     def _bucket_name(self, tenant_name: str) -> str:
         return f"{self._prefix}{sanitize_k8s_name(tenant_name)}"
 
-    @with_retry()
     def health_check(self) -> bool:
         try:
             self._client.list_buckets()
@@ -36,7 +35,6 @@ class MinIOClient(BaseIntegration):
             logger.error("MinIO health check failed: %s", e)
             raise ExternalServiceException(f"MinIO 连接失败: {e}") from e
 
-    @with_retry()
     def ensure_bucket(self, tenant_name: str) -> str:
         bucket = self._bucket_name(tenant_name)
         try:
@@ -47,7 +45,6 @@ class MinIOClient(BaseIntegration):
         except S3Error as e:
             raise ExternalServiceException(f"MinIO bucket 操作失败: {e}") from e
 
-    @with_retry()
     def upload_file(
         self,
         tenant_name: str,
@@ -69,7 +66,6 @@ class MinIOClient(BaseIntegration):
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 文件上传失败: {e}") from e
 
-    @with_retry()
     def upload_stream(
         self,
         tenant_name: str,
@@ -93,7 +89,6 @@ class MinIOClient(BaseIntegration):
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 流式上传失败: {e}") from e
 
-    @with_retry()
     def list_objects(self, tenant_name: str, prefix: str = "") -> list[dict[str, Any]]:
         bucket = self._bucket_name(tenant_name)
         try:
@@ -122,7 +117,6 @@ class MinIOClient(BaseIntegration):
         except Exception as e:
             raise ExternalServiceException(f"MinIO 列出对象失败: {e}") from e
 
-    @with_retry()
     def get_object_info(self, tenant_name: str, object_name: str) -> dict[str, Any]:
         bucket = self._bucket_name(tenant_name)
         try:
@@ -136,7 +130,6 @@ class MinIOClient(BaseIntegration):
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 获取对象信息失败: {e}") from e
 
-    @with_retry()
     def presigned_get_url(self, tenant_name: str, object_name: str, expires: timedelta = timedelta(hours=2)) -> str:
         bucket = self._bucket_name(tenant_name)
         try:
@@ -144,7 +137,6 @@ class MinIOClient(BaseIntegration):
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 生成预签名 URL 失败: {e}") from e
 
-    @with_retry()
     def delete_object(self, tenant_name: str, object_name: str) -> None:
         bucket = self._bucket_name(tenant_name)
         try:
@@ -152,7 +144,6 @@ class MinIOClient(BaseIntegration):
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 删除对象失败: {e}") from e
 
-    @with_retry()
     def delete_objects(self, tenant_name: str, object_names: list[str]) -> None:
         bucket = self._bucket_name(tenant_name)
         try:

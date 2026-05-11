@@ -236,18 +236,18 @@ class ImageService:
         job_name = k8s_job.make_job_name(name)
         cm_name = k8s_job.make_configmap_name(name)
 
-        def _run_build_job() -> None:
+        try:
             harbor_project = f"{settings.HARBOR_PROJECT_PREFIX}{sanitize_k8s_name(tenant_name)}"
-            harbor_client.ensure_project(harbor_project)
+            await asyncio.to_thread(harbor_client.ensure_project, harbor_project)
 
             harbor_dockerconfig = harbor_client.make_harbor_dockerconfig()
-            k8s_secret.create_secret(
+            await k8s_secret.create_secret(
                 namespace=namespace,
                 name=k8s_job.HARBOR_SECRET_NAME,
                 data=harbor_dockerconfig,
             )
 
-            k8s_job.create_configmap(namespace=namespace, name=cm_name, data={"Dockerfile": dockerfile})
+            await k8s_job.create_configmap(namespace=namespace, name=cm_name, data={"Dockerfile": dockerfile})
 
             destination = harbor_client.make_harbor_image_ref(
                 tenant_name=tenant_name,
@@ -261,10 +261,8 @@ class ImageService:
                 destination=destination,
                 harbor_url=settings.HARBOR_URL,
             )
-            k8s_job.submit_job(namespace=namespace, job=job_obj)
+            await k8s_job.submit_job(namespace=namespace, job=job_obj)
 
-        try:
-            await asyncio.to_thread(_run_build_job)
             image.build_job_name = job_name
             await self.db.flush()
         except Exception:
@@ -292,7 +290,7 @@ class ImageService:
 
         tenant_name = await self._get_tenant_name(image.tenant_id)
         namespace = f"{K8S_NAMESPACE_PREFIX}{sanitize_k8s_name(tenant_name)}"
-        return await asyncio.to_thread(k8s_job.get_job_logs, namespace=namespace, job_name=image.build_job_name)
+        return await k8s_job.get_job_logs(namespace=namespace, job_name=image.build_job_name)
 
     async def rebuild_image(
         self,
@@ -313,36 +311,33 @@ class ImageService:
         if image.build_job_name:
             old_cm_name = k8s_job.make_configmap_name(image.name)
             try:
-                await asyncio.to_thread(k8s_job.delete_configmap, namespace=namespace, name=old_cm_name)
+                await k8s_job.delete_configmap(namespace=namespace, name=old_cm_name)
             except Exception:
                 logger.warning("Failed to delete old ConfigMap %s in rebuild", old_cm_name, exc_info=True)
-            await asyncio.to_thread(k8s_job.delete_job, namespace=namespace, job_name=image.build_job_name)
+            await k8s_job.delete_job(namespace=namespace, job_name=image.build_job_name)
 
         job_name = k8s_job.make_job_name(image.name)
         cm_name = k8s_job.make_configmap_name(image.name)
 
-        def _run_rebuild() -> None:
-            k8s_job.create_configmap(
-                namespace=namespace,
-                name=cm_name,
-                data={"Dockerfile": image.dockerfile or ""},
-            )
+        await k8s_job.create_configmap(
+            namespace=namespace,
+            name=cm_name,
+            data={"Dockerfile": image.dockerfile or ""},
+        )
 
-            destination = harbor_client.make_harbor_image_ref(
-                tenant_name=tenant_name,
-                name=image.name,
-                tag=image.tag,
-            )
-            job_obj = k8s_job.create_build_job(
-                namespace=namespace,
-                job_name=job_name,
-                dockerfile_configmap=cm_name,
-                destination=destination,
-                harbor_url=settings.HARBOR_URL,
-            )
-            k8s_job.submit_job(namespace=namespace, job=job_obj)
-
-        await asyncio.to_thread(_run_rebuild)
+        destination = harbor_client.make_harbor_image_ref(
+            tenant_name=tenant_name,
+            name=image.name,
+            tag=image.tag,
+        )
+        job_obj = k8s_job.create_build_job(
+            namespace=namespace,
+            job_name=job_name,
+            dockerfile_configmap=cm_name,
+            destination=destination,
+            harbor_url=settings.HARBOR_URL,
+        )
+        await k8s_job.submit_job(namespace=namespace, job=job_obj)
 
         image.build_status = BuildStatus.PENDING
         image.build_job_name = job_name
@@ -369,7 +364,7 @@ class ImageService:
 
         tenant_name = await self._get_tenant_name(image.tenant_id)
         namespace = f"{K8S_NAMESPACE_PREFIX}{sanitize_k8s_name(tenant_name)}"
-        status = await asyncio.to_thread(k8s_job.get_job_status, namespace=namespace, job_name=image.build_job_name)
+        status = await k8s_job.get_job_status(namespace=namespace, job_name=image.build_job_name)
 
         if status.get("status") == "succeeded":
             image.build_status = BuildStatus.PUSHING
@@ -391,7 +386,7 @@ class ImageService:
         if image.build_status in (BuildStatus.SUCCEEDED, BuildStatus.FAILED):
             cm_name = k8s_job.make_configmap_name(image.name)
             try:
-                await asyncio.to_thread(k8s_job.delete_configmap, namespace=namespace, name=cm_name)
+                await k8s_job.delete_configmap(namespace=namespace, name=cm_name)
             except Exception:
                 logger.warning("Failed to delete ConfigMap %s in namespace %s", cm_name, namespace, exc_info=True)
 

@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.integrations.k8s.resource_quota import (
     RESOURCE_QUOTA_NAME,
@@ -41,103 +41,106 @@ class TestBuildTenantResourceQuota:
 
 
 class TestCreateResourceQuota:
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_create_success(self, mock_get_clients):
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_create_success(self, mock_get_clients):
         mock_api = MagicMock()
+        mock_api.create_namespaced_resource_quota = AsyncMock()
         mock_get_clients.return_value = {"core_v1": mock_api}
 
         quota = build_tenant_resource_quota()
-        result = create_resource_quota("kubeai-test", quota)
+        result = await create_resource_quota("kubeai-test", quota)
         mock_api.create_namespaced_resource_quota.assert_called_once_with(namespace="kubeai-test", body=quota)
         assert result == quota
 
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_create_already_exists(self, mock_get_clients):
-        from kubernetes.client.rest import ApiException
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_create_already_exists(self, mock_get_clients):
+        from kubernetes_asyncio.client.rest import ApiException
 
         mock_api = MagicMock()
-        mock_api.create_namespaced_resource_quota.side_effect = ApiException(status=409)
+        mock_api.create_namespaced_resource_quota = AsyncMock(side_effect=ApiException(status=409))
         mock_get_clients.return_value = {"core_v1": mock_api}
 
         quota = build_tenant_resource_quota()
-        result = create_resource_quota("kubeai-test", quota)
+        result = await create_resource_quota("kubeai-test", quota)
         assert result == quota
 
 
 class TestDeleteResourceQuota:
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_delete_success(self, mock_get_clients):
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_delete_success(self, mock_get_clients):
         mock_api = MagicMock()
+        mock_api.delete_namespaced_resource_quota = AsyncMock()
         mock_get_clients.return_value = {"core_v1": mock_api}
 
-        delete_resource_quota("kubeai-test")
+        await delete_resource_quota("kubeai-test")
         mock_api.delete_namespaced_resource_quota.assert_called_once()
 
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_delete_not_found(self, mock_get_clients):
-        from kubernetes.client.rest import ApiException
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_delete_not_found(self, mock_get_clients):
+        from kubernetes_asyncio.client.rest import ApiException
 
         mock_api = MagicMock()
-        mock_api.delete_namespaced_resource_quota.side_effect = ApiException(status=404)
+        mock_api.delete_namespaced_resource_quota = AsyncMock(side_effect=ApiException(status=404))
         mock_get_clients.return_value = {"core_v1": mock_api}
 
-        delete_resource_quota("kubeai-test")
+        await delete_resource_quota("kubeai-test")
 
 
 class TestUpdateResourceQuota:
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_update_success(self, mock_get_clients):
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_update_success(self, mock_get_clients):
         mock_api = MagicMock()
+        mock_api.replace_namespaced_resource_quota = AsyncMock()
         mock_get_clients.return_value = {"core_v1": mock_api}
 
-        result = update_resource_quota("kubeai-test", gpu_limit=8, cpu_limit="32")
+        result = await update_resource_quota("kubeai-test", gpu_limit=8, cpu_limit="32")
         mock_api.replace_namespaced_resource_quota.assert_called_once()
         assert result.spec.hard["requests.nvidia.com/gpu"] == "8"
         assert result.spec.hard["requests.cpu"] == "32"
 
 
 class TestGetClusterCapacity:
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_single_node(self, mock_get_clients):
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_single_node(self, mock_get_clients):
         mock_api = MagicMock()
         node = MagicMock()
         node.status.allocatable = {"nvidia.com/gpu": "4", "cpu": "32", "memory": "128Gi"}
-        mock_api.list_node.return_value = MagicMock(items=[node])
+        mock_api.list_node = AsyncMock(return_value=MagicMock(items=[node]))
         mock_get_clients.return_value = {"core_v1": mock_api}
 
-        result = get_cluster_capacity()
+        result = await get_cluster_capacity()
         assert result["gpu"] == "4"
         assert result["cpu"] == "32"
 
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_multiple_nodes(self, mock_get_clients):
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_multiple_nodes(self, mock_get_clients):
         mock_api = MagicMock()
         node1 = MagicMock()
         node1.status.allocatable = {"nvidia.com/gpu": "4", "cpu": "32", "memory": "64Gi"}
         node2 = MagicMock()
         node2.status.allocatable = {"nvidia.com/gpu": "8", "cpu": "64", "memory": "128Gi"}
-        mock_api.list_node.return_value = MagicMock(items=[node1, node2])
+        mock_api.list_node = AsyncMock(return_value=MagicMock(items=[node1, node2]))
         mock_get_clients.return_value = {"core_v1": mock_api}
 
-        result = get_cluster_capacity()
+        result = await get_cluster_capacity()
         assert result["gpu"] == "12"
         assert result["cpu"] == "96"
 
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_no_gpu(self, mock_get_clients):
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_no_gpu(self, mock_get_clients):
         mock_api = MagicMock()
         node = MagicMock()
         node.status.allocatable = {"cpu": "16", "memory": "32Gi"}
-        mock_api.list_node.return_value = MagicMock(items=[node])
+        mock_api.list_node = AsyncMock(return_value=MagicMock(items=[node]))
         mock_get_clients.return_value = {"core_v1": mock_api}
 
-        result = get_cluster_capacity()
+        result = await get_cluster_capacity()
         assert result["gpu"] == "0"
 
 
 class TestGetQuotaUsed:
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_with_usage(self, mock_get_clients):
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_with_usage(self, mock_get_clients):
         mock_api = MagicMock()
         rq = MagicMock()
         rq.status.used = {
@@ -146,31 +149,31 @@ class TestGetQuotaUsed:
             "requests.memory": "16Gi",
             "requests.storage": "50Gi",
         }
-        mock_api.read_namespaced_resource_quota.return_value = rq
+        mock_api.read_namespaced_resource_quota = AsyncMock(return_value=rq)
         mock_get_clients.return_value = {"core_v1": mock_api}
 
-        result = get_quota_used("kubeai-test")
+        result = await get_quota_used("kubeai-test")
         assert result["requests.nvidia.com/gpu"] == "3"
         assert result["requests.cpu"] == "8"
 
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_not_found(self, mock_get_clients):
-        from kubernetes.client.rest import ApiException
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_not_found(self, mock_get_clients):
+        from kubernetes_asyncio.client.rest import ApiException
 
         mock_api = MagicMock()
-        mock_api.read_namespaced_resource_quota.side_effect = ApiException(status=404)
+        mock_api.read_namespaced_resource_quota = AsyncMock(side_effect=ApiException(status=404))
         mock_get_clients.return_value = {"core_v1": mock_api}
 
-        result = get_quota_used("kubeai-test")
+        result = await get_quota_used("kubeai-test")
         assert result["requests.nvidia.com/gpu"] == "0"
 
-    @patch("app.integrations.k8s.resource_quota.get_k8s_clients")
-    def test_no_status(self, mock_get_clients):
+    @patch("app.integrations.k8s.resource_quota.get_k8s_clients", new_callable=AsyncMock)
+    async def test_no_status(self, mock_get_clients):
         mock_api = MagicMock()
         rq = MagicMock()
         rq.status = None
-        mock_api.read_namespaced_resource_quota.return_value = rq
+        mock_api.read_namespaced_resource_quota = AsyncMock(return_value=rq)
         mock_get_clients.return_value = {"core_v1": mock_api}
 
-        result = get_quota_used("kubeai-test")
+        result = await get_quota_used("kubeai-test")
         assert result["requests.nvidia.com/gpu"] == "0"

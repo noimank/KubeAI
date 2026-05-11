@@ -581,8 +581,9 @@ class TestComputeFileTypeDistribution:
 
 
 class TestEnsureDatasetPvc:
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_ensure_pvc_creates_new(self, mock_to_thread, service, mock_db):
+    @patch("app.integrations.k8s.pvc.create_pvc", new_callable=AsyncMock)
+    @patch("app.integrations.k8s.namespace.namespace_exists", new_callable=AsyncMock, return_value=True)
+    async def test_ensure_pvc_creates_new(self, mock_ns_exists, mock_create_pvc, service, mock_db):
         dataset = _make_dataset(name="mnist")
         version = _make_version(dataset_id=dataset.id, version_number=1)
         version.total_size_bytes = 0
@@ -591,7 +592,7 @@ class TestEnsureDatasetPvc:
 
         mock_pvc = MagicMock()
         mock_pvc.status.phase = "Bound"
-        mock_to_thread.return_value = mock_pvc
+        mock_create_pvc.return_value = mock_pvc
 
         result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
 
@@ -601,8 +602,9 @@ class TestEnsureDatasetPvc:
         assert result["storage_request"] == "1Gi"
         assert result["pvc_status"] == "Bound"
 
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_ensure_pvc_storage_size_rounds_up(self, mock_to_thread, service, mock_db):
+    @patch("app.integrations.k8s.pvc.create_pvc", new_callable=AsyncMock)
+    @patch("app.integrations.k8s.namespace.namespace_exists", new_callable=AsyncMock, return_value=True)
+    async def test_ensure_pvc_storage_size_rounds_up(self, mock_ns_exists, mock_create_pvc, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=2)
         version.total_size_bytes = 1_500_000_000  # ~1.5 GB → 2Gi
@@ -611,13 +613,14 @@ class TestEnsureDatasetPvc:
 
         mock_pvc = MagicMock()
         mock_pvc.status.phase = "Bound"
-        mock_to_thread.return_value = mock_pvc
+        mock_create_pvc.return_value = mock_pvc
 
         result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
         assert result["storage_request"] == "2Gi"
 
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_ensure_pvc_zero_bytes(self, mock_to_thread, service, mock_db):
+    @patch("app.integrations.k8s.pvc.create_pvc", new_callable=AsyncMock)
+    @patch("app.integrations.k8s.namespace.namespace_exists", new_callable=AsyncMock, return_value=True)
+    async def test_ensure_pvc_zero_bytes(self, mock_ns_exists, mock_create_pvc, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
         version.total_size_bytes = 0
@@ -626,7 +629,7 @@ class TestEnsureDatasetPvc:
 
         mock_pvc = MagicMock()
         mock_pvc.status.phase = "Pending"
-        mock_to_thread.return_value = mock_pvc
+        mock_create_pvc.return_value = mock_pvc
 
         result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
         assert result["storage_request"] == "1Gi"
@@ -639,8 +642,9 @@ class TestEnsureDatasetPvc:
 
 
 class TestGetDatasetMountInfo:
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_get_mount_info_success(self, mock_to_thread, service, mock_db):
+    @patch("app.integrations.k8s.pvc.get_pvc", new_callable=AsyncMock)
+    @patch("app.integrations.k8s.pvc.pvc_exists", new_callable=AsyncMock, return_value=True)
+    async def test_get_mount_info_success(self, mock_pvc_exists, mock_get_pvc, service, mock_db):
         dataset = _make_dataset(name="cifar10")
         version = _make_version(dataset_id=dataset.id, version_number=3)
         dataset.versions = [version]
@@ -649,7 +653,7 @@ class TestGetDatasetMountInfo:
         mock_pvc = MagicMock()
         mock_pvc.status.phase = "Bound"
         mock_pvc.spec.resources.requests = {"storage": "5Gi"}
-        mock_to_thread.return_value = mock_pvc
+        mock_get_pvc.return_value = mock_pvc
 
         result = await service.get_dataset_mount_info(dataset.id, version.id, dataset.tenant_id)
 
@@ -667,16 +671,16 @@ class TestGetDatasetMountInfo:
 
 
 class TestDeleteDatasetPvc:
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_delete_pvc_success(self, mock_to_thread, service, mock_db):
+    @patch("app.integrations.k8s.pvc.delete_pvc", new_callable=AsyncMock)
+    async def test_delete_pvc_success(self, mock_delete_pvc, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
         dataset.versions = [version]
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
-        mock_to_thread.return_value = None
+        mock_delete_pvc.return_value = None
 
         await service.delete_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
-        mock_to_thread.assert_called_once()
+        mock_delete_pvc.assert_called_once()
 
     async def test_delete_pvc_dataset_not_found(self, service, mock_db):
         mock_db.execute.return_value = _sync_result(None)

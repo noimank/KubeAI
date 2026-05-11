@@ -90,7 +90,7 @@ docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
 - **Services**: Constructor-injected with `AsyncSession` (and optionally Redis/MinIO). Key services:
   - `AuthService` — register/login/lockout/refresh/logout
   - `TenantService` — K8s namespace + ResourceQuota + NetworkPolicy with rollback on failure
-  - `CredentialService` — sync wrapper around K8s Secrets (no DB)
+  - `CredentialService` — async K8s Secret management (no DB)
   - `OAuthService` — OIDC/OAuth2 via authlib with Redis-cached discovery docs
   - `DatasetService` — MinIO-backed dataset/version management with presigned URLs
   - `ImageService` — custom image builds via K8s Jobs, push to Harbor registry
@@ -98,11 +98,11 @@ docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
   - `AuditService` — records audit logs for resource operations
 - **Multi-tenancy**: Three layers — DB-level (`TenantMixin` + FK), app-level (`TenantMiddleware` + `require_tenant_access`), infra-level (K8s NetworkPolicy per namespace isolating tenant traffic)
 - **External integrations** (`app/integrations/`):
-  - `k8s/` — synchronous `kubernetes` Python client (CoreV1Api, NetworkingV1Api, BatchV1Api) with `@with_retry` exponential backoff. Handles namespace, PVC, Secret, Job, ResourceQuota, NetworkPolicy. **Important**: K8s calls are synchronous — they block the async event loop
-  - `volcano/` — Volcano batch scheduler via K8s CustomObjectsApi (`batch.volcano.sh/v1alpha1` VCJobs). Maps Volcano phases to internal status (Pending→pending, Running→running, Completed→succeeded, etc.)
-  - `harbor/` — Harbor REST API client for container registry management (projects, repos, robots)
-  - `minio/` — MinIO/S3 client for dataset file storage (buckets, presigned upload/download URLs)
-  - All integrations inherit from `BaseIntegration` with `@with_retry` support. Namespace prefix: `kubeai-`
+  - `k8s/` — async `kubernetes_asyncio` client (CoreV1Api, NetworkingV1Api, BatchV1Api). Handles namespace, PVC, Secret, Job, ResourceQuota, NetworkPolicy. Client lifecycle managed via `get_k8s_clients()` / `close_k8s_clients()`. Pure construction helpers (e.g. `create_build_job`, `build_tenant_resource_quota`) remain sync
+  - `volcano/` — Volcano batch scheduler via async K8s CustomObjectsApi (`batch.volcano.sh/v1alpha1` VCJobs). Maps Volcano phases to internal status (Pending→pending, Running→running, Completed→succeeded, etc.)
+  - `harbor/` — Harbor REST API client via `httpx` for container registry management (projects, repos, robots). Sync calls wrapped in `asyncio.to_thread()` at service level
+  - `minio/` — MinIO/S3 client for dataset file storage (buckets, presigned upload/download URLs). Sync calls wrapped in `asyncio.to_thread()` at service level
+  - Namespace prefix: `kubeai-`
 - **API responses**: All endpoints return `BaseResponse[T]` wrapper (`{success, message, data}`)
 - **Exceptions**: `AppException` hierarchy in `app/core/exceptions.py` — caught by error handler middleware returning `BaseResponse` with appropriate HTTP status. All default messages are in Chinese
 - **Startup**: `app/core/events.py` — initializes Redis, Casbin, seeds admin user (`admin`/`Admin123456`) and default tenant, creates MinIO client singleton (accessed via `get_minio_client()`)
@@ -134,4 +134,5 @@ docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
 - Backend: Python 3.12+, Ruff (line-length 120, double quotes), mypy strict with pydantic plugin
 - Frontend: pnpm, ESLint 9 flat config, Prettier (no semicolons, single quotes, 100 char width, 2-space indent), Vitest
 - `get_db()` exists in both `app/core/database.py` and `app/api/deps.py` — endpoints must use the one from `deps.py`
-- K8s calls are synchronous and block the async event loop — use `asyncio.to_thread()` when calling from async code
+- K8s calls are fully async via `kubernetes_asyncio` — all integration functions return coroutines and must be `await`ed
+- MinIO and Harbor clients are synchronous — wrap their calls in `asyncio.to_thread()` at the service layer

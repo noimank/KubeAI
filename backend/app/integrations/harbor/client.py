@@ -1,17 +1,15 @@
 import logging
 from typing import Any, cast
 
-import requests  # type: ignore[import-untyped, unused-ignore]
+import httpx
 
 from app.core.config import settings
-from app.integrations.base import BaseIntegration, sanitize_k8s_name, with_retry
+from app.integrations.base import sanitize_k8s_name
 
 logger = logging.getLogger(__name__)
 
 
-class HarborClient(BaseIntegration):
-    """Harbor REST API 客户端"""
-
+class HarborClient:
     def __init__(self) -> None:
         self.base_url = settings.HARBOR_URL.rstrip("/")
         self.username = settings.HARBOR_USERNAME
@@ -20,26 +18,24 @@ class HarborClient(BaseIntegration):
     def _get_auth(self) -> tuple[str, str]:
         return (self.username, self.password)
 
-    @with_retry(max_retries=2)
     def health_check(self) -> bool:
         try:
-            resp = requests.get(
+            resp = httpx.get(
                 f"{self.base_url}/api/v2.0/systeminfo",
                 auth=self._get_auth(),
                 timeout=5,
                 verify=False,
             )
             return resp.status_code == 200
-        except requests.RequestException:
+        except httpx.HTTPError:
             return False
 
-    @with_retry(max_retries=3)
     def ensure_project(self, project_name: str) -> dict[str, Any]:
         existing = self.get_project(project_name)
         if existing:
             return cast("dict[str, Any]", existing)
 
-        resp = requests.post(
+        resp = httpx.post(
             f"{self.base_url}/api/v2.0/projects",
             auth=self._get_auth(),
             json={"project_name": project_name, "public": False},
@@ -51,9 +47,8 @@ class HarborClient(BaseIntegration):
         resp.raise_for_status()
         return {}
 
-    @with_retry(max_retries=2)
     def get_project(self, project_name: str) -> dict[str, Any] | None:
-        resp = requests.get(
+        resp = httpx.get(
             f"{self.base_url}/api/v2.0/projects",
             auth=self._get_auth(),
             params={"name": project_name},

@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.database import async_session_factory, close_db
 from app.core.redis import close_redis, init_redis
 from app.core.security import hash_password
+from app.integrations.k8s.client import close_k8s_clients
 from app.integrations.minio import MinIOClient
 from app.models.enums import TenantStatus, UserRole
 from app.models.tenant import Tenant
@@ -39,7 +40,7 @@ async def _init_admin_user() -> None:
 
         # Ensure K8s namespace for default tenant
         if not tenant.k8s_namespace_name:
-            _ensure_default_tenant_k8s(tenant)
+            await _ensure_default_tenant_k8s(tenant)
 
         # Ensure admin user exists
         stmt = select(User).where(User.username == "admin")
@@ -60,22 +61,22 @@ async def _init_admin_user() -> None:
         await session.commit()
 
 
-def _ensure_default_tenant_k8s(tenant: Tenant) -> None:
+async def _ensure_default_tenant_k8s(tenant: Tenant) -> None:
     from app.integrations.k8s.namespace import create_namespace, make_namespace_name
     from app.integrations.k8s.network_policy import create_tenant_network_policy
     from app.integrations.k8s.resource_quota import build_tenant_resource_quota, create_resource_quota
 
     namespace = make_namespace_name(tenant.name)
     try:
-        create_namespace(namespace)
+        await create_namespace(namespace)
         quota = build_tenant_resource_quota(
             gpu_limit=tenant.gpu_limit,
             cpu_limit=tenant.cpu_limit,
             memory_limit=tenant.memory_limit,
             storage_limit=tenant.storage_limit,
         )
-        create_resource_quota(namespace, quota)
-        create_tenant_network_policy(namespace)
+        await create_resource_quota(namespace, quota)
+        await create_tenant_network_policy(namespace)
         tenant.k8s_namespace_name = namespace
         logger.info("default_tenant_namespace_ready", namespace=namespace)
     except Exception as e:
@@ -92,6 +93,7 @@ async def on_startup() -> None:
 
 
 async def on_shutdown() -> None:
+    await close_k8s_clients()
     await close_db()
     await close_redis()
     logger.info("application_shutdown", app="KubeAI")

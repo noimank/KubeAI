@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -108,10 +107,10 @@ class TrainingJobService:
 
         vcjob_name = f"training-{sanitize_k8s_name(job.name)}"
 
-        if pvc_name and not await asyncio.to_thread(pvc_exists, namespace, pvc_name):
+        if pvc_name and not await pvc_exists(namespace, pvc_name):
             size_bytes = version.total_size_bytes or 0
             size_gb = max(1, -(-size_bytes // (1024**3)))
-            await asyncio.to_thread(create_pvc, namespace, pvc_name, f"{size_gb}Gi")
+            await create_pvc(namespace, pvc_name, f"{size_gb}Gi")
 
         vcjob_body = build_vcjob(
             vcjob_name=vcjob_name,
@@ -131,7 +130,7 @@ class TrainingJobService:
         )
 
         try:
-            await asyncio.to_thread(create_vcjob, namespace, vcjob_body)
+            await create_vcjob(namespace, vcjob_body)
         except Exception as e:
             logger.error("Failed to submit VCJob %s: %s", vcjob_name, e)
             job.status = TrainingJobStatus.FAILED
@@ -175,7 +174,7 @@ class TrainingJobService:
             tenant = await self._get_tenant_or_fail(tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
             vcjob_names = [j.vcjob_name for j in non_terminal if j.vcjob_name]
-            phases = await asyncio.to_thread(batch_get_vcjob_phases, namespace, vcjob_names)
+            phases = await batch_get_vcjob_phases(namespace, vcjob_names)
             for job in non_terminal:
                 if not job.vcjob_name:
                     continue
@@ -207,7 +206,7 @@ class TrainingJobService:
             tenant = await self._get_tenant_or_fail(tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
             try:
-                await asyncio.to_thread(delete_vcjob, namespace, job.vcjob_name)
+                await delete_vcjob(namespace, job.vcjob_name)
             except Exception as e:
                 logger.warning("Failed to delete VCJob %s: %s", job.vcjob_name, e)
 
@@ -223,7 +222,7 @@ class TrainingJobService:
         try:
             tenant = await self._get_tenant_or_fail(job.tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-            phases = await asyncio.to_thread(batch_get_vcjob_phases, namespace, [job.vcjob_name])
+            phases = await batch_get_vcjob_phases(namespace, [job.vcjob_name])
             phase = phases.get(job.vcjob_name, "pending")
             new_status = TrainingJobStatus(phase)
 
@@ -258,7 +257,7 @@ class TrainingJobService:
             raise QuotaExceededException("租户 GPU 配额为 0, 无法创建需要 GPU 的训练任务")
 
         try:
-            used = await asyncio.to_thread(get_quota_used, namespace)
+            used = await get_quota_used(namespace)
             gpu_used = int(used.get("requests.nvidia.com/gpu", "0"))
         except Exception:
             gpu_used = 0

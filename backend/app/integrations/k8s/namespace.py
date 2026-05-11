@@ -1,17 +1,16 @@
 import logging
 
-from kubernetes import client  # type: ignore[import-untyped]
-from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
+from kubernetes_asyncio import client  # type: ignore[import-untyped]
+from kubernetes_asyncio.client.rest import ApiException  # type: ignore[import-untyped]
 
-from app.integrations.base import K8S_NAMESPACE_PREFIX, sanitize_k8s_name, with_retry
+from app.integrations.base import K8S_NAMESPACE_PREFIX, sanitize_k8s_name
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
 
 
-@with_retry(max_retries=3)
-def create_namespace(name: str, labels: dict[str, str] | None = None) -> client.V1Namespace:
-    k8s = get_k8s_clients()
+async def create_namespace(name: str, labels: dict[str, str] | None = None) -> client.V1Namespace:
+    k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]
 
     ns_labels = {"app.kubernetes.io/managed-by": "kubeai"}
@@ -22,25 +21,24 @@ def create_namespace(name: str, labels: dict[str, str] | None = None) -> client.
         metadata=client.V1ObjectMeta(name=name, labels=ns_labels),
     )
     try:
-        return core_v1.create_namespace(body=namespace)
+        return await core_v1.create_namespace(body=namespace)
     except ApiException as e:
         if e.status == 409:
-            return core_v1.read_namespace(name=name)
+            return await core_v1.read_namespace(name=name)
         raise
 
 
-@with_retry(max_retries=3)
-def delete_namespace(name: str) -> None:
-    k8s = get_k8s_clients()
+async def delete_namespace(name: str) -> None:
+    k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]
-    core_v1.delete_namespace(name=name)
+    await core_v1.delete_namespace(name=name)
 
 
-def namespace_exists(name: str) -> bool:
-    k8s = get_k8s_clients()
+async def namespace_exists(name: str) -> bool:
+    k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]
     try:
-        core_v1.read_namespace(name=name)
+        await core_v1.read_namespace(name=name)
         return True
     except ApiException as e:
         if e.status == 404:

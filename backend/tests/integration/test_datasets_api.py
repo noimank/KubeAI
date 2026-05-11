@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -432,10 +432,14 @@ async def test_get_file_download_url(mock_to_thread, mock_enforce, mock_get_mini
 
 
 @pytest.mark.asyncio(loop_scope="session")
+@patch("app.integrations.k8s.pvc.create_pvc", new_callable=AsyncMock)
+@patch("app.integrations.k8s.namespace.namespace_exists", new_callable=AsyncMock, return_value=True)
 @patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
 @patch("app.services.dataset_service.asyncio.to_thread")
-async def test_mount_dataset_version(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+async def test_mount_dataset_version(
+    mock_to_thread, mock_enforce, mock_get_minio, mock_ns_exists, mock_create_pvc, client, admin_headers
+):
     mock_get_minio.return_value = _mock_minio()
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
@@ -456,7 +460,7 @@ async def test_mount_dataset_version(mock_to_thread, mock_enforce, mock_get_mini
 
     mock_pvc = MagicMock()
     mock_pvc.status.phase = "Bound"
-    mock_to_thread.return_value = mock_pvc
+    mock_create_pvc.return_value = mock_pvc
 
     response = await client.post(
         f"/api/datasets/{dataset_id}/versions/{version_id}/mount",
@@ -473,10 +477,14 @@ async def test_mount_dataset_version(mock_to_thread, mock_enforce, mock_get_mini
 
 
 @pytest.mark.asyncio(loop_scope="session")
+@patch("app.integrations.k8s.pvc.get_pvc", new_callable=AsyncMock)
+@patch("app.integrations.k8s.pvc.pvc_exists", new_callable=AsyncMock, return_value=True)
 @patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
 @patch("app.services.dataset_service.asyncio.to_thread")
-async def test_get_mount_info(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+async def test_get_mount_info(
+    mock_to_thread, mock_enforce, mock_get_minio, mock_pvc_exists, mock_get_pvc, client, admin_headers
+):
     mock_get_minio.return_value = _mock_minio()
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
@@ -498,7 +506,7 @@ async def test_get_mount_info(mock_to_thread, mock_enforce, mock_get_minio, clie
     mock_pvc = MagicMock()
     mock_pvc.status.phase = "Bound"
     mock_pvc.spec.resources.requests = {"storage": "2Gi"}
-    mock_to_thread.return_value = mock_pvc
+    mock_get_pvc.return_value = mock_pvc
 
     response = await client.get(
         f"/api/datasets/{dataset_id}/versions/{version_id}/mount",
@@ -511,10 +519,13 @@ async def test_get_mount_info(mock_to_thread, mock_enforce, mock_get_minio, clie
 
 
 @pytest.mark.asyncio(loop_scope="session")
+@patch("app.integrations.k8s.pvc.delete_pvc", new_callable=AsyncMock)
 @patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
 @patch("app.services.dataset_service.asyncio.to_thread")
-async def test_unmount_dataset_version(mock_to_thread, mock_enforce, mock_get_minio, client, admin_headers):
+async def test_unmount_dataset_version(
+    mock_to_thread, mock_enforce, mock_get_minio, mock_delete_pvc, client, admin_headers
+):
     mock_get_minio.return_value = _mock_minio()
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
@@ -533,7 +544,7 @@ async def test_unmount_dataset_version(mock_to_thread, mock_enforce, mock_get_mi
     )
     version_id = version_resp.json()["data"]["id"]
 
-    mock_to_thread.return_value = None
+    mock_delete_pvc.return_value = None
 
     response = await client.delete(
         f"/api/datasets/{dataset_id}/versions/{version_id}/mount",

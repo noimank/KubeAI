@@ -37,7 +37,7 @@ async def create_credential(
         raise ForbiddenException("无租户的用户无法创建凭证")
 
     tenant_name = await _get_tenant_name(db, current_user.tenant_id)
-    _credential_service.store_credential(tenant_name, req.name, req.data)
+    await _credential_service.store_credential(tenant_name, req.name, req.data)
 
     return BaseResponse(
         data=CredentialResponse(
@@ -69,5 +69,5 @@ async def delete_credential(
         raise ForbiddenException("无租户的用户无法删除凭证")
 
     tenant_name = await _get_tenant_name(db, current_user.tenant_id)
-    _credential_service.delete_credential(tenant_name, credential_id)
+    await _credential_service.delete_credential(tenant_name, credential_id)
     return BaseResponse(message="凭证删除成功")

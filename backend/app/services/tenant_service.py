@@ -29,7 +29,6 @@ from app.services.audit_service import AuditService
 
 if TYPE_CHECKING:
     import uuid
-    from collections.abc import Callable
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,7 +56,7 @@ class TenantService:
 
         namespace = make_namespace_name(tenant.name)
         try:
-            create_namespace(namespace)
+            await create_namespace(namespace)
             try:
                 quota = build_tenant_resource_quota(
                     gpu_limit=tenant.gpu_limit,
@@ -65,12 +64,12 @@ class TenantService:
                     memory_limit=tenant.memory_limit,
                     storage_limit=tenant.storage_limit,
                 )
-                create_resource_quota(namespace, quota)
-                create_tenant_network_policy(namespace)
+                await create_resource_quota(namespace, quota)
+                await create_tenant_network_policy(namespace)
             except Exception:
-                delete_resource_quota(namespace)
-                delete_network_policy(namespace)
-                delete_namespace(namespace)
+                await delete_resource_quota(namespace)
+                await delete_network_policy(namespace)
+                await delete_namespace(namespace)
                 raise
         except ConflictException:
             raise
@@ -233,14 +232,14 @@ class TenantService:
 
         namespace = tenant.k8s_namespace_name
         if namespace:
-            cleanup_ops: list[tuple[Callable[[], None], str]] = [
-                (lambda: delete_resource_quota(namespace), "ResourceQuota"),
-                (lambda: delete_network_policy(namespace), "NetworkPolicy"),
-                (lambda: delete_namespace(namespace), "Namespace"),
-            ]
-            for delete_fn, label in cleanup_ops:
+            for cleanup in [
+                (delete_resource_quota(namespace), "ResourceQuota"),
+                (delete_network_policy(namespace), "NetworkPolicy"),
+                (delete_namespace(namespace), "Namespace"),
+            ]:
+                coro, label = cleanup
                 try:
-                    delete_fn()
+                    await coro
                 except Exception:
                     logger.warning("删除 K8s %s 失败: namespace=%s", label, namespace, exc_info=True)
 
@@ -271,9 +270,8 @@ class TenantService:
         if not tenant.k8s_namespace_name:
             raise BadRequestException("租户尚未完成 K8s 命名空间初始化")
 
-        # AC2: 校验不超过集群总量
         try:
-            capacity = get_cluster_capacity()
+            capacity = await get_cluster_capacity()
             cluster_gpu = int(capacity["gpu"])
             if req.gpu_limit > cluster_gpu:
                 raise QuotaExceededException(f"GPU 配额超过集群可用资源(集群总量 {cluster_gpu} 张)")
@@ -283,10 +281,9 @@ class TenantService:
             logger.warning("获取集群容量失败: %s", e, exc_info=True)
             raise ExternalServiceException(f"无法获取集群资源信息: {e}") from e
 
-        # AC3: 校验使用量不超过新配额
         if not req.force:
             try:
-                used = get_quota_used(tenant.k8s_namespace_name)
+                used = await get_quota_used(tenant.k8s_namespace_name)
                 gpu_used = int(used.get("requests.nvidia.com/gpu", "0"))
                 if gpu_used > req.gpu_limit:
                     raise QuotaExceededException(
@@ -297,7 +294,6 @@ class TenantService:
             except Exception as e:
                 logger.warning("获取配额使用量失败: %s", e, exc_info=True)
 
-        # 更新 DB
         tenant.gpu_limit = req.gpu_limit
         tenant.cpu_limit = req.cpu_limit
         tenant.memory_limit = req.memory_limit
@@ -305,9 +301,8 @@ class TenantService:
         await self.db.flush()
         await self.db.refresh(tenant)
 
-        # 同步 K8s
         try:
-            update_resource_quota(
+            await update_resource_quota(
                 namespace=tenant.k8s_namespace_name,
                 gpu_limit=tenant.gpu_limit,
                 cpu_limit=tenant.cpu_limit,
@@ -346,7 +341,7 @@ class TenantService:
             return {"gpu_used": 0, "cpu_used": "0", "memory_used": "0", "storage_used": "0"}
 
         try:
-            used = get_quota_used(tenant.k8s_namespace_name)
+            used = await get_quota_used(tenant.k8s_namespace_name)
             return {
                 "gpu_used": int(used.get("requests.nvidia.com/gpu", "0")),
                 "cpu_used": used.get("requests.cpu", "0"),
