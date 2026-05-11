@@ -142,6 +142,15 @@ export default function TrainingJobDetailPage() {
               <Descriptions.Item label="GPU">
                 {job.gpuCount} 张（{job.gpuMode === 'exclusive' ? '独占' : '共享'}）
               </Descriptions.Item>
+              <Descriptions.Item label="Worker 数量">
+                {job.workerCount > 1 ? (
+                  <span>
+                    {job.workerCount} <Tag color="blue">分布式训练</Tag>
+                  </span>
+                ) : (
+                  '1（单机）'
+                )}
+              </Descriptions.Item>
               <Descriptions.Item label="优先级">
                 {job.priority === 'high' ? '高' : job.priority === 'low' ? '低' : '普通'}
               </Descriptions.Item>

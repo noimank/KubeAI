@@ -22,6 +22,7 @@ class TrainingJobCreateRequest(BaseModel):
     cpu: str = Field(default="4")
     memory: str = Field(default="8Gi")
     priority: str = Field(default="normal", pattern="^(low|normal|high)$")
+    worker_count: int = Field(default=1, ge=1, le=16)
 
 
 class TrainingJobResponse(BaseModel):
@@ -42,6 +43,7 @@ class TrainingJobResponse(BaseModel):
     cpu: str
     memory: str
     priority: str
+    worker_count: int
     status: str
     vcjob_name: str | None
     started_at: datetime | None

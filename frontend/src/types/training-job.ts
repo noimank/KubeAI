@@ -28,6 +28,7 @@ export interface TrainingJob {
   cpu: string
   memory: string
   priority: string
+  workerCount: number
   status: TrainingJobStatus
   vcjobName?: string
   startedAt?: string
@@ -50,4 +51,5 @@ export interface TrainingJobCreate {
   cpu?: string
   memory?: string
   priority?: string
+  workerCount?: number
 }

@@ -1,5 +1,17 @@
 import { useState } from 'react'
-import { Button, Descriptions, Form, Input, InputNumber, Radio, Select, Space, Steps } from 'antd'
+import {
+  Alert,
+  Button,
+  Descriptions,
+  Form,
+  Input,
+  InputNumber,
+  Radio,
+  Select,
+  Space,
+  Steps,
+  Tag,
+} from 'antd'
 import type { FormInstance } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -21,6 +33,7 @@ interface FormValues {
   cpu: string
   memory: string
   priority: string
+  workerCount: number
   hyperparameters?: { key: string; value: string }[]
 }
 
@@ -37,6 +50,7 @@ export default function CreateTrainingJobPage() {
   const [submitting, setSubmitting] = useState(false)
 
   const datasetId = Form.useWatch('datasetId', form)
+  const workerCount = Form.useWatch('workerCount', form) ?? 1
 
   const { data: datasetsData } = useQuery({
     queryKey: ['datasets-for-training', 1, 100],
@@ -84,6 +98,7 @@ export default function CreateTrainingJobPage() {
         cpu: String(values.cpu),
         memory: values.memory,
         priority: values.priority,
+        workerCount: values.workerCount,
       })
       getMessageInstance()?.success('训练任务创建成功')
       navigate(`/training-jobs/${res.id}`)
@@ -168,6 +183,24 @@ export default function CreateTrainingJobPage() {
           <Form.Item name="gpuCount" label="GPU 数量" initialValue={1} rules={[{ required: true }]}>
             <InputNumber min={0} max={16} style={{ width: '100%' }} />
           </Form.Item>
+          <Form.Item
+            name="workerCount"
+            label="Worker 数量"
+            initialValue={1}
+            rules={[{ required: true }]}
+            extra={workerCount > 1 ? undefined : undefined}
+          >
+            <InputNumber min={1} max={16} style={{ width: '100%' }} />
+          </Form.Item>
+          {workerCount > 1 && (
+            <Alert
+              type="info"
+              showIcon
+              message="分布式训练模式"
+              description={`将创建 ${workerCount} 个 Worker，通过 Volcano Gang Scheduling 确保同时启动。自动注入 MASTER_ADDR、MASTER_PORT、WORLD_SIZE、RANK 环境变量，适用于 PyTorch DDP、DeepSpeed、Horovod 等分布式框架。`}
+              style={{ marginBottom: 24 }}
+            />
+          )}
           <Form.Item name="cpu" label="CPU（核）" initialValue="4" rules={[{ required: true }]}>
             <InputNumber min={1} max={128} style={{ width: '100%' }} />
           </Form.Item>
@@ -276,6 +309,14 @@ function ConfirmStep({
       <Descriptions.Item label="镜像">{values.imageId ? '已选择' : '未选择'}</Descriptions.Item>
       <Descriptions.Item label="GPU">
         {values.gpuCount ?? 0} 张 ({values.gpuMode === 'exclusive' ? '独占' : '共享'})
+      </Descriptions.Item>
+      <Descriptions.Item label="Worker 数量">
+        {values.workerCount ?? 1}
+        {(values.workerCount ?? 1) > 1 && (
+          <Tag color="blue" style={{ marginLeft: 8 }}>
+            分布式训练
+          </Tag>
+        )}
       </Descriptions.Item>
       <Descriptions.Item label="CPU">{values.cpu} 核</Descriptions.Item>
       <Descriptions.Item label="内存">{values.memory}</Descriptions.Item>

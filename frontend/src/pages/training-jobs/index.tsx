@@ -116,6 +116,19 @@ export default function TrainingJobsPage() {
       render: (val: number) => `${val} 张`,
     },
     {
+      title: 'Worker',
+      dataIndex: 'workerCount',
+      width: 100,
+      render: (val: number) =>
+        val > 1 ? (
+          <span>
+            {val} <Tag color="blue">分布式</Tag>
+          </span>
+        ) : (
+          '—'
+        ),
+    },
+    {
       title: '创建时间',
       dataIndex: 'createdAt',
       width: 180,

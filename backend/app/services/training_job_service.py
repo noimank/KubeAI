@@ -60,6 +60,7 @@ class TrainingJobService:
         cpu: str = "4",
         memory: str = "8Gi",
         priority: str = "normal",
+        worker_count: int = 1,
     ) -> TrainingJob:
         image = await self._get_image_or_fail(image_id)
 
@@ -78,7 +79,7 @@ class TrainingJobService:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
-        await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_count)
+        await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_count * worker_count)
 
         hp_dict: dict[str, str] | None = None
         if hyperparameters:
@@ -99,6 +100,7 @@ class TrainingJobService:
             cpu=cpu,
             memory=memory,
             priority=priority,
+            worker_count=worker_count,
             status=TrainingJobStatus.PENDING,
         )
         self.db.add(job)
@@ -121,6 +123,7 @@ class TrainingJobService:
             gpu_count=gpu_count,
             gpu_mode=gpu_mode,
             job_id=str(job.id),
+            worker_count=worker_count,
             hyperparameters=hp_dict,
             priority=priority,
             dataset_pvc_name=pvc_name,

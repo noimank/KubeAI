@@ -55,6 +55,7 @@ async def create_training_job(
         cpu=req.cpu,
         memory=req.memory,
         priority=req.priority,
+        worker_count=req.worker_count,
     )
     return BaseResponse(data=_to_response(job), message="训练任务创建成功")
 

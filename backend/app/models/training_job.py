@@ -52,6 +52,7 @@ class TrainingJob(Base, TimestampMixin):
     cpu: Mapped[str] = mapped_column(String(20), nullable=False, default="4", comment="CPU 核数")
     memory: Mapped[str] = mapped_column(String(20), nullable=False, default="8Gi", comment="内存")
     priority: Mapped[str] = mapped_column(String(20), nullable=False, default="normal", comment="优先级")
+    worker_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, comment="Worker 数量")
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", comment="任务状态")
     vcjob_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="Volcano Job 名称")
