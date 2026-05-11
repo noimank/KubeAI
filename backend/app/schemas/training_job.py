@@ -58,3 +58,15 @@ class TrainingJobListParams(BaseModel):
     page_size: int = Field(default=20, ge=1, le=100)
     status: str | None = None
     name: str | None = None
+
+
+class PodInfoResponse(BaseModel):
+    pod_name: str
+    role: str
+    status: str
+
+
+class LogResponse(BaseModel):
+    lines: list[str]
+    has_more: bool
+    total_lines: int

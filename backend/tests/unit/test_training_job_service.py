@@ -230,3 +230,118 @@ class TestStopTrainingJob:
 
         assert result.status == TrainingJobStatus.STOPPED
         mock_delete.assert_called_once()
+
+
+class TestStreamLogs:
+    @patch("app.services.training_job_service.stream_pod_logs")
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_stream_logs_finds_default_pod(self, mock_list_pods, mock_stream, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.RUNNING, vcjob_name="training-test-job")
+        tenant = _make_tenant()
+        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant)]
+        mock_list_pods.return_value = [
+            {"pod_name": "training-test-job-master-0", "role": "master", "status": "running"}
+        ]
+
+        async def fake_stream(*a, **kw):
+            yield "line1"
+            yield "line2"
+
+        mock_stream.side_effect = fake_stream
+
+        lines = []
+        async for line in service.stream_logs(job_id=job.id, tenant_id=job.tenant_id):
+            lines.append(line)
+
+        assert lines == ["line1", "line2"]
+
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_stream_logs_no_vcjob(self, mock_list_pods, service, mock_db):
+        from app.core.exceptions import BadRequestException
+
+        job = _make_job(status=TrainingJobStatus.PENDING, vcjob_name=None)
+        mock_db.execute.return_value = _sync_result(job)
+
+        with pytest.raises(BadRequestException, match="尚未提交"):
+            async for _ in service.stream_logs(job_id=job.id, tenant_id=job.tenant_id):
+                pass
+
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_stream_logs_no_pods(self, mock_list_pods, service, mock_db):
+        from app.core.exceptions import NotFoundException
+
+        job = _make_job(status=TrainingJobStatus.RUNNING, vcjob_name="training-test-job")
+        tenant = _make_tenant()
+        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant)]
+        mock_list_pods.return_value = []
+
+        with pytest.raises(NotFoundException, match="Pod"):
+            async for _ in service.stream_logs(job_id=job.id, tenant_id=job.tenant_id):
+                pass
+
+
+class TestGetLogs:
+    @patch("app.services.training_job_service.get_pod_log")
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_get_logs_returns_lines(self, mock_list_pods, mock_get_log, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.SUCCEEDED, vcjob_name="training-test-job")
+        tenant = _make_tenant()
+        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant)]
+        mock_list_pods.return_value = [
+            {"pod_name": "training-test-job-master-0", "role": "master", "status": "succeeded"}
+        ]
+        mock_get_log.return_value = "line1\nline2\nline3"
+
+        lines, has_more, total = await service.get_logs(job_id=job.id, tenant_id=job.tenant_id)
+
+        assert lines == ["line1", "line2", "line3"]
+        assert has_more is False
+        assert total == 3
+
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_get_logs_no_vcjob(self, mock_list_pods, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.PENDING, vcjob_name=None)
+        mock_db.execute.return_value = _sync_result(job)
+
+        from app.core.exceptions import BadRequestException
+
+        with pytest.raises(BadRequestException, match="尚未提交"):
+            await service.get_logs(job_id=job.id, tenant_id=job.tenant_id)
+
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_get_logs_no_pods(self, mock_list_pods, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.SUCCEEDED, vcjob_name="training-test-job")
+        tenant = _make_tenant()
+        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant)]
+        mock_list_pods.return_value = []
+
+        lines, has_more, total = await service.get_logs(job_id=job.id, tenant_id=job.tenant_id)
+
+        assert lines == []
+        assert has_more is False
+        assert total == 0
+
+
+class TestListPods:
+    @patch("app.services.training_job_service.list_vcjob_pods")
+    async def test_list_pods(self, mock_list_vcjob_pods, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.RUNNING, vcjob_name="training-test-job")
+        tenant = _make_tenant()
+        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant)]
+        mock_list_vcjob_pods.return_value = [
+            {"pod_name": "training-test-job-master-0", "role": "master", "status": "running"},
+            {"pod_name": "training-test-job-worker-0", "role": "worker-0", "status": "running"},
+        ]
+
+        result = await service.list_pods(job_id=job.id, tenant_id=job.tenant_id)
+
+        assert len(result) == 2
+        assert result[0]["role"] == "master"
+
+    async def test_list_pods_no_vcjob(self, service, mock_db):
+        job = _make_job(status=TrainingJobStatus.PENDING, vcjob_name=None)
+        mock_db.execute.return_value = _sync_result(job)
+
+        result = await service.list_pods(job_id=job.id, tenant_id=job.tenant_id)
+
+        assert result == []

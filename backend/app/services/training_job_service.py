@@ -14,6 +14,7 @@ from app.core.exceptions import (
 )
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
+from app.integrations.k8s.pod import get_pod_log, list_vcjob_pods, stream_pod_logs
 from app.integrations.k8s.pvc import create_pvc, make_dataset_pvc_name, pvc_exists
 from app.integrations.k8s.resource_quota import get_quota_used
 from app.integrations.volcano.client import (
@@ -30,6 +31,7 @@ from app.models.training_job import TrainingJob
 
 if TYPE_CHECKING:
     import uuid
+    from collections.abc import AsyncGenerator
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -248,6 +250,61 @@ class TrainingJobService:
             and not job.finished_at
         ):
             job.finished_at = datetime.now(UTC)
+
+    async def stream_logs(
+        self,
+        *,
+        job_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        pod_name: str | None = None,
+        tail_lines: int = 100,
+    ) -> AsyncGenerator[str, None]:
+        job = await self._get_job_or_fail(job_id, tenant_id)
+        if not job.vcjob_name:
+            raise BadRequestException("任务尚未提交到集群")
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        if not pod_name:
+            pods = await list_vcjob_pods(namespace, job.vcjob_name)
+            if not pods:
+                raise NotFoundException("未找到任务关联的 Pod")
+            pod_name = pods[0]["pod_name"]
+
+        async for line in stream_pod_logs(namespace, pod_name, tail_lines=tail_lines):
+            yield line
+
+    async def get_logs(
+        self,
+        *,
+        job_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        pod_name: str | None = None,
+        tail_lines: int = 1000,
+    ) -> tuple[list[str], bool, int]:
+        job = await self._get_job_or_fail(job_id, tenant_id)
+        if not job.vcjob_name:
+            raise BadRequestException("任务尚未提交到集群")
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        if not pod_name:
+            pods = await list_vcjob_pods(namespace, job.vcjob_name)
+            if not pods:
+                return [], False, 0
+            pod_name = pods[0]["pod_name"]
+
+        raw = await get_pod_log(namespace, pod_name, tail_lines=tail_lines)
+        lines = raw.splitlines() if raw else []
+        return lines, len(lines) >= tail_lines, len(lines)
+
+    async def list_pods(self, *, job_id: uuid.UUID, tenant_id: uuid.UUID) -> list[dict[str, str]]:
+        job = await self._get_job_or_fail(job_id, tenant_id)
+        if not job.vcjob_name:
+            return []
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        return await list_vcjob_pods(namespace, job.vcjob_name)
 
     async def _check_gpu_quota(self, namespace: str, gpu_limit: int, requested: int) -> None:
         if requested == 0:

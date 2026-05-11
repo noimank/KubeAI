@@ -3,7 +3,7 @@ from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 
 import redis.asyncio as aioredis
-from fastapi import Depends, Request
+from fastapi import Depends, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -114,6 +114,48 @@ async def get_optional_current_user(
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
+
+
+async def get_current_user_for_sse(
+    token: str | None = Query(None, alias="token"),
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    redis: aioredis.Redis = Depends(get_redis),  # noqa: B008
+) -> User:
+    if not token:
+        raise UnauthorizedException("未提供认证 Token")
+
+    try:
+        payload = decode_token(token)
+    except ValueError:
+        raise UnauthorizedException("无效或过期的 Token") from None
+
+    if payload.get("type") != "access":
+        raise UnauthorizedException("无效的 Token 类型")
+
+    jti = payload.get("jti")
+    if not jti:
+        raise UnauthorizedException("无效的 Token")
+
+    blacklist = TokenBlacklistService(redis)
+    if await blacklist.is_revoked(jti):
+        raise UnauthorizedException("Token 已被吊销")
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise UnauthorizedException("无效的 Token")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise UnauthorizedException("用户不存在")
+    if not user.is_active:
+        raise ForbiddenException("用户已被禁用")
+
+    return user
+
+
+SSECurrentUser = Annotated[User, Depends(get_current_user_for_sse)]
 
 
 async def get_current_tenant_id(request: Request) -> str | None:

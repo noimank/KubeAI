@@ -1,13 +1,21 @@
+import json
 import uuid
+from collections.abc import AsyncGenerator
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_db, require_permission
+from app.api.deps import CurrentUser, SSECurrentUser, get_db, require_permission
 from app.core.exceptions import ForbiddenException
 from app.schemas.base import BaseResponse, PageData, PageResponse
-from app.schemas.training_job import TrainingJobCreateRequest, TrainingJobResponse
+from app.schemas.training_job import (
+    LogResponse,
+    PodInfoResponse,
+    TrainingJobCreateRequest,
+    TrainingJobResponse,
+)
 from app.services.training_job_service import TrainingJobService
 
 router = APIRouter(prefix="/training-jobs", tags=["training-jobs"])
@@ -105,3 +113,68 @@ async def stop_training_job(
     tenant_id = _require_tenant_id(user)
     job = await service.stop_training_job(training_job_id, tenant_id)
     return BaseResponse(data=_to_response(job), message="任务已停止")
+
+
+@router.get("/{training_job_id}/pods", response_model=BaseResponse[list[PodInfoResponse]])
+async def list_training_job_pods(
+    training_job_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("training_jobs", "read"))],
+) -> BaseResponse[list[PodInfoResponse]]:
+    service = TrainingJobService(db)
+    tenant_id = _require_tenant_id(user)
+    pods = await service.list_pods(job_id=training_job_id, tenant_id=tenant_id)
+    pod_responses = [PodInfoResponse(**p) for p in pods]
+    return BaseResponse(data=pod_responses, message="获取成功")
+
+
+@router.get("/{training_job_id}/logs", response_model=BaseResponse[LogResponse])
+async def get_training_job_logs(
+    training_job_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("training_jobs", "read"))],
+    pod_name: str | None = Query(None),
+    tail_lines: int = Query(1000, ge=1, le=10000),
+) -> BaseResponse[LogResponse]:
+    service = TrainingJobService(db)
+    tenant_id = _require_tenant_id(user)
+    lines, has_more, total = await service.get_logs(
+        job_id=training_job_id,
+        tenant_id=tenant_id,
+        pod_name=pod_name,
+        tail_lines=tail_lines,
+    )
+    return BaseResponse(
+        data=LogResponse(lines=lines, has_more=has_more, total_lines=total),
+        message="获取成功",
+    )
+
+
+@router.get("/{training_job_id}/logs/stream")
+async def stream_training_job_logs(
+    training_job_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[SSECurrentUser, Depends(require_permission("training_jobs", "read"))],
+    pod_name: str | None = Query(None),
+    tail_lines: int = Query(100, ge=1, le=10000),
+) -> StreamingResponse:
+    service = TrainingJobService(db)
+    tenant_id = _require_tenant_id(user)
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        async for line in service.stream_logs(
+            job_id=training_job_id,
+            tenant_id=tenant_id,
+            pod_name=pod_name,
+            tail_lines=tail_lines,
+        ):
+            yield f"data: {json.dumps({'line': line})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
