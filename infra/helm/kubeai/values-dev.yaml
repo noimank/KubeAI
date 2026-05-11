@@ -58,5 +58,11 @@ volcano:
     scheduler:
       replicas: 1
 
+kubePrometheusStack:
+  enabled: false  # Dev: use local Prometheus or skip
+
+dcgmExporter:
+  enabled: false  # Dev: no GPU nodes typically
+
 ingress:
   enabled: false

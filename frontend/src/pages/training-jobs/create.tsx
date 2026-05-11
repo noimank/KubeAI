@@ -34,6 +34,7 @@ interface FormValues {
   memory: string
   priority: string
   workerCount: number
+  metricsPort?: number
   hyperparameters?: { key: string; value: string }[]
 }
 
@@ -99,6 +100,7 @@ export default function CreateTrainingJobPage() {
         memory: values.memory,
         priority: values.priority,
         workerCount: values.workerCount,
+        metricsPort: values.metricsPort,
       })
       getMessageInstance()?.success('训练任务创建成功')
       navigate(`/training-jobs/${res.id}`)
@@ -242,6 +244,13 @@ export default function CreateTrainingJobPage() {
                 </>
               )}
             </Form.List>
+          </Form.Item>
+          <Form.Item
+            name="metricsPort"
+            label="指标端口"
+            extra="如训练脚本暴露 TensorBoard/MLflow 等指标面板，填写端口号"
+          >
+            <InputNumber min={1} max={65535} placeholder="如 6006" style={{ width: '100%' }} />
           </Form.Item>
         </>
       ),

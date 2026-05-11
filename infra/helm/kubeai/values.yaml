@@ -40,6 +40,7 @@ backend:
     MINIO_BUCKET_PREFIX: "kubeai-datasets-"
     HARBOR_PROJECT_PREFIX: "kubeai-"
     FRONTEND_URL: "http://localhost:30000"
+    PROMETHEUS_URL: "http://kubeai-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
   secrets:
     SECRET_KEY: ""
     DATABASE_URL: ""
@@ -162,3 +163,48 @@ harbor:
       registry:
         size: 50Gi
   harborAdminPassword: "Harbor12345"
+
+# -- kube-prometheus-stack (Prometheus + Grafana + Alertmanager)
+# Provides the metrics collection backend for DCGM Exporter GPU metrics.
+# Grafana accessible at /grafana via ingress or port-forward.
+kubePrometheusStack:
+  enabled: true
+  prometheus:
+    prometheusSpec:
+      # Allow ServiceMonitor discovery across all namespaces (required for DCGM Exporter)
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      retention: 15d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 20Gi
+  grafana:
+    enabled: true
+    defaultDashboardsEnabled: true
+  alertmanager:
+    enabled: true
+
+# -- NVIDIA DCGM Exporter (GPU metrics via Prometheus)
+# Exposes GPU utilization, memory, temperature, power as Prometheus metrics.
+# Requires NVIDIA device plugin on GPU nodes.
+# Key: kubernetes.enablePodLabels=true adds namespace/pod/container labels to metrics.
+dcgmExporter:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    scrapeTimeout: 10s
+    honorLabels: true
+  kubernetes:
+    enablePodLabels: true
+    enablePodUID: false
+    rbac:
+      create: true
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule

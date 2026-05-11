@@ -23,6 +23,7 @@ class TrainingJobCreateRequest(BaseModel):
     memory: str = Field(default="8Gi")
     priority: str = Field(default="normal", pattern="^(low|normal|high)$")
     worker_count: int = Field(default=1, ge=1, le=16)
+    metrics_port: int | None = None
 
 
 class TrainingJobResponse(BaseModel):
@@ -49,6 +50,7 @@ class TrainingJobResponse(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     error_message: str | None
+    metrics_port: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -70,3 +72,25 @@ class LogResponse(BaseModel):
     lines: list[str]
     has_more: bool
     total_lines: int
+
+
+class GpuMetricPoint(BaseModel):
+    gpu_index: int
+    utilization_percent: float
+    memory_used_mib: float
+    memory_total_mib: float
+    temperature_c: float
+    power_w: float
+
+
+class TimeSeriesPoint(BaseModel):
+    timestamp: str
+    value: float
+    label: str
+
+
+class TrainingMetricsResponse(BaseModel):
+    gpu_metrics: list[GpuMetricPoint]
+    gpu_utilization_history: list[TimeSeriesPoint]
+    metrics_url: str | None
+    timestamp: str

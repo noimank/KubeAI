@@ -32,6 +32,18 @@ dependencies:
     condition: harbor.enabled
     alias: harbor
 
+  - name: kube-prometheus-stack
+    version: "67.x"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: kubePrometheusStack.enabled
+    alias: kubePrometheusStack
+
+  - name: dcgm-exporter
+    version: "3.x"
+    repository: https://nvidia.github.io/dcgm-exporter/helm-charts
+    condition: dcgmExporter.enabled
+    alias: dcgmExporter
+
   # Post-MVP dependencies (uncomment when needed):
   # - name: kserve
   #   version: "0.14.x"

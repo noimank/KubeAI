@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, SSECurrentUser, get_db, require_permission
+from app.core.events import get_prometheus_client
 from app.core.exceptions import ForbiddenException
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.training_job import (
@@ -15,6 +16,7 @@ from app.schemas.training_job import (
     PodInfoResponse,
     TrainingJobCreateRequest,
     TrainingJobResponse,
+    TrainingMetricsResponse,
 )
 from app.services.training_job_service import TrainingJobService
 
@@ -64,6 +66,7 @@ async def create_training_job(
         memory=req.memory,
         priority=req.priority,
         worker_count=req.worker_count,
+        metrics_port=req.metrics_port,
     )
     return BaseResponse(data=_to_response(job), message="训练任务创建成功")
 
@@ -178,3 +181,24 @@ async def stream_training_job_logs(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/{training_job_id}/metrics", response_model=BaseResponse[TrainingMetricsResponse])
+async def get_training_job_metrics(
+    training_job_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("training_jobs", "read"))],
+    duration: str = Query("20m", description="历史范围(如 20m/1h)"),
+    step: str = Query("15s", description="查询精度"),
+) -> BaseResponse[TrainingMetricsResponse]:
+    service = TrainingJobService(db)
+    tenant_id = _require_tenant_id(user)
+    prom_client = get_prometheus_client()
+    data = await service.get_metrics(
+        job_id=training_job_id,
+        tenant_id=tenant_id,
+        prom_client=prom_client,
+        duration=duration,
+        step=step,
+    )
+    return BaseResponse(data=TrainingMetricsResponse(**data), message="获取成功")

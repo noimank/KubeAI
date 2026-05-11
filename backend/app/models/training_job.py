@@ -46,6 +46,7 @@ class TrainingJob(Base, TimestampMixin):
 
     command: Mapped[str] = mapped_column(Text, nullable=False, comment="启动命令")
     hyperparameters: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True, comment="超参数")
+    metrics_port: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="指标端口")
 
     gpu_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="GPU 数量")
     gpu_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="exclusive", comment="GPU 模式")

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 
@@ -35,6 +35,8 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from app.integrations.prometheus.client import PrometheusClient
+
 logger = logging.getLogger(__name__)
 
 ALLOWED_STOP_STATUSES = {TrainingJobStatus.RUNNING, TrainingJobStatus.QUEUED, TrainingJobStatus.PENDING}
@@ -62,6 +64,7 @@ class TrainingJobService:
         memory: str = "8Gi",
         priority: str = "normal",
         worker_count: int = 1,
+        metrics_port: int | None = None,
     ) -> TrainingJob:
         image = await self._get_image_or_fail(image_id)
 
@@ -102,6 +105,7 @@ class TrainingJobService:
             memory=memory,
             priority=priority,
             worker_count=worker_count,
+            metrics_port=metrics_port,
             status=TrainingJobStatus.PENDING,
         )
         self.db.add(job)
@@ -129,6 +133,7 @@ class TrainingJobService:
             priority=priority,
             dataset_pvc_name=pvc_name,
             dataset_mount_path=mount_path,
+            metrics_port=metrics_port,
         )
 
         try:
@@ -305,6 +310,150 @@ class TrainingJobService:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
         return await list_vcjob_pods(namespace, job.vcjob_name)
+
+    async def get_metrics(
+        self,
+        *,
+        job_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        prom_client: PrometheusClient | None,
+        duration: str = "20m",
+        step: str = "15s",
+    ) -> dict[str, Any]:
+        job = await self._get_job_or_fail(job_id, tenant_id)
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        # Build metrics_url
+        metrics_url: str | None = None
+        if job.metrics_port and job.vcjob_name:
+            try:
+                pods = await list_vcjob_pods(namespace, job.vcjob_name)
+                running_pods = [p for p in pods if p["status"] == "running"]
+                if running_pods:
+                    from kubernetes_asyncio import client as k8s_client
+
+                    from app.integrations.k8s.client import get_k8s_clients
+
+                    clients = await get_k8s_clients()
+                    core_v1 = k8s_client.CoreV1Api(clients["api_client"])
+                    pod_obj = await core_v1.read_namespaced_pod(running_pods[0]["pod_name"], namespace)
+                    if pod_obj.status and pod_obj.status.pod_ip:
+                        metrics_url = f"http://{pod_obj.status.pod_ip}:{job.metrics_port}"
+            except Exception as e:
+                logger.warning("Failed to get pod IP for metrics_url: %s", e)
+
+        # Degraded response when Prometheus unavailable
+        if not prom_client:
+            return {
+                "gpu_metrics": [],
+                "gpu_utilization_history": [],
+                "metrics_url": metrics_url,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+        try:
+            # Find running pod for GPU metrics query
+            pod_name: str | None = None
+            if job.vcjob_name:
+                pods = await list_vcjob_pods(namespace, job.vcjob_name)
+                running_pods = [p for p in pods if p["status"] == "running"]
+                if running_pods:
+                    pod_name = running_pods[0]["pod_name"]
+
+            # Query instant GPU metrics
+            raw_metrics = await prom_client.query_gpu_metrics(namespace, pod_name)
+            gpu_metrics = self._parse_gpu_metrics(raw_metrics)
+
+            # Query GPU utilization history
+            end_ts = str(datetime.now(UTC).timestamp())
+            start_dt = datetime.now(UTC) - self._parse_duration(duration)
+            start_ts = str(start_dt.timestamp())
+            raw_history = await prom_client.query_gpu_utilization_range(namespace, pod_name, start_ts, end_ts, step)
+            history = self._parse_gpu_history(raw_history)
+
+            return {
+                "gpu_metrics": gpu_metrics,
+                "gpu_utilization_history": history,
+                "metrics_url": metrics_url,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        except Exception as e:
+            logger.warning("Prometheus query failed, returning degraded response: %s", e)
+            return {
+                "gpu_metrics": [],
+                "gpu_utilization_history": [],
+                "metrics_url": metrics_url,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    @staticmethod
+    def _parse_gpu_metrics(raw_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Parse Prometheus instant query results into GPU metric dicts."""
+        gpu_data: dict[int, dict[str, float]] = {}
+        for item in raw_results:
+            metric = item.get("metric", {})
+            gpu_idx = int(metric.get("gpu", "0"))
+            name = metric.get("__name__", "")
+            value = float(item.get("value", [0, "0"])[1])
+
+            if gpu_idx not in gpu_data:
+                gpu_data[gpu_idx] = {}
+            gpu_data[gpu_idx][name] = value
+
+        points: list[dict[str, Any]] = []
+        for idx in sorted(gpu_data.keys()):
+            d = gpu_data[idx]
+            fb_used = d.get("DCGM_FI_DEV_FB_USED", 0)
+            fb_free = d.get("DCGM_FI_DEV_FB_FREE", 0)
+            total_mem = fb_used + fb_free
+            points.append(
+                {
+                    "gpu_index": idx,
+                    "utilization_percent": d.get("DCGM_FI_DEV_GPU_UTIL", 0),
+                    "memory_used_mib": fb_used,
+                    "memory_total_mib": total_mem,
+                    "temperature_c": d.get("DCGM_FI_DEV_GPU_TEMP", 0),
+                    "power_w": d.get("DCGM_FI_DEV_POWER_USAGE", 0),
+                }
+            )
+        return points
+
+    @staticmethod
+    def _parse_gpu_history(raw_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Parse Prometheus range query results into time series dicts."""
+        points: list[dict[str, Any]] = []
+        for series in raw_results:
+            metric = series.get("metric", {})
+            label = f"GPU {metric.get('gpu', '?')}"
+            for ts, val in series.get("values", []):
+                dt = datetime.fromtimestamp(float(ts), tz=UTC)
+                points.append(
+                    {
+                        "timestamp": dt.isoformat(),
+                        "value": float(val),
+                        "label": label,
+                    }
+                )
+        return points
+
+    @staticmethod
+    def _parse_duration(duration: str) -> timedelta:
+        """Parse duration string (e.g. '20m', '1h') into timedelta."""
+        from datetime import timedelta
+
+        try:
+            unit = duration[-1]
+            value = int(duration[:-1])
+        except (IndexError, ValueError):
+            return timedelta(minutes=20)
+        if unit == "s":
+            return timedelta(seconds=value)
+        if unit == "m":
+            return timedelta(minutes=value)
+        if unit == "h":
+            return timedelta(hours=value)
+        return timedelta(minutes=20)
 
     async def _check_gpu_quota(self, namespace: str, gpu_limit: int, requested: int) -> None:
         if requested == 0:

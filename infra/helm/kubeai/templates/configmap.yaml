@@ -21,4 +21,5 @@ data:
   MINIO_BUCKET_PREFIX: {{ .Values.backend.env.MINIO_BUCKET_PREFIX | quote }}
   HARBOR_PROJECT_PREFIX: {{ .Values.backend.env.HARBOR_PROJECT_PREFIX | quote }}
   FRONTEND_URL: {{ .Values.backend.env.FRONTEND_URL | quote }}
+  PROMETHEUS_URL: {{ include "kubeai.prometheusUrl" . | default "" | quote }}
 {{- end }}

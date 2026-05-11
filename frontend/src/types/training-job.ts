@@ -34,6 +34,7 @@ export interface TrainingJob {
   startedAt?: string
   finishedAt?: string
   errorMessage?: string
+  metricsPort?: number
   createdAt: string
   updatedAt: string
 }
@@ -52,6 +53,7 @@ export interface TrainingJobCreate {
   memory?: string
   priority?: string
   workerCount?: number
+  metricsPort?: number
 }
 
 export interface PodInfo {
@@ -64,4 +66,26 @@ export interface LogData {
   lines: string[]
   hasMore: boolean
   totalLines: number
+}
+
+export interface GpuMetricPoint {
+  gpuIndex: number
+  utilizationPercent: number
+  memoryUsedMib: number
+  memoryTotalMib: number
+  temperatureC: number
+  powerW: number
+}
+
+export interface TimeSeriesPoint {
+  timestamp: string
+  value: number
+  label: string
+}
+
+export interface TrainingMetrics {
+  gpuMetrics: GpuMetricPoint[]
+  gpuUtilizationHistory: TimeSeriesPoint[]
+  metricsUrl: string | null
+  timestamp: string
 }

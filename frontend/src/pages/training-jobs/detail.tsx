@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
+  Alert,
   Breadcrumb,
   Button,
   Card,
@@ -12,13 +13,15 @@ import {
   Typography,
 } from 'antd'
 import { Link, useParams } from 'react-router-dom'
-import { ReloadOutlined } from '@ant-design/icons'
+import { DesktopOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import LogStream from '@/components/LogStream'
+import GpuMetricsChart from '@/components/GpuMetricsChart'
 import {
   buildLogStreamUrl,
   getTrainingJob,
   getTrainingJobLogs,
+  getTrainingJobMetrics,
   getTrainingJobPods,
 } from '@/services/training-jobs'
 import { ACCESS_TOKEN_KEY } from '@/stores/authStore'
@@ -44,6 +47,9 @@ const STATUS_STEPS = [
 const STREAMABLE_STATUSES: TrainingJobStatus[] = ['pending', 'queued', 'initializing', 'running']
 const HISTORY_STATUSES: TrainingJobStatus[] = ['succeeded', 'failed', 'stopped']
 const NOT_STARTED_STATUSES: TrainingJobStatus[] = ['pending', 'queued']
+
+const LOW_GPU_THRESHOLD = 10
+const WARNING_DURATION_MS = 10 * 60 * 1000
 
 function getStepIndex(status: TrainingJobStatus): number {
   const map: Record<string, number> = {
@@ -117,6 +123,25 @@ export default function TrainingJobDetailPage() {
       }),
     enabled: !!id && activeTab === 'logs' && !!job?.status && HISTORY_STATUSES.includes(job.status),
   })
+
+  // GPU metrics query with polling
+  const isRunning = job?.status === 'running'
+  const { data: metricsData, isLoading: metricsLoading } = useQuery({
+    queryKey: ['trainingJobMetrics', id],
+    queryFn: () => getTrainingJobMetrics(id!),
+    enabled: !!id && activeTab === 'metrics' && !!job?.status,
+    refetchInterval: isRunning ? 10_000 : false,
+  })
+
+  // GPU low utilization warning
+  const shouldWarnGpu = useMemo(() => {
+    const history = metricsData?.gpuUtilizationHistory
+    if (!history?.length) return false
+    const cutoff = Date.now() - WARNING_DURATION_MS
+    const recent = history.filter((p) => new Date(p.timestamp).getTime() >= cutoff)
+    if (recent.length < 10) return false
+    return recent.every((p) => p.value < LOW_GPU_THRESHOLD)
+  }, [metricsData?.gpuUtilizationHistory])
 
   if (isLoading) {
     return (
@@ -210,6 +235,55 @@ export default function TrainingJobDetailPage() {
     )
   })()
 
+  const metricsTabContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* GPU low utilization warning */}
+      {shouldWarnGpu && (
+        <Alert
+          type="warning"
+          showIcon
+          message="GPU 利用率持续低于 10%，请检查训练脚本是否存在瓶颈"
+        />
+      )}
+
+      {/* Metrics URL entry point */}
+      {metricsData?.metricsUrl ? (
+        <Card
+          size="small"
+          hoverable
+          style={{ cursor: 'pointer' }}
+          onClick={() => window.open(metricsData.metricsUrl!, '_blank')}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <DesktopOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+            <div>
+              <Typography.Text strong>打开训练指标面板</Typography.Text>
+              <br />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {metricsData.metricsUrl}
+              </Typography.Text>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        !metricsLoading && (
+          <Card size="small">
+            <Typography.Text type="secondary">
+              如需查看 TensorBoard/MLflow，请在创建训练任务时配置指标端口
+            </Typography.Text>
+          </Card>
+        )
+      )}
+
+      {/* GPU Metrics Chart */}
+      <GpuMetricsChart
+        gpuMetrics={metricsData?.gpuMetrics ?? []}
+        gpuUtilizationHistory={metricsData?.gpuUtilizationHistory ?? []}
+        loading={metricsLoading}
+      />
+    </div>
+  )
+
   const tabs = [
     {
       key: 'overview',
@@ -295,10 +369,7 @@ export default function TrainingJobDetailPage() {
     {
       key: 'metrics',
       label: '指标',
-      disabled: true,
-      children: (
-        <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>将在 Story 5.4 中实现</div>
-      ),
+      children: metricsTabContent,
     },
   ]
 

@@ -44,5 +44,7 @@ class Settings(BaseSettings):
     HARBOR_PASSWORD: str = "Harbor12345"
     HARBOR_PROJECT_PREFIX: str = "kubeai-"
 
+    PROMETHEUS_URL: str = "http://localhost:9090"
+
 
 settings = Settings()

@@ -18,6 +18,7 @@ def build_vcjob(
     priority: str = "normal",
     dataset_pvc_name: str | None = None,
     dataset_mount_path: str | None = None,
+    metrics_port: int | None = None,
 ) -> dict[str, Any]:
     env: list[dict[str, str]] = [
         {"name": "KUBEAI_JOB_ID", "value": job_id},
@@ -60,6 +61,9 @@ def build_vcjob(
             else {}
         ),
     }
+
+    if metrics_port is not None:
+        container["ports"] = [{"containerPort": metrics_port}]
 
     pod_spec: dict[str, Any] = {
         "containers": [container],

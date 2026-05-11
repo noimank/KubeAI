@@ -8,6 +8,7 @@ from app.core.redis import close_redis, init_redis
 from app.core.security import hash_password
 from app.integrations.k8s.client import close_k8s_clients
 from app.integrations.minio import MinIOClient
+from app.integrations.prometheus.client import PrometheusClient
 from app.models.enums import TenantStatus, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -15,12 +16,17 @@ from app.models.user import User
 logger = structlog.get_logger()
 
 minio_client: MinIOClient | None = None
+prometheus_client: PrometheusClient | None = None
 
 
 def get_minio_client() -> MinIOClient:
     if minio_client is None:
         raise RuntimeError("MinIO client not initialized")
     return minio_client
+
+
+def get_prometheus_client() -> PrometheusClient | None:
+    return prometheus_client
 
 
 async def _init_admin_user() -> None:
@@ -84,15 +90,21 @@ async def _ensure_default_tenant_k8s(tenant: Tenant) -> None:
 
 
 async def on_startup() -> None:
-    global minio_client
+    global minio_client, prometheus_client
     await init_redis()
     CasbinEnforcer.initialize(settings.DATABASE_URL)
     await _init_admin_user()
     minio_client = MinIOClient()
+    if settings.PROMETHEUS_URL:
+        prometheus_client = PrometheusClient()
     logger.info("application_startup", app="KubeAI")
 
 
 async def on_shutdown() -> None:
+    global prometheus_client
+    if prometheus_client:
+        await prometheus_client.close()
+        prometheus_client = None
     await close_k8s_clients()
     await close_db()
     await close_redis()

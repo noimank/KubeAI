@@ -1,6 +1,12 @@
 import { api } from './api'
 import type { PageData } from '@/types/api'
-import type { LogData, PodInfo, TrainingJob, TrainingJobCreate } from '@/types/training-job'
+import type {
+  LogData,
+  PodInfo,
+  TrainingJob,
+  TrainingJobCreate,
+  TrainingMetrics,
+} from '@/types/training-job'
 import { ACCESS_TOKEN_KEY } from '@/stores/authStore'
 
 export async function getTrainingJobs(params: {
@@ -59,4 +65,12 @@ export function buildLogStreamUrl(
   if (params?.podName) url.searchParams.set('pod_name', params.podName)
   if (params?.tailLines) url.searchParams.set('tail_lines', String(params.tailLines))
   return url.toString()
+}
+
+export async function getTrainingJobMetrics(
+  id: string,
+  params?: { duration?: string; step?: string },
+): Promise<TrainingMetrics> {
+  const res = await api.get(`/training-jobs/${id}/metrics`, { params })
+  return res.data.data!
 }
