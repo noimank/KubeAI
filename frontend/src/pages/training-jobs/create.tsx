@@ -101,7 +101,7 @@ export default function CreateTrainingJobPage() {
         datasetVersionId: values.datasetVersionId,
         imageId: values.imageId,
         command: values.command,
-        hyperparameters: values.hyperparameters?.filter((h) => h.key && h.value),
+        hyperparameters: values.hyperparameters?.filter((h) => h?.key && h?.value),
         gpuCount: values.gpuCount,
         gpuMode: values.gpuMode,
         cpu: String(values.cpu),
@@ -245,7 +245,7 @@ export default function CreateTrainingJobPage() {
                       </Button>
                     </Space>
                   ))}
-                  <Button type="dashed" onClick={() => add()} block>
+                  <Button type="dashed" onClick={() => add({})} block>
                     添加超参数
                   </Button>
                 </>
@@ -341,7 +341,7 @@ function ConfirmStep({
     : '未选择'
   const image = values.imageId ? images.find((i) => i.id === values.imageId) : null
   const imageLabel = image ? `${image.name}:${image.tag}` : '未选择'
-  const hp = values.hyperparameters?.filter((h) => h.key && h.value) ?? []
+  const hp = values.hyperparameters?.filter((h) => h?.key && h?.value) ?? []
 
   return (
     <Descriptions column={2} bordered size="small">
