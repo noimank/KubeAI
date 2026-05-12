@@ -51,6 +51,7 @@ class ResourceType(enum.StrEnum):
     DATASET = "dataset"
     IMAGE = "image"
     TRAINING_JOB = "training_job"
+    MODEL = "model"
 
 
 class BuildStatus(enum.StrEnum):
