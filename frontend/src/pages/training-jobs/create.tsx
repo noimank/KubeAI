@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Alert,
   Button,
+  Collapse,
   Descriptions,
   Form,
   Input,
@@ -17,8 +18,9 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import ImageSelect from '@/components/ImageSelect'
-import { getDatasets } from '@/services/datasets'
-import { getDatasetDetail } from '@/services/datasets'
+import ResourceAwarePanel from '@/components/ResourceAwarePanel'
+import { getDatasets, getDatasetDetail } from '@/services/datasets'
+import { getSelectableImages } from '@/services/images'
 import { createTrainingJob } from '@/services/training-jobs'
 
 interface FormValues {
@@ -64,8 +66,14 @@ export default function CreateTrainingJobPage() {
     enabled: !!datasetId,
   })
 
+  const { data: imagesData } = useQuery({
+    queryKey: ['selectableImages'],
+    queryFn: getSelectableImages,
+  })
+
   const datasets = datasetsData?.items ?? []
   const versions = datasetDetail?.data?.versions ?? []
+  const images = imagesData ?? []
 
   const handleNext = async () => {
     try {
@@ -190,7 +198,6 @@ export default function CreateTrainingJobPage() {
             label="Worker 数量"
             initialValue={1}
             rules={[{ required: true }]}
-            extra={workerCount > 1 ? undefined : undefined}
           >
             <InputNumber min={1} max={16} style={{ width: '100%' }} />
           </Form.Item>
@@ -245,19 +252,35 @@ export default function CreateTrainingJobPage() {
               )}
             </Form.List>
           </Form.Item>
-          <Form.Item
-            name="metricsPort"
-            label="指标端口"
-            extra="如训练脚本暴露 TensorBoard/MLflow 等指标面板，填写端口号"
-          >
-            <InputNumber min={1} max={65535} placeholder="如 6006" style={{ width: '100%' }} />
-          </Form.Item>
+          <Collapse
+            ghost
+            items={[
+              {
+                key: 'advanced',
+                label: '高级配置',
+                children: (
+                  <Form.Item
+                    name="metricsPort"
+                    label="指标端口"
+                    extra="如训练脚本暴露 TensorBoard/MLflow 等指标面板，填写端口号"
+                  >
+                    <InputNumber
+                      min={1}
+                      max={65535}
+                      placeholder="如 6006"
+                      style={{ width: '100%' }}
+                    />
+                  </Form.Item>
+                ),
+              },
+            ]}
+          />
         </>
       ),
     },
     {
       title: '确认提交',
-      content: <ConfirmStep form={form} datasets={datasets} />,
+      content: <ConfirmStep form={form} datasets={datasets} images={images} />,
     },
   ]
 
@@ -268,25 +291,34 @@ export default function CreateTrainingJobPage() {
         items={steps.map((s) => ({ title: s.title }))}
         style={{ marginBottom: 24 }}
       />
-      <Form form={form} layout="vertical" style={{ maxWidth: 640 }}>
-        {steps.map((step, index) => (
-          <div key={index} style={{ display: index === current ? 'block' : 'none' }}>
-            {step.content}
+      <div style={{ display: 'flex', gap: 24 }}>
+        <div style={{ flex: 2, maxWidth: 800 }}>
+          <Form form={form} layout="vertical">
+            {steps.map((step, index) => (
+              <div key={index} style={{ display: index === current ? 'block' : 'none' }}>
+                {step.content}
+              </div>
+            ))}
+          </Form>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
+            {current > 0 && <Button onClick={handlePrev}>上一步</Button>}
+            {current < steps.length - 1 && (
+              <Button type="primary" onClick={handleNext}>
+                下一步
+              </Button>
+            )}
+            {current === steps.length - 1 && (
+              <Button type="primary" loading={submitting} onClick={handleSubmit}>
+                提交任务
+              </Button>
+            )}
           </div>
-        ))}
-      </Form>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
-        {current > 0 && <Button onClick={handlePrev}>上一步</Button>}
-        {current < steps.length - 1 && (
-          <Button type="primary" onClick={handleNext}>
-            下一步
-          </Button>
-        )}
-        {current === steps.length - 1 && (
-          <Button type="primary" loading={submitting} onClick={handleSubmit}>
-            提交任务
-          </Button>
-        )}
+        </div>
+        <div style={{ flex: 1, minWidth: 260, maxWidth: 340 }}>
+          <div style={{ position: 'sticky', top: 16 }}>
+            <ResourceAwarePanel />
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -295,9 +327,11 @@ export default function CreateTrainingJobPage() {
 function ConfirmStep({
   form,
   datasets,
+  images,
 }: {
   form: FormInstance<FormValues>
   datasets: { id: string; name: string }[]
+  images: { id: string; name: string; tag: string }[]
 }) {
   const values = Form.useWatch<FormValues>([], form)
   if (!values) return null
@@ -305,6 +339,8 @@ function ConfirmStep({
   const datasetName = values.datasetId
     ? (datasets.find((d) => d.id === values.datasetId)?.name ?? '—')
     : '未选择'
+  const image = values.imageId ? images.find((i) => i.id === values.imageId) : null
+  const imageLabel = image ? `${image.name}:${image.tag}` : '未选择'
   const hp = values.hyperparameters?.filter((h) => h.key && h.value) ?? []
 
   return (
@@ -315,7 +351,7 @@ function ConfirmStep({
       <Descriptions.Item label="数据集版本">
         {values.datasetId ? (values.datasetVersionId ? values.datasetVersionId : '最新版本') : '—'}
       </Descriptions.Item>
-      <Descriptions.Item label="镜像">{values.imageId ? '已选择' : '未选择'}</Descriptions.Item>
+      <Descriptions.Item label="镜像">{imageLabel}</Descriptions.Item>
       <Descriptions.Item label="GPU">
         {values.gpuCount ?? 0} 张 ({values.gpuMode === 'exclusive' ? '独占' : '共享'})
       </Descriptions.Item>
@@ -338,6 +374,11 @@ function ConfirmStep({
       {hp.length > 0 && (
         <Descriptions.Item label="超参数" span={2}>
           {hp.map((h) => `${h.key}=${h.value}`).join(', ')}
+        </Descriptions.Item>
+      )}
+      {values.metricsPort && (
+        <Descriptions.Item label="指标端口" span={2}>
+          {values.metricsPort}
         </Descriptions.Item>
       )}
     </Descriptions>
