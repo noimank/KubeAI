@@ -140,7 +140,7 @@ async def batch_get_vcjob_phases(namespace: str, vcjob_names: list[str]) -> dict
         for pod in pods.items:
             if not pod.metadata or not pod.metadata.labels:
                 continue
-            job_name = pod.metadata.labels.get("batch.volcano.sh/job-name")
+            job_name = pod.metadata.labels.get("volcano.sh/job-name")
             if not job_name or job_name not in missing_set:
                 continue
             if pod.status and pod.status.phase:
@@ -166,7 +166,8 @@ async def batch_get_vcjob_phases(namespace: str, vcjob_names: list[str]) -> dict
 
 
 def extract_vcjob_phase(vcjob: dict[str, Any]) -> str:
-    phase = vcjob.get("status", {}).get("phase", "Pending")
+    status = vcjob.get("status", {})
+    phase = status.get("state", {}).get("phase") or status.get("phase", "Pending")
     mapped = VCJOB_PHASE_MAP.get(phase)
     if mapped is None:
         logger.warning("Unknown VCJob phase %r, falling back to 'pending'", phase)

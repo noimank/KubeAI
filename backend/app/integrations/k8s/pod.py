@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_VCJOB_LABEL = "batch.volcano.sh/job-name"
+_VCJOB_LABEL = "volcano.sh/job-name"
 _ROLE_PATTERN = re.compile(r"-(master|worker)-(\d+)")
 
 
