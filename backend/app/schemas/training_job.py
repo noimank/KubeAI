@@ -51,6 +51,8 @@ class TrainingJobResponse(BaseModel):
     finished_at: datetime | None
     error_message: str | None
     metrics_port: int | None
+    workspace_path: str | None = None
+    home_path: str | None = None
     created_at: datetime
     updated_at: datetime
 

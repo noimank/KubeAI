@@ -5,11 +5,14 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, SSECurrentUser, get_db, require_permission
 from app.core.events import get_prometheus_client
 from app.core.exceptions import ForbiddenException
+from app.integrations.base import sanitize_k8s_name
+from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.training_job import (
     LogResponse,
@@ -34,8 +37,10 @@ def _require_tenant_id(user: object) -> uuid.UUID:
     return cast("uuid.UUID", tenant_id)
 
 
-def _to_response(job: object) -> TrainingJobResponse:
-    return TrainingJobResponse.model_validate(job)
+def _to_response(job: object, **kwargs: object) -> TrainingJobResponse:
+    data = TrainingJobResponse.model_validate(job).model_dump()
+    data.update(kwargs)
+    return TrainingJobResponse(**data)
 
 
 @router.post("", response_model=BaseResponse[TrainingJobResponse])
@@ -68,7 +73,11 @@ async def create_training_job(
         worker_count=req.worker_count,
         metrics_port=req.metrics_port,
     )
-    return BaseResponse(data=_to_response(job), message="训练任务创建成功")
+    username = getattr(user, "username", "")
+    return BaseResponse(
+        data=_to_response(job, workspace_path="/workspace", home_path=f"/home/{sanitize_k8s_name(username)}"),
+        message="训练任务创建成功",
+    )
 
 
 @router.get("", response_model=PageResponse[TrainingJobResponse])
@@ -103,7 +112,11 @@ async def get_training_job(
     service = TrainingJobService(db)
     tenant_id = _require_tenant_id(user)
     job = await service.get_training_job(training_job_id, tenant_id)
-    return BaseResponse(data=_to_response(job), message="获取成功")
+    username = await _resolve_username(db, job.created_by)
+    return BaseResponse(
+        data=_to_response(job, workspace_path="/workspace", home_path=f"/home/{sanitize_k8s_name(username)}"),
+        message="获取成功",
+    )
 
 
 @router.post("/{training_job_id}/stop", response_model=BaseResponse[TrainingJobResponse])
@@ -214,3 +227,9 @@ async def get_training_job_metrics(
         step=step,
     )
     return BaseResponse(data=TrainingMetricsResponse(**data), message="获取成功")
+
+
+async def _resolve_username(db: AsyncSession, user_id: uuid.UUID) -> str:
+    result = await db.execute(select(User.username).where(User.id == user_id))
+    row = result.scalar_one_or_none()
+    return row or ""

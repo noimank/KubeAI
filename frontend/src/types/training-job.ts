@@ -35,6 +35,8 @@ export interface TrainingJob {
   finishedAt?: string
   errorMessage?: string
   metricsPort?: number
+  workspacePath?: string
+  homePath?: string
   createdAt: string
   updatedAt: string
 }

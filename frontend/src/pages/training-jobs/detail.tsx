@@ -5,6 +5,8 @@ import {
   Button,
   Card,
   Descriptions,
+  Input,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -15,7 +17,7 @@ import {
   Typography,
 } from 'antd'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { DesktopOutlined, ReloadOutlined } from '@ant-design/icons'
+import { DesktopOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import LogStream from '@/components/LogStream'
 import GpuMetricsChart from '@/components/GpuMetricsChart'
@@ -29,6 +31,7 @@ import {
   stopTrainingJob,
   retryTrainingJob,
 } from '@/services/training-jobs'
+import { registerModel } from '@/services/models'
 import { ACCESS_TOKEN_KEY } from '@/stores/authStore'
 import { getMessageInstance } from '@/utils/messageHolder'
 import type { TrainingJobStatus } from '@/types/training-job'
@@ -96,10 +99,15 @@ export default function TrainingJobDetailPage() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedPod, setSelectedPod] = useState<string | undefined>(undefined)
+  const [registerModalOpen, setRegisterModalOpen] = useState(false)
+  const [modelName, setModelName] = useState('')
+  const [modelDesc, setModelDesc] = useState('')
+  const [modelFilePaths, setModelFilePaths] = useState('')
   const queryClient = useQueryClient()
 
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const canWrite = hasPermission('training_jobs:write')
+  const canWriteModels = hasPermission('models:write')
 
   const {
     data: job,
@@ -130,6 +138,20 @@ export default function TrainingJobDetailPage() {
     onSuccess: (newJob) => {
       getMessageInstance()?.success('重试任务已创建')
       navigate(`/training-jobs/${newJob.id}`)
+    },
+  })
+
+  const registerMutation = useMutation({
+    mutationFn: registerModel,
+    onSuccess: () => {
+      getMessageInstance()?.success('模型注册成功，文件正在上传中')
+      setRegisterModalOpen(false)
+      setModelName('')
+      setModelDesc('')
+      setModelFilePaths('')
+    },
+    onError: () => {
+      getMessageInstance()?.error('模型注册失败')
     },
   })
 
@@ -357,6 +379,50 @@ export default function TrainingJobDetailPage() {
             )}
           </Card>
 
+          {job.workspacePath && (
+            <Card
+              title="存储挂载"
+              size="small"
+              extra={
+                job.status === 'succeeded' &&
+                canWriteModels && (
+                  <Button
+                    type="primary"
+                    icon={<InboxOutlined />}
+                    size="small"
+                    onClick={() => {
+                      setModelName(`${job.name}-model`)
+                      setRegisterModalOpen(true)
+                    }}
+                  >
+                    注册模型到仓库
+                  </Button>
+                )
+              }
+            >
+              <Descriptions bordered size="small" column={2}>
+                <Descriptions.Item label={job.workspacePath}>
+                  <Space>
+                    <Tag color="blue">租户工作空间 (共享)</Tag>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      训练输出持久保存
+                    </Typography.Text>
+                  </Space>
+                </Descriptions.Item>
+                {job.homePath && (
+                  <Descriptions.Item label={job.homePath}>
+                    <Space>
+                      <Tag color="green">个人目录</Tag>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        跨租户共享
+                      </Typography.Text>
+                    </Space>
+                  </Descriptions.Item>
+                )}
+              </Descriptions>
+            </Card>
+          )}
+
           <Card title="基本参数" size="small">
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="任务名称">{job.name}</Descriptions.Item>
@@ -461,6 +527,68 @@ export default function TrainingJobDetailPage() {
         </Space>
       </div>
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
+
+      <Modal
+        title="注册模型"
+        open={registerModalOpen}
+        onCancel={() => setRegisterModalOpen(false)}
+        onConfirm={() => {
+          const filePaths = modelFilePaths
+            .split('\n')
+            .map((p) => p.trim())
+            .filter(Boolean)
+          if (!filePaths.length) {
+            getMessageInstance()?.warning('请输入至少一个文件路径')
+            return
+          }
+          registerMutation.mutate({
+            name: modelName,
+            description: modelDesc || undefined,
+            filePaths,
+            trainingJobId: id,
+          })
+        }}
+        confirmLoading={registerMutation.isPending}
+        okText="确认注册"
+        cancelText="取消"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <Typography.Text strong>模型名称</Typography.Text>
+            <Input
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              placeholder="例如 my-exp-model"
+              style={{ marginTop: 4 }}
+            />
+          </div>
+          <div>
+            <Typography.Text strong>描述</Typography.Text>
+            <Input
+              value={modelDesc}
+              onChange={(e) => setModelDesc(e.target.value)}
+              placeholder="训练实验描述（可选）"
+              style={{ marginTop: 4 }}
+            />
+          </div>
+          <div>
+            <Typography.Text strong>工作空间文件路径（每行一个）</Typography.Text>
+            <Input.TextArea
+              value={modelFilePaths}
+              onChange={(e) => setModelFilePaths(e.target.value)}
+              placeholder={'experiment-1/model.pth\nexperiment-1/config.yaml'}
+              rows={4}
+              style={{ marginTop: 4, fontFamily: 'monospace' }}
+            />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              路径相对于 {job.workspacePath || '/workspace'} 目录
+            </Typography.Text>
+          </div>
+          <div>
+            <Typography.Text strong>关联训练任务:</Typography.Text> <Tag color="blue">当前任务</Tag>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

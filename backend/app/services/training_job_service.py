@@ -15,7 +15,13 @@ from app.core.exceptions import (
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.pod import get_pod_failure_info, get_pod_log, list_vcjob_pods, stream_pod_logs
-from app.integrations.k8s.pvc import create_pvc, make_dataset_pvc_name, pvc_exists
+from app.integrations.k8s.pvc import (
+    create_pvc,
+    make_dataset_pvc_name,
+    make_user_home_host_path,
+    make_workspace_host_path,
+    pvc_exists,
+)
 from app.integrations.k8s.resource_quota import get_quota_used
 from app.integrations.volcano.client import (
     batch_get_vcjob_phases,
@@ -28,6 +34,7 @@ from app.models.enums import TrainingJobStatus
 from app.models.image import Image
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
+from app.models.user import User
 
 if TYPE_CHECKING:
     import uuid
@@ -82,6 +89,10 @@ class TrainingJobService:
 
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        user = await self._get_user_or_fail(user_id)
+
+        workspace_host_path = make_workspace_host_path(tenant.name)
+        user_home_host_path = make_user_home_host_path(user.username)
 
         await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_count * worker_count)
 
@@ -133,6 +144,9 @@ class TrainingJobService:
             priority=priority,
             dataset_pvc_name=pvc_name,
             dataset_mount_path=mount_path,
+            workspace_host_path=workspace_host_path,
+            user_home_host_path=user_home_host_path,
+            username=user.username,
             metrics_port=metrics_port,
         )
 
@@ -566,6 +580,13 @@ class TrainingJobService:
         if not image.is_enabled:
             raise BadRequestException("镜像已禁用")
         return image
+
+    async def _get_user_or_fail(self, user_id: uuid.UUID) -> User:
+        result = await self.db.execute(select(User).where(User.id == user_id, User.deleted_at.is_(None)))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise NotFoundException("用户不存在")
+        return user
 
     async def _get_dataset_or_fail(self, dataset_id: uuid.UUID, tenant_id: uuid.UUID) -> Dataset:
         result = await self.db.execute(select(Dataset).where(Dataset.id == dataset_id, Dataset.tenant_id == tenant_id))

@@ -9,6 +9,7 @@ from app.models.enums import TrainingJobStatus
 from app.models.image import Image
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
+from app.models.user import User
 from app.services.training_job_service import TrainingJobService
 
 _NOW = datetime(2026, 5, 8, 12, 0, 0, tzinfo=UTC)
@@ -49,6 +50,23 @@ def _make_image(**overrides):
     img.updated_at = _NOW
     img.deleted_at = None
     return img
+
+
+def _make_user(**overrides):
+    defaults = {
+        "username": "testuser",
+        "email": "test@example.com",
+        "hashed_password": "hash",
+        "auth_provider": "local",
+        "external_id": "testuser",
+    }
+    defaults.update(overrides)
+    u = User(**defaults)
+    u.id = uuid.uuid4()
+    u.created_at = _NOW
+    u.updated_at = _NOW
+    u.deleted_at = None
+    return u
 
 
 def _make_job(**overrides):
@@ -95,9 +113,10 @@ class TestCreateTrainingJobQuotaCheck:
     async def test_single_job_gpu_quota(self, mock_build, mock_create, mock_quota, service, mock_db):
         tenant = _make_tenant(gpu_limit=10)
         image = _make_image()
+        user = _make_user()
         mock_quota.return_value = {"requests.nvidia.com/gpu": "3"}
 
-        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant)]
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
 
         await service.create_training_job(
             tenant_id=tenant.id,
@@ -115,9 +134,10 @@ class TestCreateTrainingJobQuotaCheck:
     async def test_distributed_gpu_quota_total(self, mock_quota, service, mock_db):
         tenant = _make_tenant(gpu_limit=10)
         image = _make_image()
+        user = _make_user()
         mock_quota.return_value = {"requests.nvidia.com/gpu": "8"}
 
-        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant)]
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
 
         with pytest.raises(QuotaExceededException):
             await service.create_training_job(
@@ -136,9 +156,10 @@ class TestCreateTrainingJobQuotaCheck:
     async def test_distributed_quota_passes(self, mock_build, mock_create, mock_quota, service, mock_db):
         tenant = _make_tenant(gpu_limit=20)
         image = _make_image()
+        user = _make_user()
         mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
 
-        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant)]
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
 
         await service.create_training_job(
             tenant_id=tenant.id,
@@ -155,7 +176,8 @@ class TestCreateTrainingJobQuotaCheck:
     async def test_zero_gpu_skips_quota(self, service, mock_db):
         tenant = _make_tenant(gpu_limit=0)
         image = _make_image()
-        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant)]
+        user = _make_user()
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
 
         with (
             patch("app.services.training_job_service.create_vcjob"),
@@ -178,7 +200,8 @@ class TestCreateTrainingJobWorkerCount:
     async def test_worker_count_saved_to_db(self, mock_build, mock_create, service, mock_db):
         tenant = _make_tenant()
         image = _make_image()
-        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant)]
+        user = _make_user()
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
         mock_build.return_value = {"metadata": {"name": "test"}}
 
         job = await service.create_training_job(
@@ -198,7 +221,8 @@ class TestCreateTrainingJobWorkerCount:
     async def test_worker_count_passed_to_builder(self, mock_build, mock_create, service, mock_db):
         tenant = _make_tenant()
         image = _make_image()
-        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant)]
+        user = _make_user()
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
         mock_build.return_value = {"metadata": {"name": "test"}}
 
         await service.create_training_job(
@@ -492,11 +516,13 @@ class TestRetryTrainingJob:
         original_job.metrics_port = 6006
         tenant = _make_tenant()
         image = _make_image(id=original_job.image_id)
+        user = _make_user()
 
         mock_db.execute.side_effect = [
             _sync_result(original_job),
             _sync_result(image),
             _sync_result(tenant),
+            _sync_result(user),
         ]
         mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
         mock_build.return_value = {"metadata": {"name": "test-retry"}}

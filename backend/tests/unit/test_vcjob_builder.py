@@ -302,3 +302,121 @@ class TestBuildVcjobDistributed:
         assert "plugins" not in result["spec"]
         assert result["spec"]["minAvailable"] == 1
         assert len(result["spec"]["tasks"]) == 1
+
+
+class TestBuildVcjobHostPath:
+    def test_workspace_host_path_volume(self):
+        result = build_vcjob(
+            vcjob_name="test-job",
+            namespace="kubeai-default",
+            image_ref="pytorch:2.1",
+            command="python train.py",
+            cpu="4",
+            memory="8Gi",
+            gpu_count=1,
+            gpu_mode="exclusive",
+            job_id="ws-123",
+            workspace_host_path="/data/kubeai/tenant/my-team/workspace",
+        )
+
+        container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
+        mounts = container["volumeMounts"]
+        ws_mount = next(m for m in mounts if m["mountPath"] == "/workspace")
+        assert ws_mount["name"] == "workspace-volume"
+
+        volumes = result["spec"]["tasks"][0]["template"]["spec"]["volumes"]
+        ws_vol = next(v for v in volumes if v["name"] == "workspace-volume")
+        assert ws_vol["hostPath"]["path"] == "/data/kubeai/tenant/my-team/workspace"
+        assert ws_vol["hostPath"]["type"] == "DirectoryOrCreate"
+
+        env = {e["name"]: e["value"] for e in container["env"]}
+        assert env["KUBEAI_WORKSPACE_PATH"] == "/workspace"
+
+    def test_user_home_host_path_volume(self):
+        result = build_vcjob(
+            vcjob_name="test-job",
+            namespace="kubeai-default",
+            image_ref="pytorch:2.1",
+            command="python train.py",
+            cpu="4",
+            memory="8Gi",
+            gpu_count=1,
+            gpu_mode="exclusive",
+            job_id="home-123",
+            user_home_host_path="/data/kubeai/users/johndoe",
+            username="johndoe",
+        )
+
+        container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
+        mounts = container["volumeMounts"]
+        home_mount = next(m for m in mounts if m["mountPath"] == "/home/johndoe")
+        assert home_mount["name"] == "home-volume"
+
+        volumes = result["spec"]["tasks"][0]["template"]["spec"]["volumes"]
+        home_vol = next(v for v in volumes if v["name"] == "home-volume")
+        assert home_vol["hostPath"]["path"] == "/data/kubeai/users/johndoe"
+
+        env = {e["name"]: e["value"] for e in container["env"]}
+        assert env["KUBEAI_HOME_PATH"] == "/home/johndoe"
+
+    def test_both_host_paths(self):
+        result = build_vcjob(
+            vcjob_name="test-job",
+            namespace="kubeai-default",
+            image_ref="pytorch:2.1",
+            command="python train.py",
+            cpu="4",
+            memory="8Gi",
+            gpu_count=1,
+            gpu_mode="exclusive",
+            job_id="both-123",
+            workspace_host_path="/data/kubeai/tenant/team/workspace",
+            user_home_host_path="/data/kubeai/users/alice",
+            username="alice",
+        )
+
+        container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
+        mount_paths = [m["mountPath"] for m in container["volumeMounts"]]
+        assert "/workspace" in mount_paths
+        assert "/home/alice" in mount_paths
+
+    def test_no_host_path_when_not_provided(self):
+        result = build_vcjob(
+            vcjob_name="test-job",
+            namespace="kubeai-default",
+            image_ref="pytorch:2.1",
+            command="python train.py",
+            cpu="4",
+            memory="8Gi",
+            gpu_count=1,
+            gpu_mode="exclusive",
+            job_id="no-hp-123",
+        )
+
+        volumes = result["spec"]["tasks"][0]["template"]["spec"]["volumes"]
+        vol_names = [v["name"] for v in volumes]
+        assert "workspace-volume" not in vol_names
+        assert "home-volume" not in vol_names
+
+    def test_distributed_host_paths_all_workers(self):
+        result = build_vcjob(
+            vcjob_name="dist-job",
+            namespace="kubeai-default",
+            image_ref="pytorch:2.1",
+            command="python train.py",
+            cpu="4",
+            memory="8Gi",
+            gpu_count=1,
+            gpu_mode="exclusive",
+            job_id="dist-ws",
+            worker_count=3,
+            workspace_host_path="/data/kubeai/tenant/team/workspace",
+            user_home_host_path="/data/kubeai/users/bob",
+            username="bob",
+        )
+
+        for task in result["spec"]["tasks"]:
+            container = task["template"]["spec"]["containers"][0]
+            mount_paths = [m["mountPath"] for m in container["volumeMounts"]]
+            assert "/workspace" in mount_paths
+            assert "/home/bob" in mount_paths

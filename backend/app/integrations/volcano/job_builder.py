@@ -1,6 +1,8 @@
 import copy
 from typing import Any
 
+from app.integrations.base import sanitize_k8s_name
+
 
 def build_vcjob(
     *,
@@ -18,6 +20,9 @@ def build_vcjob(
     priority: str = "normal",
     dataset_pvc_name: str | None = None,
     dataset_mount_path: str | None = None,
+    workspace_host_path: str | None = None,
+    user_home_host_path: str | None = None,
+    username: str | None = None,
     metrics_port: int | None = None,
 ) -> dict[str, Any]:
     env: list[dict[str, str]] = [
@@ -25,6 +30,11 @@ def build_vcjob(
     ]
     if dataset_mount_path:
         env.append({"name": "KUBEAI_DATASET_PATH", "value": dataset_mount_path})
+    if workspace_host_path:
+        env.append({"name": "KUBEAI_WORKSPACE_PATH", "value": "/workspace"})
+    if user_home_host_path and username:
+        sanitized = sanitize_k8s_name(username)
+        env.append({"name": "KUBEAI_HOME_PATH", "value": f"/home/{sanitized}"})
     if hyperparameters:
         for key, value in hyperparameters.items():
             env.append({"name": f"HP_{key.upper()}", "value": value})
@@ -40,6 +50,15 @@ def build_vcjob(
 
     priority_class_map = {"low": "low", "normal": "normal", "high": "high"}
 
+    mounts: list[dict[str, Any]] = []
+    if dataset_pvc_name and dataset_mount_path:
+        mounts.append({"name": "dataset-volume", "mountPath": dataset_mount_path, "readOnly": True})
+    if workspace_host_path:
+        mounts.append({"name": "workspace-volume", "mountPath": "/workspace"})
+    if user_home_host_path and username:
+        sanitized = sanitize_k8s_name(username)
+        mounts.append({"name": "home-volume", "mountPath": f"/home/{sanitized}"})
+
     container: dict[str, Any] = {
         "name": "trainer",
         "image": image_ref,
@@ -47,36 +66,25 @@ def build_vcjob(
         "args": [command],
         "resources": resources,
         "env": env,
-        **(
-            {
-                "volumeMounts": [
-                    {
-                        "name": "dataset-volume",
-                        "mountPath": dataset_mount_path,
-                        "readOnly": True,
-                    }
-                ]
-            }
-            if dataset_pvc_name and dataset_mount_path
-            else {}
-        ),
+        **({"volumeMounts": mounts} if mounts else {}),
     }
 
     if metrics_port is not None:
         container["ports"] = [{"containerPort": metrics_port}]
 
+    volumes: list[dict[str, Any]] = []
+    if dataset_pvc_name:
+        volumes.append({"name": "dataset-volume", "persistentVolumeClaim": {"claimName": dataset_pvc_name}})
+    if workspace_host_path:
+        volumes.append(
+            {"name": "workspace-volume", "hostPath": {"path": workspace_host_path, "type": "DirectoryOrCreate"}}
+        )
+    if user_home_host_path:
+        volumes.append({"name": "home-volume", "hostPath": {"path": user_home_host_path, "type": "DirectoryOrCreate"}})
+
     pod_spec: dict[str, Any] = {
         "containers": [container],
-        "volumes": (
-            [
-                {
-                    "name": "dataset-volume",
-                    "persistentVolumeClaim": {"claimName": dataset_pvc_name},
-                }
-            ]
-            if dataset_pvc_name
-            else []
-        ),
+        "volumes": volumes,
         "restartPolicy": "OnFailure",
     }
 

@@ -8,6 +8,8 @@ from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
 
+KUBEAI_DATA_DIR = "/data/kubeai"
+
 
 async def create_pvc(
     namespace: str,
@@ -74,3 +76,11 @@ async def delete_pvc(namespace: str, pvc_name: str) -> None:
 
 def make_dataset_pvc_name(dataset_name: str, version_number: int) -> str:
     return f"dataset-{sanitize_k8s_name(dataset_name)}-v{version_number}"
+
+
+def make_workspace_host_path(tenant_name: str) -> str:
+    return f"{KUBEAI_DATA_DIR}/tenant/{sanitize_k8s_name(tenant_name)}/workspace"
+
+
+def make_user_home_host_path(username: str) -> str:
+    return f"{KUBEAI_DATA_DIR}/users/{sanitize_k8s_name(username)}"
