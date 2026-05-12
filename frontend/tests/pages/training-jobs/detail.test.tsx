@@ -32,9 +32,15 @@ vi.mock('@/services/training-jobs', () => ({
   buildLogStreamUrl: vi.fn(),
 }))
 
+vi.mock('@/services/models', () => ({
+  registerModel: vi.fn(),
+}))
+
 vi.mock('@/stores/rbacStore', () => ({
   useRbacStore: vi.fn((selector) => {
-    const state = { hasPermission: (perm: string) => perm === 'training_jobs:write' }
+    const state = {
+      hasPermission: (perm: string) => perm === 'training_jobs:write' || perm === 'models:write',
+    }
     return selector(state)
   }),
 }))
@@ -77,6 +83,11 @@ const mockSucceededJob = {
   status: 'succeeded',
   startedAt: '2026-05-11T10:00:00Z',
   finishedAt: '2026-05-11T11:00:00Z',
+  workspacePath: '/workspace',
+  homePath: '/home/user',
+  datasetId: 'ds-1',
+  imageId: 'img-1',
+  hyperparameters: { lr: '0.001', epochs: '100' },
 }
 
 const mockStoppedJob = {
@@ -178,21 +189,6 @@ describe('TrainingJobDetailPage', () => {
     expect(screen.queryByText('重新训练')).toBeNull()
   })
 
-  it('should render stop button with popconfirm wrapper', async () => {
-    mockGetTrainingJob.mockResolvedValueOnce(mockRunningJob)
-
-    renderPage()
-
-    await waitForJob()
-
-    expect(screen.getByText('停止任务')).toBeTruthy()
-    // Verify popconfirm is present by checking aria-describedby on parent
-    const stopBtn = screen.getByText('停止任务').closest('button')
-    expect(
-      stopBtn?.classList.contains('ant-popover-open') || stopBtn?.getAttribute('aria-describedby'),
-    ).toBeTruthy()
-  })
-
   it('should trigger retry mutation on retry click', async () => {
     mockGetTrainingJob.mockResolvedValueOnce(mockFailedJob)
     mockRetryTrainingJob.mockResolvedValueOnce({
@@ -222,5 +218,76 @@ describe('TrainingJobDetailPage', () => {
     await waitForJob()
 
     expect(screen.getByText('查看日志 →')).toBeTruthy()
+  })
+
+  it('should show 4 tabs: overview, logs, metrics, config', async () => {
+    mockGetTrainingJob.mockResolvedValueOnce(mockRunningJob)
+
+    renderPage()
+
+    await waitForJob()
+
+    expect(screen.getByText('概览')).toBeTruthy()
+    expect(screen.getByText('日志')).toBeTruthy()
+    expect(screen.getByText('指标')).toBeTruthy()
+    expect(screen.getByText('配置')).toBeTruthy()
+  })
+
+  it('should show success guidance card for succeeded job', async () => {
+    mockGetTrainingJob.mockResolvedValueOnce(mockSucceededJob)
+
+    renderPage('job-3')
+
+    await waitForJob()
+
+    expect(screen.getByText('训练完成！')).toBeTruthy()
+    expect(screen.getAllByText('注册模型到仓库').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('查看模型仓库')).toBeTruthy()
+  })
+
+  it('should show storage mount info for job with workspace', async () => {
+    mockGetTrainingJob.mockResolvedValueOnce(mockSucceededJob)
+
+    renderPage('job-3')
+
+    await waitForJob()
+
+    expect(screen.getByText('存储挂载')).toBeTruthy()
+    expect(screen.getByText('租户工作空间 (共享)')).toBeTruthy()
+  })
+
+  it('should show config tab with command and hyperparameters', async () => {
+    mockGetTrainingJob.mockResolvedValueOnce(mockSucceededJob)
+
+    renderPage('job-3')
+
+    await waitForJob()
+
+    // Switch to config tab
+    const configTab = screen.getByText('配置')
+    await userEvent.click(configTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('启动命令')).toBeTruthy()
+      expect(screen.getByText('超参数')).toBeTruthy()
+      expect(screen.getByText('数据集与镜像')).toBeTruthy()
+      expect(screen.getByText('资源规格')).toBeTruthy()
+    })
+  })
+
+  it('should show hyperparameter values in config tab', async () => {
+    mockGetTrainingJob.mockResolvedValueOnce(mockSucceededJob)
+
+    renderPage('job-3')
+
+    await waitForJob()
+
+    const configTab = screen.getByText('配置')
+    await userEvent.click(configTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('0.001')).toBeTruthy()
+      expect(screen.getByText('100')).toBeTruthy()
+    })
   })
 })

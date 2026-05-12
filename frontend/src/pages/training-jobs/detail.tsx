@@ -17,7 +17,13 @@ import {
   Typography,
 } from 'antd'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { DesktopOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons'
+import {
+  CheckCircleOutlined,
+  DesktopOutlined,
+  InboxOutlined,
+  RocketOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import LogStream from '@/components/LogStream'
 import GpuMetricsChart from '@/components/GpuMetricsChart'
@@ -333,6 +339,68 @@ export default function TrainingJobDetailPage() {
     </div>
   )
 
+  // --- Config Tab Content ---
+  const configTabContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <Card title="启动命令" size="small">
+        <Typography.Text copyable code style={{ fontSize: 12, wordBreak: 'break-all' }}>
+          {job.command}
+        </Typography.Text>
+      </Card>
+
+      <Card title="超参数" size="small">
+        {hpEntries.length > 0 ? (
+          <Descriptions bordered size="small" column={2}>
+            {hpEntries.map(([key, value]) => (
+              <Descriptions.Item key={key} label={key}>
+                {value}
+              </Descriptions.Item>
+            ))}
+          </Descriptions>
+        ) : (
+          <Typography.Text type="secondary">未设置</Typography.Text>
+        )}
+      </Card>
+
+      <Card title="数据集与镜像" size="small">
+        <Descriptions bordered size="small" column={2}>
+          <Descriptions.Item label="数据集">
+            {job.datasetId ? (
+              <Link to={`/datasets/${job.datasetId}`}>查看数据集详情</Link>
+            ) : (
+              <Typography.Text type="secondary">未挂载</Typography.Text>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="镜像">
+            {job.imageId ? <Link to={`/images/${job.imageId}`}>查看镜像详情</Link> : '—'}
+          </Descriptions.Item>
+        </Descriptions>
+      </Card>
+
+      <Card title="资源规格" size="small">
+        <Descriptions bordered size="small" column={2}>
+          <Descriptions.Item label="GPU">
+            {job.gpuCount} 张（{job.gpuMode === 'exclusive' ? '独占' : '共享'}）
+          </Descriptions.Item>
+          <Descriptions.Item label="Worker 数量">
+            {job.workerCount > 1 ? (
+              <span>
+                {job.workerCount} <Tag color="blue">分布式训练</Tag>
+              </span>
+            ) : (
+              '1（单机）'
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="CPU">{job.cpu} 核</Descriptions.Item>
+          <Descriptions.Item label="内存">{job.memory}</Descriptions.Item>
+          <Descriptions.Item label="优先级">
+            {job.priority === 'high' ? '高' : job.priority === 'low' ? '低' : '普通'}
+          </Descriptions.Item>
+        </Descriptions>
+      </Card>
+    </div>
+  )
+
   const tabs = [
     {
       key: 'overview',
@@ -379,6 +447,44 @@ export default function TrainingJobDetailPage() {
             )}
           </Card>
 
+          {/* Success guidance card */}
+          {job.status === 'succeeded' && (
+            <Card
+              size="small"
+              style={{
+                borderColor: '#52c41a',
+                background: 'linear-gradient(135deg, #f6ffed 0%, #fcffe6 100%)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <CheckCircleOutlined style={{ fontSize: 24, color: '#52c41a' }} />
+                <div>
+                  <Typography.Text strong style={{ fontSize: 16 }}>
+                    训练完成！
+                  </Typography.Text>
+                  <br />
+                  <Typography.Text type="secondary">下一步建议：</Typography.Text>
+                </div>
+              </div>
+              <Space>
+                {canWriteModels && (
+                  <Button
+                    icon={<InboxOutlined />}
+                    onClick={() => {
+                      setModelName(`${job.name}-model`)
+                      setRegisterModalOpen(true)
+                    }}
+                  >
+                    注册模型到仓库
+                  </Button>
+                )}
+                <Button icon={<RocketOutlined />} onClick={() => navigate('/models')}>
+                  查看模型仓库
+                </Button>
+              </Space>
+            </Card>
+          )}
+
           {job.workspacePath && (
             <Card
               title="存储挂载"
@@ -423,7 +529,7 @@ export default function TrainingJobDetailPage() {
             </Card>
           )}
 
-          <Card title="基本参数" size="small">
+          <Card title="基本信息" size="small">
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="任务名称">{job.name}</Descriptions.Item>
               <Descriptions.Item label="状态">
@@ -432,51 +538,12 @@ export default function TrainingJobDetailPage() {
               <Descriptions.Item label="描述" span={2}>
                 {job.description || '—'}
               </Descriptions.Item>
-              <Descriptions.Item label="启动命令" span={2}>
-                <Typography.Text copyable code style={{ fontSize: 12 }}>
-                  {job.command}
-                </Typography.Text>
-              </Descriptions.Item>
               <Descriptions.Item label="创建时间">{job.createdAt}</Descriptions.Item>
               <Descriptions.Item label="运行时长">
                 {formatDuration(job.startedAt, job.finishedAt)}
               </Descriptions.Item>
             </Descriptions>
           </Card>
-
-          <Card title="资源配置" size="small">
-            <Descriptions bordered size="small" column={2}>
-              <Descriptions.Item label="GPU">
-                {job.gpuCount} 张（{job.gpuMode === 'exclusive' ? '独占' : '共享'}）
-              </Descriptions.Item>
-              <Descriptions.Item label="Worker 数量">
-                {job.workerCount > 1 ? (
-                  <span>
-                    {job.workerCount} <Tag color="blue">分布式训练</Tag>
-                  </span>
-                ) : (
-                  '1（单机）'
-                )}
-              </Descriptions.Item>
-              <Descriptions.Item label="优先级">
-                {job.priority === 'high' ? '高' : job.priority === 'low' ? '低' : '普通'}
-              </Descriptions.Item>
-              <Descriptions.Item label="CPU">{job.cpu} 核</Descriptions.Item>
-              <Descriptions.Item label="内存">{job.memory}</Descriptions.Item>
-            </Descriptions>
-          </Card>
-
-          {hpEntries.length > 0 && (
-            <Card title="超参数" size="small">
-              <Descriptions bordered size="small" column={2}>
-                {hpEntries.map(([key, value]) => (
-                  <Descriptions.Item key={key} label={key}>
-                    {value}
-                  </Descriptions.Item>
-                ))}
-              </Descriptions>
-            </Card>
-          )}
         </div>
       ),
     },
@@ -490,6 +557,11 @@ export default function TrainingJobDetailPage() {
       key: 'metrics',
       label: '指标',
       children: metricsTabContent,
+    },
+    {
+      key: 'config',
+      label: '配置',
+      children: configTabContent,
     },
   ]
 
@@ -532,7 +604,7 @@ export default function TrainingJobDetailPage() {
         title="注册模型"
         open={registerModalOpen}
         onCancel={() => setRegisterModalOpen(false)}
-        onConfirm={() => {
+        onOk={() => {
           const filePaths = modelFilePaths
             .split('\n')
             .map((p) => p.trim())
