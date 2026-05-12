@@ -1,0 +1,103 @@
+{{- if .Values.mlflow.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubeai.fullname" . }}-mlflow
+  labels:
+    {{- include "kubeai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubeai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mlflow
+  template:
+    metadata:
+      labels:
+        {{- include "kubeai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mlflow
+    spec:
+      containers:
+        - name: mlflow
+          image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"
+          command: ["sh", "-c"]
+          args:
+            - |
+              pip install --quiet psycopg2-binary && \
+              mlflow server \
+                --host 0.0.0.0 \
+                --port 5000 \
+                --backend-store-uri {{ include "kubeai.mlflowBackendStoreUri" . }} \
+                --default-artifact-root {{ include "kubeai.mlflowArtifactRoot" . }}
+          env:
+            - name: MLFLOW_SQLALCHEMYSTORE_POOL_SIZE
+              value: "10"
+            - name: MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW
+              value: "20"
+            - name: MLFLOW_SQLALCHEMYSTORE_POOL_RECYCLE
+              value: "3600"
+          ports:
+            - name: http
+              containerPort: 5000
+          {{- if .Values.mlflow.persistence.enabled }}
+          volumeMounts:
+            - name: artifacts
+              mountPath: /mlflow/artifacts
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.mlflow.resources | nindent 12 }}
+      {{- if .Values.mlflow.persistence.enabled }}
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: {{ include "kubeai.fullname" . }}-mlflow
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubeai.fullname" . }}-mlflow
+  labels:
+    {{- include "kubeai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+spec:
+  type: {{ .Values.mlflow.service.type }}
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+      {{- if and (eq .Values.mlflow.service.type "NodePort") .Values.mlflow.service.nodePort }}
+      nodePort: {{ .Values.mlflow.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "kubeai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+{{- if .Values.mlflow.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kubeai.fullname" . }}-mlflow
+  labels:
+    {{- include "kubeai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.mlflow.persistence.size }}
+{{- end }}
+{{- end }}

@@ -64,5 +64,13 @@ kubePrometheusStack:
 dcgmExporter:
   enabled: false  # Dev: no GPU nodes typically
 
+mlflow:
+  enabled: true
+  service:
+    type: NodePort
+    nodePort: 30500
+  persistence:
+    size: 5Gi
+
 ingress:
   enabled: false

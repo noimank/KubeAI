@@ -46,5 +46,8 @@ class Settings(BaseSettings):
 
     PROMETHEUS_URL: str = "http://localhost:9090"
 
+    MLFLOW_TRACKING_URI: str = "http://localhost:5000"
+    MLFLOW_ENABLED: bool = False
+
 
 settings = Settings()

@@ -53,4 +53,4 @@ dependencies:
   #   version: "2.16.x"
   #   repository: https://kedacore.github.io/charts
   #   condition: keda.enabled
-  # Label Studio, MLflow, JupyterHub: to be added post-MVP
+  # Label Studio, JupyterHub: to be added post-MVP

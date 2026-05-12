@@ -22,4 +22,6 @@ data:
   HARBOR_PROJECT_PREFIX: {{ .Values.backend.env.HARBOR_PROJECT_PREFIX | quote }}
   FRONTEND_URL: {{ .Values.backend.env.FRONTEND_URL | quote }}
   PROMETHEUS_URL: {{ include "kubeai.prometheusUrl" . | default "" | quote }}
+  MLFLOW_ENABLED: {{ .Values.mlflow.enabled | quote }}
+  MLFLOW_TRACKING_URI: {{ include "kubeai.mlflowTrackingUri" . | default "" | quote }}
 {{- end }}

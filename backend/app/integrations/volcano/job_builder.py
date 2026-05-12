@@ -24,6 +24,9 @@ def build_vcjob(
     user_home_host_path: str | None = None,
     username: str | None = None,
     metrics_port: int | None = None,
+    mlflow_tracking_uri: str | None = None,
+    mlflow_experiment_name: str | None = None,
+    mlflow_run_name: str | None = None,
 ) -> dict[str, Any]:
     env: list[dict[str, str]] = [
         {"name": "KUBEAI_JOB_ID", "value": job_id},
@@ -38,6 +41,12 @@ def build_vcjob(
     if hyperparameters:
         for key, value in hyperparameters.items():
             env.append({"name": f"HP_{key.upper()}", "value": value})
+    if mlflow_tracking_uri:
+        env.append({"name": "MLFLOW_TRACKING_URI", "value": mlflow_tracking_uri})
+    if mlflow_experiment_name:
+        env.append({"name": "MLFLOW_EXPERIMENT_NAME", "value": mlflow_experiment_name})
+    if mlflow_run_name:
+        env.append({"name": "MLFLOW_RUN_NAME", "value": mlflow_run_name})
 
     resources: dict[str, Any] = {
         "requests": {"cpu": cpu, "memory": memory},

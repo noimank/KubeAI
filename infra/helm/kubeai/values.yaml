@@ -100,6 +100,10 @@ postgresql:
       limits:
         cpu: "1"
         memory: 512Mi
+    initdb:
+      scripts:
+        01-create-mlflow-db.sql: |
+          CREATE DATABASE mlflow;
 
 # -- Redis
 redis:
@@ -208,3 +212,25 @@ dcgmExporter:
     - key: nvidia.com/gpu
       operator: Exists
       effect: NoSchedule
+
+# -- MLflow Tracking Server (experiment tracking)
+# Deploys MLflow with PostgreSQL backend store and PVC artifact storage.
+# When enabled, MLFLOW_TRACKING_URI is auto-injected into backend pods.
+mlflow:
+  enabled: false
+  image:
+    repository: ghcr.io/mlflow/mlflow
+    tag: "v3.12.0"
+  service:
+    type: ClusterIP
+    nodePort: null
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi

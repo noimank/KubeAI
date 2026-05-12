@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.core.exceptions import (
     BadRequestException,
     ConflictException,
@@ -35,6 +36,7 @@ from app.models.image import Image
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
 from app.models.user import User
+from app.services.experiment_service import ExperimentService
 
 if TYPE_CHECKING:
     import uuid
@@ -129,6 +131,14 @@ class TrainingJobService:
             size_gb = max(1, -(-size_bytes // (1024**3)))
             await create_pvc(namespace, pvc_name, f"{size_gb}Gi")
 
+        mlflow_tracking_uri = settings.MLFLOW_TRACKING_URI if settings.MLFLOW_ENABLED else None
+        mlflow_experiment_name = None
+        mlflow_run_name = None
+        if mlflow_tracking_uri:
+            tenant_id_short = str(tenant_id)[:8]
+            mlflow_experiment_name = f"kubeai-{tenant_id_short}-{sanitize_k8s_name(job.name)}"
+            mlflow_run_name = f"job-{str(job.id)[:8]}"
+
         vcjob_body = build_vcjob(
             vcjob_name=vcjob_name,
             namespace=namespace,
@@ -148,6 +158,9 @@ class TrainingJobService:
             user_home_host_path=user_home_host_path,
             username=user.username,
             metrics_port=metrics_port,
+            mlflow_tracking_uri=mlflow_tracking_uri,
+            mlflow_experiment_name=mlflow_experiment_name,
+            mlflow_run_name=mlflow_run_name,
         )
 
         try:
@@ -161,6 +174,18 @@ class TrainingJobService:
 
         job.vcjob_name = vcjob_name
         job.status = TrainingJobStatus.QUEUED
+
+        if settings.MLFLOW_ENABLED:
+            try:
+                experiment_service = ExperimentService(self.db)
+                await experiment_service.create_experiment(
+                    tenant_id=tenant_id,
+                    training_job_id=job.id,
+                    mlflow_experiment_name=mlflow_experiment_name,
+                )
+            except Exception as e:
+                logger.warning("Failed to create experiment record: %s", e)
+
         await self.db.commit()
         await self.db.refresh(job)
         return job
@@ -208,6 +233,12 @@ class TrainingJobService:
                     if new_status == TrainingJobStatus.FAILED:
                         job.error_message = await self._extract_failure_reason(namespace, job.vcjob_name)
                     logger.info("TrainingJob %s status synced (batch): %s -> %s", job.id, old_status, new_status)
+                    if new_status in (TrainingJobStatus.SUCCEEDED, TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED):
+                        try:
+                            experiment_service = ExperimentService(self.db)
+                            await experiment_service.sync_experiment_status(job.id, new_status)
+                        except Exception as e:
+                            logger.warning("Failed to sync experiment status for job %s: %s", job.id, e)
             await self.db.commit()
 
         return jobs, total
@@ -291,6 +322,12 @@ class TrainingJobService:
                     old_status,
                     new_status,
                 )
+                if new_status in (TrainingJobStatus.SUCCEEDED, TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED):
+                    try:
+                        experiment_service = ExperimentService(self.db)
+                        await experiment_service.sync_experiment_status(job.id, new_status)
+                    except Exception as e:
+                        logger.warning("Failed to sync experiment status for job %s: %s", job.id, e)
         except Exception as e:
             logger.warning("Failed to sync VCJob status for %s: %s", job.vcjob_name, e)
 

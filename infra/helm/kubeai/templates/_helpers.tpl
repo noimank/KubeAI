@@ -67,3 +67,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "http://%s-kube-prometheus-prometheus.%s.svc.cluster.local:9090" (include "kubeai.fullname" .) .Release.Namespace }}
 {{- end }}
 {{- end }}
+
+{{- define "kubeai.mlflowTrackingUri" -}}
+{{- if .Values.backend.secrets.MLFLOW_TRACKING_URI }}
+{{- .Values.backend.secrets.MLFLOW_TRACKING_URI }}
+{{- else if .Values.mlflow.enabled }}
+{{- printf "http://%s-mlflow.%s.svc.cluster.local:5000" (include "kubeai.fullname" .) .Release.Namespace }}
+{{- end }}
+{{- end }}
+
+{{- define "kubeai.mlflowBackendStoreUri" -}}
+{{- printf "postgresql://postgres:%s@%s-postgresql.%s.svc.cluster.local:5432/mlflow" .Values.postgresql.auth.postgresPassword (include "kubeai.fullname" .) .Release.Namespace }}
+{{- end }}
+
+{{- define "kubeai.mlflowArtifactRoot" -}}
+{{- if .Values.mlflow.persistence.enabled }}
+{{- printf "/mlflow/artifacts" }}
+{{- else }}
+{{- printf "./mlflow/artifacts" }}
+{{- end }}
+{{- end }}
