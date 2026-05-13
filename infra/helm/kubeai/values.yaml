@@ -171,7 +171,7 @@ harbor:
 # -- kube-prometheus-stack (Prometheus + Grafana + Alertmanager)
 # Provides the metrics collection backend for DCGM Exporter GPU metrics.
 # Grafana accessible at /grafana via ingress or port-forward.
-kubePrometheusStack:
+prometheus:
   enabled: true
   prometheus:
     prometheusSpec:

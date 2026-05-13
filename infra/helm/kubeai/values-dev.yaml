@@ -58,8 +58,32 @@ volcano:
     scheduler:
       replicas: 1
 
-kubePrometheusStack:
-  enabled: false  # Dev: use local Prometheus or skip
+prometheus:
+  enabled: true
+  prometheus:
+    prometheusSpec:
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      retention: 7d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi
+    service:
+      type: NodePort
+      nodePort: 30090
+  grafana:
+    enabled: true
+    service:
+      type: NodePort
+      nodePort: 30030
+  alertmanager:
+    enabled: false
+  nodeExporter:
+    enabled: false  # Docker Desktop does not support shared root mount
 
 dcgmExporter:
   enabled: false  # Dev: no GPU nodes typically

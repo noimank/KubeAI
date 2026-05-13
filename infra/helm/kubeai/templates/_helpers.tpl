@@ -63,7 +63,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "kubeai.prometheusUrl" -}}
 {{- if .Values.backend.secrets.PROMETHEUS_URL }}
 {{- .Values.backend.secrets.PROMETHEUS_URL }}
-{{- else if .Values.kubePrometheusStack.enabled }}
+{{- else if .Values.prometheus.enabled }}
 {{- printf "http://%s-kube-prometheus-prometheus.%s.svc.cluster.local:9090" (include "kubeai.fullname" .) .Release.Namespace }}
 {{- end }}
 {{- end }}
