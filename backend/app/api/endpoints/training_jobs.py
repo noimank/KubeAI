@@ -72,6 +72,7 @@ async def create_training_job(
         priority=req.priority,
         worker_count=req.worker_count,
         metrics_port=req.metrics_port,
+        source_experiment_id=req.source_experiment_id,
     )
     username = getattr(user, "username", "")
     return BaseResponse(

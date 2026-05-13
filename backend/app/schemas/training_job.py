@@ -24,6 +24,7 @@ class TrainingJobCreateRequest(BaseModel):
     priority: str = Field(default="normal", pattern="^(low|normal|high)$")
     worker_count: int = Field(default=1, ge=1, le=16)
     metrics_port: int | None = None
+    source_experiment_id: uuid.UUID | None = None
 
 
 class TrainingJobResponse(BaseModel):

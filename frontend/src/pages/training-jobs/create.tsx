@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Alert,
   Button,
@@ -14,7 +14,7 @@ import {
   Tag,
 } from 'antd'
 import type { FormInstance } from 'antd'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import ImageSelect from '@/components/ImageSelect'
@@ -22,6 +22,7 @@ import ResourceAwarePanel from '@/components/ResourceAwarePanel'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
 import { getSelectableImages } from '@/services/images'
 import { createTrainingJob } from '@/services/training-jobs'
+import { getExperiment } from '@/services/experiments'
 
 interface FormValues {
   name: string
@@ -48,9 +49,13 @@ const PRIORITY_OPTIONS = [
 
 export default function CreateTrainingJobPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [current, setCurrent] = useState(0)
   const [form] = Form.useForm<FormValues>()
   const [submitting, setSubmitting] = useState(false)
+
+  const fromExperimentId = searchParams.get('from_experiment')
+  const [sourceExperimentId, setSourceExperimentId] = useState<string | undefined>(undefined)
 
   const datasetId = Form.useWatch('datasetId', form)
   const workerCount = Form.useWatch('workerCount', form) ?? 1
@@ -74,6 +79,37 @@ export default function CreateTrainingJobPage() {
   const datasets = datasetsData?.items ?? []
   const versions = datasetDetail?.data?.versions ?? []
   const images = imagesData ?? []
+
+  const { data: experimentDetail } = useQuery({
+    queryKey: ['experiment-reproduce', fromExperimentId],
+    queryFn: () => getExperiment(fromExperimentId!),
+    enabled: !!fromExperimentId,
+  })
+
+  useEffect(() => {
+    if (!experimentDetail || !fromExperimentId) return
+    const job = experimentDetail.trainingJob
+    setSourceExperimentId(fromExperimentId)
+    const hyperParams = experimentDetail.hyperparameters
+      ? Object.entries(experimentDetail.hyperparameters).map(([key, value]) => ({ key, value }))
+      : []
+    const values: Partial<FormValues> = {
+      name: job?.name ? `${job.name}-reproduce` : '',
+      command: job?.command ?? undefined,
+      datasetId: job?.datasetId ?? undefined,
+      datasetVersionId: job?.datasetVersionId ?? undefined,
+      imageId: job?.imageId ?? undefined,
+      gpuCount: job?.gpuCount ?? undefined,
+      gpuMode: job?.gpuMode ?? undefined,
+      cpu: job?.cpu ?? undefined,
+      memory: job?.memory ?? undefined,
+      priority: job?.priority ?? undefined,
+      workerCount: job?.workerCount ?? undefined,
+      metricsPort: job?.metricsPort ?? undefined,
+      hyperparameters: hyperParams.length > 0 ? hyperParams : undefined,
+    }
+    form.setFieldsValue(values)
+  }, [experimentDetail, fromExperimentId, form])
 
   const handleNext = async () => {
     try {
@@ -109,6 +145,7 @@ export default function CreateTrainingJobPage() {
         priority: values.priority,
         workerCount: values.workerCount,
         metricsPort: values.metricsPort,
+        sourceExperimentId,
       })
       getMessageInstance()?.success('训练任务创建成功')
       navigate(`/training-jobs/${res.id}`)
@@ -286,6 +323,25 @@ export default function CreateTrainingJobPage() {
 
   return (
     <div style={{ padding: 0 }}>
+      {fromExperimentId &&
+        experimentDetail &&
+        (experimentDetail.trainingJob ? (
+          <Alert
+            type="info"
+            showIcon
+            message={`正在基于实验「${experimentDetail.trainingJobName ?? '未知'}」的配置创建新训练任务，你可以修改任意参数后提交`}
+            style={{ marginBottom: 16 }}
+            closable
+          />
+        ) : (
+          <Alert
+            type="warning"
+            showIcon
+            message="原始训练任务信息不可用，请手动填写配置"
+            style={{ marginBottom: 16 }}
+            closable
+          />
+        ))}
       <Steps
         current={current}
         items={steps.map((s) => ({ title: s.title }))}

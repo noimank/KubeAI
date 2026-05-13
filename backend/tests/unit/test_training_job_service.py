@@ -546,3 +546,70 @@ class TestRetryTrainingJob:
 
         with pytest.raises(Exception, match="仅失败或已停止"):
             await service.retry_training_job(job.id, job.tenant_id, uuid.uuid4())
+
+
+class TestCreateTrainingJobWithSourceExperiment:
+    @patch("app.services.training_job_service.create_vcjob")
+    @patch("app.services.training_job_service.build_vcjob")
+    async def test_source_experiment_id_appended_to_description(self, mock_build, mock_create, service, mock_db):
+        tenant = _make_tenant()
+        image = _make_image()
+        user = _make_user()
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
+        mock_build.return_value = {"metadata": {"name": "test"}}
+        source_exp_id = uuid.uuid4()
+
+        job = await service.create_training_job(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            name="reproduce-job",
+            image_id=image.id,
+            command="python train.py",
+            source_experiment_id=source_exp_id,
+        )
+
+        assert f"基于实验 #{source_exp_id} 复现" in job.description
+
+    @patch("app.services.training_job_service.create_vcjob")
+    @patch("app.services.training_job_service.build_vcjob")
+    async def test_source_experiment_id_appends_to_existing_description(
+        self, mock_build, mock_create, service, mock_db
+    ):
+        tenant = _make_tenant()
+        image = _make_image()
+        user = _make_user()
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
+        mock_build.return_value = {"metadata": {"name": "test"}}
+        source_exp_id = uuid.uuid4()
+
+        job = await service.create_training_job(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            name="reproduce-job",
+            description="原始描述",
+            image_id=image.id,
+            command="python train.py",
+            source_experiment_id=source_exp_id,
+        )
+
+        assert job.description == f"原始描述（基于实验 #{source_exp_id} 复现）"  # noqa: RUF001
+
+    @patch("app.services.training_job_service.create_vcjob")
+    @patch("app.services.training_job_service.build_vcjob")
+    async def test_no_source_experiment_id_keeps_description(self, mock_build, mock_create, service, mock_db):
+        tenant = _make_tenant()
+        image = _make_image()
+        user = _make_user()
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
+        mock_build.return_value = {"metadata": {"name": "test"}}
+
+        job = await service.create_training_job(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            name="normal-job",
+            description="普通任务",
+            image_id=image.id,
+            command="python train.py",
+        )
+
+        assert job.description == "普通任务"

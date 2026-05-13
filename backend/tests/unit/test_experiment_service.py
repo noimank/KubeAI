@@ -346,6 +346,69 @@ class TestSyncExperimentStatus:
         assert exp.status == "completed"
 
 
+class TestEnrichExperimentNewFields:
+    @patch("app.services.experiment_service.get_mlflow_client", return_value=None)
+    async def test_enrich_includes_new_uuid_fields(self, _mock_mlflow):
+        db = _mock_db()
+        job_id = uuid.uuid4()
+        dataset_id = uuid.uuid4()
+        dataset_version_id = uuid.uuid4()
+        image_id = uuid.uuid4()
+        exp = _make_experiment(training_job_id=job_id)
+
+        mock_job = MagicMock()
+        mock_job.id = job_id
+        mock_job.name = "test-job"
+        mock_job.command = "python train.py"
+        mock_job.dataset_id = dataset_id
+        mock_job.dataset_version_id = dataset_version_id
+        mock_job.image_id = image_id
+        mock_job.gpu_count = 2
+        mock_job.gpu_mode = "exclusive"
+        mock_job.cpu = "8"
+        mock_job.memory = "16Gi"
+        mock_job.priority = "high"
+        mock_job.worker_count = 4
+        mock_job.metrics_port = 6006
+        mock_job.started_at = None
+
+        job_result = MagicMock()
+        job_result.scalar_one_or_none.return_value = mock_job
+        dv_result = MagicMock()
+        dv_result.scalar_one_or_none.return_value = 3
+        img_result = MagicMock()
+        img_result.scalar_one_or_none.return_value = "PyTorch"
+
+        db.execute.side_effect = [job_result, dv_result, img_result]
+
+        service = ExperimentService(db)
+        result = await service._enrich_experiment(exp, None)
+
+        assert result["training_job"] is not None
+        tj = result["training_job"]
+        assert tj["dataset_id"] == dataset_id
+        assert tj["dataset_version_id"] == dataset_version_id
+        assert tj["image_id"] == image_id
+        assert tj["gpu_mode"] == "exclusive"
+        assert tj["worker_count"] == 4
+        assert tj["priority"] == "high"
+        assert tj["metrics_port"] == 6006
+
+    @patch("app.services.experiment_service.get_mlflow_client", return_value=None)
+    async def test_enrich_job_deleted_returns_none(self, _mock_mlflow):
+        db = _mock_db()
+        exp = _make_experiment()
+
+        job_result = MagicMock()
+        job_result.scalar_one_or_none.return_value = None
+        db.execute.return_value = job_result
+
+        service = ExperimentService(db)
+        result = await service._enrich_experiment(exp, None)
+
+        assert result["training_job"] is None
+
+
 class TestMLflowClientDegradation:
     async def test_get_mlflow_client_disabled(self):
         with patch("app.integrations.mlflow.client.settings") as mock_settings:

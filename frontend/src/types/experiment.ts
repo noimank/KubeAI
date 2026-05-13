@@ -29,6 +29,13 @@ export interface TrainingJobInfo {
   gpuCount: number | null
   cpu: string | null
   memory: string | null
+  datasetId: string | null
+  datasetVersionId: string | null
+  imageId: string | null
+  gpuMode: string | null
+  workerCount: number | null
+  priority: string | null
+  metricsPort: number | null
 }
 
 export interface ExperimentDetail extends Experiment {

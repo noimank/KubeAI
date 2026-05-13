@@ -56,6 +56,7 @@ export interface TrainingJobCreate {
   priority?: string
   workerCount?: number
   metricsPort?: number
+  sourceExperimentId?: string
 }
 
 export interface PodInfo {

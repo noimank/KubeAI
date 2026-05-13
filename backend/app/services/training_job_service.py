@@ -74,6 +74,7 @@ class TrainingJobService:
         priority: str = "normal",
         worker_count: int = 1,
         metrics_port: int | None = None,
+        source_experiment_id: uuid.UUID | None = None,
     ) -> TrainingJob:
         image = await self._get_image_or_fail(image_id)
 
@@ -102,10 +103,15 @@ class TrainingJobService:
         if hyperparameters:
             hp_dict = {item["key"]: item["value"] for item in hyperparameters}
 
+        final_description = description
+        if source_experiment_id:
+            suffix = f"（基于实验 #{source_experiment_id} 复现）"  # noqa: RUF001
+            final_description = f"{description}{suffix}" if final_description else suffix
+
         job = TrainingJob(
             tenant_id=tenant_id,
             name=name,
-            description=description,
+            description=final_description,
             created_by=user_id,
             dataset_id=dataset_id,
             dataset_version_id=dataset_version_id,
@@ -370,11 +376,11 @@ class TrainingJobService:
     def _update_job_timestamps(job: TrainingJob, new_status: TrainingJobStatus) -> None:
         if new_status == TrainingJobStatus.RUNNING and not job.started_at:
             job.started_at = datetime.now(UTC)
-        elif (
-            new_status in (TrainingJobStatus.SUCCEEDED, TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED)
-            and not job.finished_at
-        ):
-            job.finished_at = datetime.now(UTC)
+        elif new_status in (TrainingJobStatus.SUCCEEDED, TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED):
+            if not job.started_at:
+                job.started_at = job.created_at
+            if not job.finished_at:
+                job.finished_at = datetime.now(UTC)
 
     async def stream_logs(
         self,

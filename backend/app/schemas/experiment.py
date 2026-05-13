@@ -37,6 +37,13 @@ class TrainingJobInfo(BaseModel):
     gpu_count: int | None = None
     cpu: str | None = None
     memory: str | None = None
+    dataset_id: uuid.UUID | None = None
+    dataset_version_id: uuid.UUID | None = None
+    image_id: uuid.UUID | None = None
+    gpu_mode: str | None = None
+    worker_count: int | None = None
+    priority: str | None = None
+    metrics_port: int | None = None
 
 
 class ExperimentDetailResponse(ExperimentResponse):

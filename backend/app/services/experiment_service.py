@@ -282,6 +282,13 @@ class ExperimentService:
                 "gpu_count": job.gpu_count,
                 "cpu": job.cpu,
                 "memory": job.memory,
+                "dataset_id": job.dataset_id,
+                "dataset_version_id": job.dataset_version_id,
+                "image_id": job.image_id,
+                "gpu_mode": job.gpu_mode,
+                "worker_count": job.worker_count,
+                "priority": job.priority,
+                "metrics_port": job.metrics_port,
             }
 
         return {
