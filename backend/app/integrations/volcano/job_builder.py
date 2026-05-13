@@ -118,6 +118,7 @@ def build_vcjob(
             "schedulerName": "volcano",
             "queue": "default",
             "maxRetry": 2,
+            "ttlSecondsAfterFinished": 86400,
             "priorityClass": priority_class_map.get(priority, "normal"),
             "policies": [{"event": "PodEvicted", "action": "RestartJob"}],
             "tasks": [
@@ -177,6 +178,7 @@ def _build_distributed_vcjob(
             "schedulerName": "volcano",
             "queue": "default",
             "maxRetry": 2,
+            "ttlSecondsAfterFinished": 86400,
             "priorityClass": priority,
             "policies": [{"event": "PodEvicted", "action": "RestartJob"}],
             "tasks": tasks,
