@@ -1,11 +1,25 @@
 import { useState, useCallback } from 'react'
-import { Alert, Empty, Input, Segmented, Space, Table, Tag, Tooltip } from 'antd'
+import {
+  Alert,
+  Button,
+  DatePicker,
+  Empty,
+  Input,
+  Segmented,
+  Space,
+  Table,
+  Tag,
+  Tooltip,
+} from 'antd'
 import { Link } from 'react-router-dom'
-import { SearchOutlined } from '@ant-design/icons'
+import { SearchOutlined, SwapOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery } from '@tanstack/react-query'
 import { getExperiments } from '@/services/experiments'
 import type { Experiment } from '@/types/experiment'
+import ExperimentCompareDrawer from './components/ExperimentCompareDrawer'
+
+const { RangePicker } = DatePicker
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   active: { color: 'processing', text: '运行中' },
@@ -39,15 +53,35 @@ export default function ExperimentsPage() {
   const [statusFilter, setStatusFilter] = useState('')
   const [keyword, setKeyword] = useState<string>()
   const [searchText, setSearchText] = useState('')
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([])
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [sortField, setSortField] = useState<string | undefined>()
+  const [sortOrder, setSortOrder] = useState<string | undefined>()
+
+  // Advanced filters
+  const [dateRange, setDateRange] = useState<[string, string] | undefined>()
 
   const { data, isLoading } = useQuery({
-    queryKey: ['experiments', page, pageSize, statusFilter, keyword],
+    queryKey: [
+      'experiments',
+      page,
+      pageSize,
+      statusFilter,
+      keyword,
+      sortField,
+      sortOrder,
+      dateRange,
+    ],
     queryFn: () =>
       getExperiments({
         current: page,
         pageSize,
         status: statusFilter || undefined,
         trainingJobName: keyword,
+        sortBy: sortField,
+        sortOrder,
+        startDate: dateRange?.[0],
+        endDate: dateRange?.[1],
       }),
   })
 
@@ -56,10 +90,31 @@ export default function ExperimentsPage() {
     setPage(1)
   }, [])
 
-  const handleTableChange = useCallback((pagination: TablePaginationConfig) => {
-    setPage(pagination.current || 1)
-    setPageSize(pagination.pageSize || 20)
-  }, [])
+  const handleTableChange = useCallback(
+    (pagination: TablePaginationConfig, _filters: Record<string, unknown>, sorter: unknown) => {
+      setPage(pagination.current || 1)
+      setPageSize(pagination.pageSize || 20)
+      // Handle column sort
+      const s = sorter as { field?: string; order?: string; columnKey?: string } | unknown[]
+      if (s && !Array.isArray(s)) {
+        const sorted = s as { field?: string; order?: string; columnKey?: string }
+        if (sorted.order) {
+          setSortField(sorted.field || sorted.columnKey)
+          setSortOrder(sorted.order === 'ascend' ? 'asc' : 'desc')
+        } else {
+          setSortField(undefined)
+          setSortOrder(undefined)
+        }
+      }
+    },
+    [],
+  )
+
+  const handleCompare = useCallback(() => {
+    if (selectedRowKeys.length >= 2) {
+      setCompareOpen(true)
+    }
+  }, [selectedRowKeys])
 
   const columns: ColumnsType<Experiment> = [
     {
@@ -70,9 +125,20 @@ export default function ExperimentsPage() {
         name ? <Link to={`/training-jobs/${record.trainingJobId}`}>{name}</Link> : '—',
     },
     {
+      title: '实验名称',
+      key: 'experimentName',
+      width: 180,
+      render: (_: unknown, record: Experiment) => (
+        <Link to={`/experiments/${record.id}`}>
+          {record.trainingJobName || record.id.slice(0, 8)}
+        </Link>
+      ),
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       width: 100,
+      sorter: true,
       render: (val: string) => {
         const cfg = STATUS_CONFIG[val] || { color: 'default', text: val }
         return <Tag color={cfg.color}>{cfg.text}</Tag>
@@ -101,6 +167,10 @@ export default function ExperimentsPage() {
       key: 'metrics',
       width: 200,
       ellipsis: true,
+      sorter: (record) => {
+        if (!record.metrics || record.metrics.length === 0) return -1
+        return record.metrics[0].value
+      },
       render: (_: unknown, record: Experiment) => {
         if (!record.metrics || record.metrics.length === 0) return '—'
         return <span>{formatMetrics(record.metrics)}</span>
@@ -123,6 +193,7 @@ export default function ExperimentsPage() {
       title: '创建时间',
       dataIndex: 'createdAt',
       width: 180,
+      sorter: true,
     },
   ]
 
@@ -137,7 +208,7 @@ export default function ExperimentsPage() {
         />
       )}
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-        <Space>
+        <Space wrap>
           <Segmented
             options={STATUS_TABS}
             value={statusFilter}
@@ -155,6 +226,17 @@ export default function ExperimentsPage() {
             onSearch={handleSearch}
             prefix={<SearchOutlined />}
           />
+          <RangePicker
+            placeholder={['开始日期', '结束日期']}
+            onChange={(_, dateStrings) => {
+              if (dateStrings[0] && dateStrings[1]) {
+                setDateRange([dateStrings[0], dateStrings[1]])
+              } else {
+                setDateRange(undefined)
+              }
+              setPage(1)
+            }}
+          />
         </Space>
       </div>
       <Table<Experiment>
@@ -162,6 +244,19 @@ export default function ExperimentsPage() {
         columns={columns}
         dataSource={data?.items}
         loading={isLoading}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (keys) => {
+            const selected = keys as string[]
+            if (selected.length <= 5) {
+              setSelectedRowKeys(selected)
+            }
+          },
+          selections: false,
+          getCheckboxProps: (record) => ({
+            disabled: selectedRowKeys.length >= 5 && !selectedRowKeys.includes(record.id),
+          }),
+        }}
         pagination={{
           current: page,
           pageSize,
@@ -174,6 +269,42 @@ export default function ExperimentsPage() {
         locale={{
           emptyText: <Empty description="还没有实验记录，提交训练任务后实验数据会自动记录到这里" />,
         }}
+      />
+      {/* Floating action bar for comparison */}
+      {selectedRowKeys.length > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 100,
+            background: 'var(--ant-color-bg-container)',
+            border: '1px solid var(--ant-color-border)',
+            borderRadius: 8,
+            padding: '8px 16px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <span>已选 {selectedRowKeys.length} 个实验（最多 5 个）</span>
+          <Button
+            type="primary"
+            icon={<SwapOutlined />}
+            disabled={selectedRowKeys.length < 2}
+            onClick={handleCompare}
+          >
+            对比
+          </Button>
+          <Button onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+        </div>
+      )}
+      <ExperimentCompareDrawer
+        open={compareOpen}
+        experimentIds={selectedRowKeys}
+        onClose={() => setCompareOpen(false)}
       />
     </div>
   )

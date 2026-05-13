@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.experiment import Experiment
@@ -96,6 +97,179 @@ class TestGetExperiments:
 
         assert items == []
         assert total == 0
+
+    @patch("app.services.experiment_service.get_mlflow_client", return_value=None)
+    async def test_get_experiments_with_dataset_filter(self, _mock_mlflow):
+        db = _mock_db()
+        total_result = MagicMock()
+        total_result.scalar_one.return_value = 1
+        exp = _make_experiment()
+        list_result = MagicMock()
+        list_result.scalars.return_value.all.return_value = [exp]
+        # get_experiments uses _enrich_experiments_batch which queries jobs
+        job_result = MagicMock()
+        job_result.scalars.return_value.all.return_value = []
+        db.execute.side_effect = [total_result, list_result, job_result]
+
+        service = ExperimentService(db)
+        dataset_id = uuid.uuid4()
+        items, total = await service.get_experiments(tenant_id=exp.tenant_id, dataset_id=dataset_id)
+
+        assert total == 1
+        assert len(items) == 1
+
+    @patch("app.services.experiment_service.get_mlflow_client", return_value=None)
+    async def test_get_experiments_with_date_filter(self, _mock_mlflow):
+        db = _mock_db()
+        total_result = MagicMock()
+        total_result.scalar_one.return_value = 0
+        list_result = MagicMock()
+        list_result.scalars.return_value.all.return_value = []
+        db.execute.side_effect = [total_result, list_result]
+
+        service = ExperimentService(db)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 12, 31, tzinfo=UTC)
+        items, total = await service.get_experiments(
+            tenant_id=uuid.uuid4(),
+            start_date=start,
+            end_date=end,
+        )
+
+        assert items == []
+        assert total == 0
+
+
+class TestGetMetricHistory:
+    @patch("app.services.experiment_service.get_mlflow_client", return_value=None)
+    async def test_get_metric_history_mlflow_disabled(self, _mock_mlflow):
+        db = _mock_db()
+        exp = _make_experiment(mlflow_experiment_id="mlflow-exp-1")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = exp
+        db.execute.return_value = result
+
+        service = ExperimentService(db)
+        points = await service.get_metric_history(exp.id, exp.tenant_id, "loss")
+        assert points == []
+
+    async def test_get_metric_history_experiment_not_found(self):
+        db = _mock_db()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        db.execute.return_value = result
+
+        service = ExperimentService(db)
+        points = await service.get_metric_history(uuid.uuid4(), uuid.uuid4(), "loss")
+        assert points == []
+
+    @patch("app.services.experiment_service.get_mlflow_client")
+    async def test_get_metric_history_returns_points(self, mock_get_client):
+        mlflow_client = AsyncMock()
+        mlflow_client.search_runs.return_value = [
+            {"info": {"run_id": "run-abc"}, "data": {"params": [], "metrics": [{"key": "loss", "value": 0.5}]}}
+        ]
+        mlflow_client.get_metric_history.return_value = [
+            {"step": 1, "value": 0.8, "timestamp": 1700000000000},
+            {"step": 2, "value": 0.5, "timestamp": 1700000060000},
+        ]
+        mock_get_client.return_value = mlflow_client
+
+        db = _mock_db()
+        exp = _make_experiment(mlflow_experiment_id="mlflow-exp-1")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = exp
+        db.execute.return_value = result
+
+        service = ExperimentService(db)
+        points = await service.get_metric_history(exp.id, exp.tenant_id, "loss")
+
+        assert len(points) == 2
+        assert points[0]["step"] == 1
+        assert points[0]["value"] == 0.8
+        assert points[0]["timestamp"] == 1700000000.0
+
+
+class TestCompareExperiments:
+    @patch("app.services.experiment_service.get_mlflow_client", return_value=None)
+    async def test_compare_with_less_than_2_experiments(self, _mock_mlflow):
+        db = _mock_db()
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [_make_experiment()]
+        db.execute.return_value = result
+
+        service = ExperimentService(db)
+        out = await service.compare_experiments(uuid.uuid4(), [uuid.uuid4()])
+        assert out is None
+
+    @patch("app.services.experiment_service.get_mlflow_client", return_value=None)
+    async def test_compare_with_2_experiments_no_mlflow(self, _mock_mlflow):
+        tenant_id = uuid.uuid4()
+        exp1 = _make_experiment(tenant_id=tenant_id)
+        exp2 = _make_experiment(tenant_id=tenant_id)
+
+        db = _mock_db()
+        exp_result = MagicMock()
+        exp_result.scalars.return_value.all.return_value = [exp1, exp2]
+        job_result = MagicMock()
+        job_result.scalars.return_value.all.return_value = []
+        dv_result = MagicMock()
+        dv_result.all.return_value = []
+        img_result = MagicMock()
+        img_result.all.return_value = []
+        hp_job_result = MagicMock()
+        hp_job_result.scalars.return_value.all.return_value = []
+
+        db.execute.side_effect = [exp_result, job_result, hp_job_result]
+
+        service = ExperimentService(db)
+        out = await service.compare_experiments(tenant_id, [exp1.id, exp2.id])
+
+        assert out is not None
+        assert len(out["experiments"]) == 2
+        assert out["hyperparams_diff"] == []
+        assert out["metrics_comparison"] == []
+
+    @patch("app.services.experiment_service.get_mlflow_client")
+    async def test_compare_with_hyperparams_diff(self, mock_get_client):
+        mock_get_client.return_value = None
+
+        tenant_id = uuid.uuid4()
+        job1_id = uuid.uuid4()
+        job2_id = uuid.uuid4()
+        exp1 = _make_experiment(tenant_id=tenant_id, training_job_id=job1_id)
+        exp2 = _make_experiment(tenant_id=tenant_id, training_job_id=job2_id)
+
+        mock_job1 = MagicMock()
+        mock_job1.id = job1_id
+        mock_job1.hyperparameters = {"lr": "0.01", "epochs": "10"}
+        mock_job1.dataset_version_id = None
+        mock_job1.image_id = None
+
+        mock_job2 = MagicMock()
+        mock_job2.id = job2_id
+        mock_job2.hyperparameters = {"lr": "0.001", "epochs": "10", "batch_size": "32"}
+        mock_job2.dataset_version_id = None
+        mock_job2.image_id = None
+
+        db = _mock_db()
+        exp_result = MagicMock()
+        exp_result.scalars.return_value.all.return_value = [exp1, exp2]
+        job_result = MagicMock()
+        job_result.scalars.return_value.all.return_value = [mock_job1, mock_job2]
+        hp_job_result = MagicMock()
+        hp_job_result.scalars.return_value.all.return_value = [mock_job1, mock_job2]
+
+        db.execute.side_effect = [exp_result, job_result, hp_job_result]
+
+        service = ExperimentService(db)
+        out = await service.compare_experiments(tenant_id, [exp1.id, exp2.id])
+
+        assert out is not None
+        diff_map = {d["key"]: d for d in out["hyperparams_diff"]}
+        assert diff_map["lr"]["is_different"] is True
+        assert diff_map["epochs"]["is_different"] is False
+        assert diff_map["batch_size"]["is_different"] is False
 
 
 class TestSyncExperimentStatus:

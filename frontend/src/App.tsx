@@ -22,6 +22,7 @@ const TrainingJobsPage = lazy(() => import('./pages/training-jobs'))
 const TrainingJobCreatePage = lazy(() => import('./pages/training-jobs/create'))
 const TrainingJobDetailPage = lazy(() => import('./pages/training-jobs/detail'))
 const ExperimentsPage = lazy(() => import('./pages/experiments'))
+const ExperimentDetailPage = lazy(() => import('./pages/experiments/detail'))
 const ModelsPage = lazy(() => import('./pages/models'))
 const InferencePage = lazy(() => import('./pages/inference'))
 const DevEnvironmentsPage = lazy(() => import('./pages/dev-environments'))
@@ -192,10 +193,13 @@ export default function App() {
                       path="experiments"
                       element={
                         <PermissionGuard permission="experiments:read">
-                          <ExperimentsPage />
+                          <Outlet />
                         </PermissionGuard>
                       }
-                    />
+                    >
+                      <Route index element={<ExperimentsPage />} />
+                      <Route path=":id" element={<ExperimentDetailPage />} />
+                    </Route>
                     <Route
                       path="models"
                       element={

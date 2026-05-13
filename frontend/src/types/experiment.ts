@@ -13,3 +13,43 @@ export interface Experiment {
   createdAt: string
   updatedAt: string
 }
+
+export interface MetricHistoryPoint {
+  step: number
+  value: number
+  timestamp: number
+}
+
+export interface TrainingJobInfo {
+  id: string
+  name: string | null
+  command: string | null
+  datasetVersion: string | null
+  imageName: string | null
+  gpuCount: number | null
+  cpu: string | null
+  memory: string | null
+}
+
+export interface ExperimentDetail extends Experiment {
+  metricHistories: Record<string, MetricHistoryPoint[]> | null
+  durationSeconds: number | null
+  trainingJob: TrainingJobInfo | null
+}
+
+export interface HyperparamDiff {
+  key: string
+  values: Record<string, string | null>
+  isDifferent: boolean
+}
+
+export interface MetricComparison {
+  metricKey: string
+  series: Record<string, MetricHistoryPoint[]>
+}
+
+export interface ExperimentComparison {
+  experiments: Experiment[]
+  hyperparamsDiff: HyperparamDiff[]
+  metricsComparison: MetricComparison[]
+}
