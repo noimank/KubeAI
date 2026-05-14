@@ -76,3 +76,11 @@ class ModelVersionStatus(enum.StrEnum):
     UPLOADING = "uploading"
     AVAILABLE = "available"
     FAILED = "failed"
+
+
+class InferenceServiceStatus(enum.StrEnum):
+    PENDING = "pending"
+    DEPLOYING = "deploying"
+    RUNNING = "running"
+    FAILED = "failed"
+    STOPPED = "stopped"

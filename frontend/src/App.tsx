@@ -26,6 +26,8 @@ const ExperimentDetailPage = lazy(() => import('./pages/experiments/detail'))
 const ModelsPage = lazy(() => import('./pages/models'))
 const ModelDetailPage = lazy(() => import('./pages/models/detail'))
 const InferencePage = lazy(() => import('./pages/inference'))
+const InferenceCreatePage = lazy(() => import('./pages/inference/create'))
+const InferenceDetailPage = lazy(() => import('./pages/inference/detail'))
 const DevEnvironmentsPage = lazy(() => import('./pages/dev-environments'))
 const ImagesPage = lazy(() => import('./pages/images'))
 const ImageDetailPage = lazy(() => import('./pages/images/detail'))
@@ -216,10 +218,14 @@ export default function App() {
                       path="inference"
                       element={
                         <PermissionGuard permission="inference_services:read">
-                          <InferencePage />
+                          <Outlet />
                         </PermissionGuard>
                       }
-                    />
+                    >
+                      <Route index element={<InferencePage />} />
+                      <Route path="create" element={<InferenceCreatePage />} />
+                      <Route path=":id" element={<InferenceDetailPage />} />
+                    </Route>
                     <Route
                       path="dev-environments"
                       element={

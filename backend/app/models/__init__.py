@@ -2,6 +2,7 @@ from app.models.audit_log import AuditLog
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.experiment import Experiment
 from app.models.image import Image
+from app.models.inference_service import InferenceService
 from app.models.invitation import TenantInvitation
 from app.models.registered_model import ModelVersion, RegisteredModel
 from app.models.tenant import Tenant
@@ -14,6 +15,7 @@ __all__ = [
     "DatasetVersion",
     "Experiment",
     "Image",
+    "InferenceService",
     "ModelVersion",
     "RegisteredModel",
     "Tenant",
