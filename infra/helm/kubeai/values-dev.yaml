@@ -22,8 +22,6 @@ postgresql:
       nodePorts:
         postgresql: 30432
     extraEnvVars:
-      - name: POSTGRES_DB
-        value: "kubeai"
       - name: PGDATA
         value: /bitnami/postgresql/data
     extraVolumes:

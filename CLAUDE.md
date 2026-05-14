@@ -95,10 +95,14 @@ docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
   - `DatasetService` — MinIO-backed dataset/version management with presigned URLs
   - `ImageService` — custom image builds via K8s Jobs, push to Harbor registry
   - `TrainingJobService` — creates Volcano VCJobs, manages PVCs for dataset mounts, tracks quota
+  - `ExperimentService` — MLflow-backed experiment tracking, reproduces experiments as training jobs
+  - `InvitationService` — tenant member invitation with role assignment
   - `AuditService` — records audit logs for resource operations
+- **Model registry**: No dedicated service — `app/api/endpoints/model_registry.py` handles logic directly. Models in `app/models/registered_model.py` (`RegisteredModel` + `ModelVersion`). Versions uploaded via K8s upload Jobs, files stored in MinIO
 - **Multi-tenancy**: Three layers — DB-level (`TenantMixin` + FK), app-level (`TenantMiddleware` + `require_tenant_access`), infra-level (K8s NetworkPolicy per namespace isolating tenant traffic)
 - **External integrations** (`app/integrations/`):
-  - `k8s/` — async `kubernetes_asyncio` client (CoreV1Api, NetworkingV1Api, BatchV1Api). Handles namespace, PVC, Secret, Job, ResourceQuota, NetworkPolicy. Client lifecycle managed via `get_k8s_clients()` / `close_k8s_clients()`. Pure construction helpers (e.g. `create_build_job`, `build_tenant_resource_quota`) remain sync
+  - `k8s/` — async `kubernetes_asyncio` client (CoreV1Api, NetworkingV1Api, BatchV1Api). Handles namespace, PVC, Secret, Job, ResourceQuota, NetworkPolicy, upload Jobs. Client lifecycle managed via `get_k8s_clients()` / `close_k8s_clients()`. Pure construction helpers (e.g. `create_build_job`, `build_tenant_resource_quota`) remain sync
+  - `mlflow/` — MLflow REST API client via `httpx` for experiment/run tracking. Sync calls wrapped in `asyncio.to_thread()` at service level
   - `volcano/` — Volcano batch scheduler via async K8s CustomObjectsApi (`batch.volcano.sh/v1alpha1` VCJobs). Maps Volcano phases to internal status (Pending→pending, Running→running, Completed→succeeded, etc.)
   - `harbor/` — Harbor REST API client via `httpx` for container registry management (projects, repos, robots). Sync calls wrapped in `asyncio.to_thread()` at service level
   - `minio/` — MinIO/S3 client for dataset file storage (buckets, presigned upload/download URLs). Sync calls wrapped in `asyncio.to_thread()` at service level
@@ -107,7 +111,7 @@ docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
 - **Exceptions**: `AppException` hierarchy in `app/core/exceptions.py` — caught by error handler middleware returning `BaseResponse` with appropriate HTTP status. All default messages are in Chinese
 - **Startup**: `app/core/events.py` — initializes Redis, Casbin, seeds admin user (`admin`/`Admin123456`) and default tenant, creates MinIO client singleton (accessed via `get_minio_client()`)
 - **Tests**: `asyncio_mode = "auto"` in pytest config. `conftest.py` provides session-scoped `event_loop` + `httpx.AsyncClient` with `ASGITransport` for in-process testing. Unit tests in `tests/unit/`, integration in `tests/integration/`
-- **Mounted routers** (`router.py`): auth, credentials, datasets, images, tenants, training_jobs, users, audit_logs
+- **Mounted routers** (`router.py`): auth, credentials, datasets, experiments, images, model_registry, tenants, training_jobs, users, audit_logs
 
 ### Frontend (`frontend/`)
 
