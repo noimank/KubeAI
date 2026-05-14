@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Button, Empty, Input, Table, Tag } from 'antd'
+import { Button, Empty, Input, Skeleton, Table, Tag } from 'antd'
 import { Link } from 'react-router-dom'
 import { SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -22,7 +22,7 @@ export default function ModelsPage() {
   const [keyword, setKeyword] = useState<string>()
   const [searchText, setSearchText] = useState('')
 
-  const { data, isLoading } = useQuery({
+  const { data, isPending, isFetching } = useQuery({
     queryKey: ['models', page, pageSize, keyword],
     queryFn: () => getModels({ current: page, pageSize, search: keyword }),
   })
@@ -82,6 +82,17 @@ export default function ModelsPage() {
     },
   ]
 
+  const emptyContent = (
+    <Empty
+      description="模型仓库为空，训练完成后模型会自动归档到这里"
+      image={Empty.PRESENTED_IMAGE_SIMPLE}
+    >
+      <Link to="/training-jobs/create">
+        <Button type="primary">新建训练任务</Button>
+      </Link>
+    </Empty>
+  )
+
   return (
     <div style={{ padding: 0 }}>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
@@ -95,31 +106,26 @@ export default function ModelsPage() {
           prefix={<SearchOutlined />}
         />
       </div>
-      <Table<RegisteredModel>
-        rowKey="id"
-        columns={columns}
-        dataSource={data?.items}
-        loading={isLoading}
-        pagination={{
-          current: page,
-          pageSize,
-          total: data?.total ?? 0,
-          showSizeChanger: true,
-          pageSizeOptions: ['20', '50', '100'],
-          showTotal: (total) => `共 ${total} 条`,
-        }}
-        onChange={handleTableChange}
-        locale={{
-          emptyText: (
-            <div style={{ padding: '24px 0', textAlign: 'center' }}>
-              <Empty
-                description="模型仓库为空，训练完成后模型会自动归档到这里"
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              />
-            </div>
-          ),
-        }}
-      />
+      {isPending ? (
+        <Skeleton active paragraph={{ rows: 8 }} />
+      ) : (
+        <Table<RegisteredModel>
+          rowKey="id"
+          columns={columns}
+          dataSource={data?.items}
+          loading={isFetching}
+          pagination={{
+            current: page,
+            pageSize,
+            total: data?.total ?? 0,
+            showSizeChanger: true,
+            pageSizeOptions: ['20', '50', '100'],
+            showTotal: (total) => `共 ${total} 条`,
+          }}
+          onChange={handleTableChange}
+          locale={{ emptyText: emptyContent }}
+        />
+      )}
     </div>
   )
 }

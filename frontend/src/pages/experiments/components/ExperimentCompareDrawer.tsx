@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Card, Descriptions, Drawer, Empty, Select, Spin, Table, Tabs, Tag, Tooltip } from 'antd'
+import type { ColumnType } from 'antd/es/table'
 import { useQuery } from '@tanstack/react-query'
 import { Line } from '@ant-design/charts'
 import { compareExperiments } from '@/services/experiments'
@@ -67,14 +68,16 @@ export default function ExperimentCompareDrawer({ open, experimentIds, onClose }
 
   const hyperparamColumns = useMemo(() => {
     if (!comparison) return []
-    const cols: Array<{
-      title: React.ReactNode
-      dataIndex: string
-    }> = [{ title: '超参数', dataIndex: 'key' }]
+    const cols: ColumnType<Record<string, unknown>>[] = [{ title: '超参数', dataIndex: 'key' }]
     for (const exp of comparison.experiments) {
       cols.push({
         title: <Tooltip title={exp.id}>{exp.trainingJobName || exp.id.slice(0, 8)}</Tooltip>,
         dataIndex: exp.id,
+        render: (val: unknown) => (
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {val != null ? String(val) : '—'}
+          </span>
+        ),
       })
     }
     return cols
@@ -121,7 +124,9 @@ export default function ExperimentCompareDrawer({ open, experimentIds, onClose }
                     </Descriptions.Item>
                     {exp.metrics?.slice(0, 3).map((m) => (
                       <Descriptions.Item key={m.key} label={m.key}>
-                        {typeof m.value === 'number' ? m.value.toFixed(4) : m.value}
+                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {typeof m.value === 'number' ? m.value.toFixed(4) : m.value}
+                        </span>
                       </Descriptions.Item>
                     ))}
                   </Descriptions>

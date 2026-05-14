@@ -6,6 +6,8 @@ import {
   Empty,
   Input,
   Segmented,
+  Select,
+  Skeleton,
   Space,
   Table,
   Tag,
@@ -16,6 +18,8 @@ import { SearchOutlined, SwapOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery } from '@tanstack/react-query'
 import { getExperiments } from '@/services/experiments'
+import { getDatasets } from '@/services/datasets'
+import { getImages } from '@/services/images'
 import type { Experiment } from '@/types/experiment'
 import ExperimentCompareDrawer from './components/ExperimentCompareDrawer'
 
@@ -60,8 +64,10 @@ export default function ExperimentsPage() {
 
   // Advanced filters
   const [dateRange, setDateRange] = useState<[string, string] | undefined>()
+  const [datasetId, setDatasetId] = useState<string | undefined>()
+  const [imageId, setImageId] = useState<string | undefined>()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isPending, isFetching } = useQuery({
     queryKey: [
       'experiments',
       page,
@@ -71,6 +77,8 @@ export default function ExperimentsPage() {
       sortField,
       sortOrder,
       dateRange,
+      datasetId,
+      imageId,
     ],
     queryFn: () =>
       getExperiments({
@@ -82,7 +90,23 @@ export default function ExperimentsPage() {
         sortOrder,
         startDate: dateRange?.[0],
         endDate: dateRange?.[1],
+        datasetId,
+        imageId,
       }),
+  })
+
+  // Dataset options for filter (cached 5 minutes)
+  const { data: datasetsData } = useQuery({
+    queryKey: ['datasets-options'],
+    queryFn: () => getDatasets({ current: 1, pageSize: 100 }),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Image options for filter (cached 5 minutes)
+  const { data: imagesData } = useQuery({
+    queryKey: ['images-options'],
+    queryFn: () => getImages({ current: 1, pageSize: 100 }),
+    staleTime: 5 * 60 * 1000,
   })
 
   const handleSearch = useCallback((value: string) => {
@@ -167,10 +191,7 @@ export default function ExperimentsPage() {
       key: 'metrics',
       width: 200,
       ellipsis: true,
-      sorter: (record) => {
-        if (!record.metrics || record.metrics.length === 0) return -1
-        return record.metrics[0].value
-      },
+      sorter: true,
       render: (_: unknown, record: Experiment) => {
         if (!record.metrics || record.metrics.length === 0) return '—'
         return <span>{formatMetrics(record.metrics)}</span>
@@ -196,6 +217,17 @@ export default function ExperimentsPage() {
       sorter: true,
     },
   ]
+
+  const emptyContent = (
+    <Empty
+      description="还没有实验记录，提交训练任务后实验会自动追踪到这里"
+      image={Empty.PRESENTED_IMAGE_SIMPLE}
+    >
+      <Link to="/training-jobs/create">
+        <Button type="primary">新建训练任务</Button>
+      </Link>
+    </Empty>
+  )
 
   return (
     <div style={{ padding: 0 }}>
@@ -237,39 +269,63 @@ export default function ExperimentsPage() {
               setPage(1)
             }}
           />
+          <Select
+            placeholder="关联数据集"
+            allowClear
+            style={{ width: 180 }}
+            value={datasetId}
+            onChange={(val) => {
+              setDatasetId(val)
+              setPage(1)
+            }}
+            options={datasetsData?.items?.map((d) => ({ label: d.name, value: d.id }))}
+          />
+          <Select
+            placeholder="关联镜像"
+            allowClear
+            style={{ width: 180 }}
+            value={imageId}
+            onChange={(val) => {
+              setImageId(val)
+              setPage(1)
+            }}
+            options={imagesData?.items?.map((img) => ({ label: img.name, value: img.id }))}
+          />
         </Space>
       </div>
-      <Table<Experiment>
-        rowKey="id"
-        columns={columns}
-        dataSource={data?.items}
-        loading={isLoading}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => {
-            const selected = keys as string[]
-            if (selected.length <= 5) {
-              setSelectedRowKeys(selected)
-            }
-          },
-          selections: false,
-          getCheckboxProps: (record) => ({
-            disabled: selectedRowKeys.length >= 5 && !selectedRowKeys.includes(record.id),
-          }),
-        }}
-        pagination={{
-          current: page,
-          pageSize,
-          total: data?.total ?? 0,
-          showSizeChanger: true,
-          pageSizeOptions: ['20', '50', '100'],
-          showTotal: (total) => `共 ${total} 条`,
-        }}
-        onChange={handleTableChange}
-        locale={{
-          emptyText: <Empty description="还没有实验记录，提交训练任务后实验数据会自动记录到这里" />,
-        }}
-      />
+      {isPending ? (
+        <Skeleton active paragraph={{ rows: 8 }} />
+      ) : (
+        <Table<Experiment>
+          rowKey="id"
+          columns={columns}
+          dataSource={data?.items}
+          loading={isFetching}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => {
+              const selected = keys as string[]
+              if (selected.length <= 5) {
+                setSelectedRowKeys(selected)
+              }
+            },
+            selections: false,
+            getCheckboxProps: (record) => ({
+              disabled: selectedRowKeys.length >= 5 && !selectedRowKeys.includes(record.id),
+            }),
+          }}
+          pagination={{
+            current: page,
+            pageSize,
+            total: data?.total ?? 0,
+            showSizeChanger: true,
+            pageSizeOptions: ['20', '50', '100'],
+            showTotal: (total) => `共 ${total} 条`,
+          }}
+          onChange={handleTableChange}
+          locale={{ emptyText: emptyContent }}
+        />
+      )}
       {/* Floating action bar for comparison */}
       {selectedRowKeys.length > 0 && (
         <div
