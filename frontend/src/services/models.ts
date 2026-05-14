@@ -3,6 +3,7 @@ import type { PageData } from '@/types/api'
 import type {
   ModelVersion,
   ModelVersionCreate,
+  ModelVersionFile,
   RegisteredModel,
   RegisteredModelDetail,
 } from '@/types/model'
@@ -10,9 +11,14 @@ import type {
 export async function getModels(params: {
   current: number
   pageSize: number
+  search?: string
 }): Promise<PageData<RegisteredModel>> {
   const res = await api.get('/model-registry', {
-    params: { page: params.current, page_size: params.pageSize },
+    params: {
+      page: params.current,
+      page_size: params.pageSize,
+      search: params.search || undefined,
+    },
   })
   return res.data.data!
 }
@@ -32,7 +38,22 @@ export async function registerModel(data: ModelVersionCreate): Promise<ModelVers
   return res.data.data!
 }
 
-export async function downloadModelVersion(modelId: string, versionId: string): Promise<string> {
-  const res = await api.get(`/model-registry/${modelId}/versions/${versionId}/download`)
+export async function getModelVersionFiles(
+  modelId: string,
+  versionId: string,
+): Promise<ModelVersionFile[]> {
+  const res = await api.get(`/model-registry/${modelId}/versions/${versionId}/files`)
+  return res.data.data!
+}
+
+export async function getModelFileDownloadUrl(
+  modelId: string,
+  versionId: string,
+  fileName: string,
+): Promise<string> {
+  const res = await api.post(
+    `/model-registry/${modelId}/versions/${versionId}/files/download-url`,
+    { fileName },
+  )
   return res.data.data!
 }

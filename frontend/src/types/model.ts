@@ -4,9 +4,11 @@ export interface ModelVersion {
   versionNumber: number
   description?: string
   storagePath: string
+  status: string
   fileCount: number
   totalSizeBytes: number
   trainingJobId?: string
+  trainingJobName?: string
   datasetId?: string
   datasetVersionId?: string
   imageId?: string
@@ -37,4 +39,11 @@ export interface ModelVersionCreate {
   description?: string
   filePaths: string[]
   trainingJobId?: string
+}
+
+export interface ModelVersionFile {
+  fileName: string
+  sizeBytes: number
+  contentType: string
+  lastModified?: string
 }
