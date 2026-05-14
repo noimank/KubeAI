@@ -107,11 +107,13 @@ VCJOB_PHASE_MAP: dict[str, str] = {
 }
 
 
-async def batch_get_vcjob_phases(namespace: str, vcjob_names: list[str]) -> dict[str, str]:
+async def batch_get_vcjob_phases(namespace: str, vcjob_names: list[str]) -> dict[str, str | None]:
+    """Return current phase for each VCJob. ``None`` means the VCJob and its
+    pods are both gone (e.g. TTL-cleaned) — callers should keep DB status."""
     if not vcjob_names:
         return {}
 
-    result: dict[str, str] = {}
+    result: dict[str, str | None] = {}
 
     all_vcjobs = await list_vcjobs(namespace)
     vcjob_map: dict[str, dict[str, Any]] = {v.get("metadata", {}).get("name", ""): v for v in all_vcjobs}
@@ -149,7 +151,7 @@ async def batch_get_vcjob_phases(namespace: str, vcjob_names: list[str]) -> dict
         for name in missing_names:
             phases = pod_phases_by_job.get(name, [])
             if not phases:
-                result[name] = "pending"
+                result[name] = None
             elif "Failed" in phases:
                 result[name] = "failed"
             elif all(p == "Succeeded" for p in phases):
@@ -157,10 +159,10 @@ async def batch_get_vcjob_phases(namespace: str, vcjob_names: list[str]) -> dict
             elif "Running" in phases:
                 result[name] = "running"
             else:
-                result[name] = "pending"
+                result[name] = None
     else:
         for name in missing_names:
-            result[name] = "pending"
+            result[name] = None
 
     return result
 

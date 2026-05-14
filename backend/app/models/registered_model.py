@@ -6,6 +6,7 @@ from sqlalchemy import JSON, BigInteger, ForeignKey, Integer, String, Text, Uniq
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TenantMixin, TimestampMixin
+from app.models.enums import ModelVersionStatus
 
 
 class RegisteredModel(Base, TimestampMixin, TenantMixin):
@@ -36,6 +37,8 @@ class ModelVersion(Base, TimestampMixin):
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default=ModelVersionStatus.UPLOADING, nullable=False)
+    upload_job_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     file_count: Mapped[int] = mapped_column(Integer, default=0)
     total_size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     training_job_id: Mapped[uuid.UUID | None] = mapped_column(

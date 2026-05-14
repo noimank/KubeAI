@@ -19,15 +19,28 @@ class ModelVersionResponse(BaseModel):
     version_number: int
     description: str | None = None
     storage_path: str
+    status: str = "uploading"
     file_count: int
     total_size_bytes: int
     training_job_id: uuid.UUID | None = None
+    training_job_name: str | None = None
     dataset_id: uuid.UUID | None = None
     dataset_version_id: uuid.UUID | None = None
     image_id: uuid.UUID | None = None
     hyperparameters: dict[str, str] | None = None
     created_by: uuid.UUID
     created_at: datetime
+
+
+class ModelVersionFileResponse(BaseModel):
+    file_name: str
+    size_bytes: int = 0
+    content_type: str = "application/octet-stream"
+    last_modified: datetime | None = None
+
+
+class ModelFileDownloadRequest(BaseModel):
+    file_name: str
 
 
 class RegisteredModelResponse(BaseModel):

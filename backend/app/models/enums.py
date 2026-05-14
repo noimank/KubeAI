@@ -70,3 +70,9 @@ class TrainingJobStatus(enum.StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     STOPPED = "stopped"
+
+
+class ModelVersionStatus(enum.StrEnum):
+    UPLOADING = "uploading"
+    AVAILABLE = "available"
+    FAILED = "failed"

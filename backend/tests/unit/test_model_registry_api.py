@@ -6,6 +6,7 @@ from app.api.endpoints.model_registry import (
     _build_model_response,
     _build_version_response,
     _next_version_number,
+    _resolve_training_job_names,
 )
 from app.models.registered_model import ModelVersion, RegisteredModel
 
@@ -30,6 +31,7 @@ def _make_version(**overrides):
         "registered_model_id": uuid.uuid4(),
         "version_number": 1,
         "storage_path": "models/test/v1",
+        "status": "available",
         "file_count": 2,
         "total_size_bytes": 1024,
         "created_by": uuid.uuid4(),
@@ -79,8 +81,14 @@ class TestBuildVersionResponse:
     def test_with_training_job(self):
         job_id = uuid.uuid4()
         version = _make_version(training_job_id=job_id)
-        resp = _build_version_response(version)
+        resp = _build_version_response(version, "my-training-job")
         assert resp.training_job_id == job_id
+        assert resp.training_job_name == "my-training-job"
+
+    def test_training_job_name_default_none(self):
+        version = _make_version()
+        resp = _build_version_response(version)
+        assert resp.training_job_name is None
 
 
 class TestNextVersionNumber:
@@ -101,3 +109,52 @@ class TestNextVersionNumber:
 
         ver = await _next_version_number(db, uuid.uuid4())
         assert ver == 4
+
+
+class TestBuildModelResponseWithTrainingJobName:
+    def test_latest_version_includes_training_job_name(self):
+        model = _make_model()
+        job_id = uuid.uuid4()
+        v1 = _make_version(registered_model_id=model.id, version_number=1, training_job_id=job_id)
+        model.versions = [v1]
+
+        resp = _build_model_response(model, training_job_names={job_id: "job-alpha"})
+        assert resp.latest_version is not None
+        assert resp.latest_version.training_job_name == "job-alpha"
+
+    def test_no_training_job_name_when_not_provided(self):
+        model = _make_model()
+        v1 = _make_version(registered_model_id=model.id, version_number=1, training_job_id=uuid.uuid4())
+        model.versions = [v1]
+
+        resp = _build_model_response(model)
+        assert resp.latest_version is not None
+        assert resp.latest_version.training_job_name is None
+
+
+class TestResolveTrainingJobNames:
+    async def test_empty_versions(self):
+        db = AsyncMock()
+        result = await _resolve_training_job_names(db, [])
+        assert result == {}
+
+    async def test_no_training_job_ids(self):
+        db = AsyncMock()
+        version = _make_version(training_job_id=None)
+        result = await _resolve_training_job_names(db, [version])
+        assert result == {}
+
+    async def test_resolves_names(self):
+        db = AsyncMock()
+        job_id = uuid.uuid4()
+        version = _make_version(training_job_id=job_id)
+
+        row = MagicMock()
+        row.id = job_id
+        row.name = "my-job"
+        result_mock = MagicMock()
+        result_mock.all.return_value = [row]
+        db.execute.return_value = result_mock
+
+        result = await _resolve_training_job_names(db, [version])
+        assert result[job_id] == "my-job"

@@ -49,6 +49,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ALLOWED_STOP_STATUSES = {TrainingJobStatus.RUNNING, TrainingJobStatus.QUEUED, TrainingJobStatus.PENDING}
+TERMINAL_STATUSES = {TrainingJobStatus.SUCCEEDED, TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED}
 
 
 class TrainingJobService:
@@ -220,17 +221,25 @@ class TrainingJobService:
         )
         jobs = list(result.scalars().all())
 
-        terminal_statuses = {TrainingJobStatus.SUCCEEDED, TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED}
-        non_terminal = [job for job in jobs if job.vcjob_name and job.status not in terminal_statuses]
+        non_terminal = [job for job in jobs if job.vcjob_name and job.status not in TERMINAL_STATUSES]
         if non_terminal:
             tenant = await self._get_tenant_or_fail(tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
             vcjob_names = [j.vcjob_name for j in non_terminal if j.vcjob_name]
             phases = await batch_get_vcjob_phases(namespace, vcjob_names)
+            modified_jobs: list[TrainingJob] = []
             for job in non_terminal:
                 if not job.vcjob_name:
                     continue
-                phase = phases.get(job.vcjob_name, "pending")
+                phase = phases.get(job.vcjob_name)
+                if phase is None:
+                    logger.warning(
+                        "VCJob %s not found for job %s, keeping status %s",
+                        job.vcjob_name,
+                        job.id,
+                        job.status,
+                    )
+                    continue
                 new_status = TrainingJobStatus(phase)
                 if new_status != job.status:
                     old_status = job.status
@@ -239,13 +248,17 @@ class TrainingJobService:
                     if new_status == TrainingJobStatus.FAILED:
                         job.error_message = await self._extract_failure_reason(namespace, job.vcjob_name)
                     logger.info("TrainingJob %s status synced (batch): %s -> %s", job.id, old_status, new_status)
-                    if new_status in (TrainingJobStatus.SUCCEEDED, TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED):
+                    if new_status in TERMINAL_STATUSES:
                         try:
                             experiment_service = ExperimentService(self.db)
                             await experiment_service.sync_experiment_status(job.id, new_status)
                         except Exception as e:
                             logger.warning("Failed to sync experiment status for job %s: %s", job.id, e)
-            await self.db.commit()
+                    modified_jobs.append(job)
+            if modified_jobs:
+                await self.db.commit()
+                for job in modified_jobs:
+                    await self.db.refresh(job)
 
         return jobs, total
 
@@ -309,11 +322,24 @@ class TrainingJobService:
         if not job.vcjob_name:
             return
 
+        if job.status in TERMINAL_STATUSES:
+            return
+
         try:
             tenant = await self._get_tenant_or_fail(job.tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
             phases = await batch_get_vcjob_phases(namespace, [job.vcjob_name])
-            phase = phases.get(job.vcjob_name, "pending")
+            phase = phases.get(job.vcjob_name)
+
+            if phase is None:
+                logger.warning(
+                    "VCJob %s not found for job %s, keeping status %s",
+                    job.vcjob_name,
+                    job.id,
+                    job.status,
+                )
+                return
+
             new_status = TrainingJobStatus(phase)
 
             if new_status != job.status:
@@ -328,7 +354,7 @@ class TrainingJobService:
                     old_status,
                     new_status,
                 )
-                if new_status in (TrainingJobStatus.SUCCEEDED, TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED):
+                if new_status in TERMINAL_STATUSES:
                     try:
                         experiment_service = ExperimentService(self.db)
                         await experiment_service.sync_experiment_status(job.id, new_status)

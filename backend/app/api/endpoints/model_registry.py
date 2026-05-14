@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from typing import Annotated, Any
 
@@ -12,15 +13,18 @@ from app.core.exceptions import BadRequestException, NotFoundException
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.pvc import make_workspace_host_path
-from app.integrations.k8s.upload_job import build_upload_job, create_upload_job
+from app.integrations.k8s.upload_job import build_upload_job, create_upload_job, get_upload_job_status
 from app.integrations.minio import MinIOClient
+from app.models.enums import ModelVersionStatus
 from app.models.registered_model import ModelVersion, RegisteredModel
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.model_registry import (
+    ModelFileDownloadRequest,
     ModelVersionCreateRequest,
+    ModelVersionFileResponse,
     ModelVersionResponse,
     RegisteredModelDetailResponse,
     RegisteredModelResponse,
@@ -53,9 +57,11 @@ def _require_tenant_id(user: Any) -> uuid.UUID:
 def _build_model_response(
     model: RegisteredModel,
     user_name_map: dict[uuid.UUID, str] | None = None,
+    training_job_names: dict[uuid.UUID, str] | None = None,
 ) -> RegisteredModelResponse:
     versions = sorted(model.versions, key=lambda v: v.version_number)
     latest = versions[-1] if versions else None
+    _tjn = training_job_names or {}
     return RegisteredModelResponse(
         id=model.id,
         name=model.name,
@@ -64,22 +70,28 @@ def _build_model_response(
         created_by=model.created_by,
         created_by_name=(user_name_map or {}).get(model.created_by),
         version_count=len(versions),
-        latest_version=_build_version_response(latest) if latest else None,
+        latest_version=_build_version_response(
+            latest, _tjn.get(latest.training_job_id) if latest and latest.training_job_id else None
+        )
+        if latest
+        else None,
         created_at=model.created_at,
         updated_at=model.updated_at,
     )
 
 
-def _build_version_response(v: ModelVersion) -> ModelVersionResponse:
+def _build_version_response(v: ModelVersion, training_job_name: str | None = None) -> ModelVersionResponse:
     return ModelVersionResponse(
         id=v.id,
         registered_model_id=v.registered_model_id,
         version_number=v.version_number,
         description=v.description,
         storage_path=v.storage_path,
+        status=v.status,
         file_count=v.file_count,
         total_size_bytes=v.total_size_bytes,
         training_job_id=v.training_job_id,
+        training_job_name=training_job_name,
         dataset_id=v.dataset_id,
         dataset_version_id=v.dataset_version_id,
         image_id=v.image_id,
@@ -95,6 +107,61 @@ async def _resolve_user_names(db: AsyncSession, models: list[RegisteredModel]) -
         return {}
     result = await db.execute(select(User.id, User.username).where(User.id.in_(user_ids)))
     return {row.id: row.username for row in result.all()}
+
+
+async def _resolve_training_job_names(db: AsyncSession, versions: list[ModelVersion]) -> dict[uuid.UUID, str]:
+    job_ids = {v.training_job_id for v in versions if v.training_job_id}
+    if not job_ids:
+        return {}
+    result = await db.execute(select(TrainingJob.id, TrainingJob.name).where(TrainingJob.id.in_(job_ids)))
+    return {row.id: row.name for row in result.all()}
+
+
+async def _sync_version_upload_status(
+    version: ModelVersion,
+    db: AsyncSession,
+    minio: MinIOClient,
+    tenant: Tenant,
+) -> None:
+    if version.status != ModelVersionStatus.UPLOADING:
+        return
+
+    namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+    if version.upload_job_name:
+        job_status = await get_upload_job_status(namespace, version.upload_job_name)
+        k8s_status = job_status.get("status")
+
+        if k8s_status == "completed":
+            await _finalize_upload(version, db, minio, tenant)
+            return
+        if k8s_status == "failed":
+            version.status = ModelVersionStatus.FAILED
+            await db.flush()
+            return
+
+    # Job not found (TTL expired) or still running — check MinIO directly
+    await _finalize_upload(version, db, minio, tenant)
+
+
+async def _finalize_upload(
+    version: ModelVersion,
+    db: AsyncSession,
+    minio: MinIOClient,
+    tenant: Tenant,
+) -> None:
+    try:
+        objects = await asyncio.to_thread(minio.list_objects, tenant.name, version.storage_path)
+    except Exception:
+        return
+
+    if objects:
+        version.file_count = len(objects)
+        version.total_size_bytes = sum(o["size"] for o in objects)
+        version.status = ModelVersionStatus.AVAILABLE
+    elif version.upload_job_name:
+        version.status = ModelVersionStatus.FAILED
+    await db.flush()
 
 
 @router.post("", response_model=BaseResponse[ModelVersionResponse])
@@ -155,6 +222,8 @@ async def register_model(
         version_number=version_number,
         description=req.description,
         storage_path=storage_path,
+        status=ModelVersionStatus.UPLOADING,
+        upload_job_name=upload_job_name,
         file_count=len(req.file_paths),
         total_size_bytes=0,
         training_job_id=req.training_job_id,
@@ -190,9 +259,12 @@ async def list_models(
     user: Annotated[CurrentUser, Depends(require_permission("models", "read"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None, max_length=100),
 ) -> PageResponse[RegisteredModelResponse]:
     tenant_id = _require_tenant_id(user)
     query = select(RegisteredModel).where(RegisteredModel.tenant_id == tenant_id)
+    if search:
+        query = query.where(RegisteredModel.name.ilike(f"%{search}%"))
 
     total_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(total_q)).scalar_one()
@@ -203,7 +275,9 @@ async def list_models(
     models = list(result.scalars().all())
 
     user_name_map = await _resolve_user_names(db, models)
-    items = [_build_model_response(m, user_name_map) for m in models]
+    all_versions = [v for m in models for v in m.versions]
+    training_job_names = await _resolve_training_job_names(db, all_versions)
+    items = [_build_model_response(m, user_name_map, training_job_names) for m in models]
     page_data = PageData(items=items, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
 
@@ -212,6 +286,7 @@ async def list_models(
 async def get_model(
     model_id: uuid.UUID,
     db: DbDep,
+    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "read"))],
 ) -> BaseResponse[RegisteredModelDetailResponse]:
     tenant_id = _require_tenant_id(user)
@@ -222,12 +297,29 @@ async def get_model(
     if not model:
         raise NotFoundException("模型不存在")
 
-    user_name_map = await _resolve_user_names(db, [model])
-    base = _build_model_response(model, user_name_map)
+    tenant = await _get_tenant_or_fail(db, tenant_id)
     versions = sorted(model.versions, key=lambda v: v.version_number)
+
+    # Sync uploading versions
+    modified = False
+    for v in versions:
+        if v.status == ModelVersionStatus.UPLOADING:
+            await _sync_version_upload_status(v, db, minio, tenant)
+            modified = True
+    if modified:
+        await db.commit()
+        for v in versions:
+            await db.refresh(v)
+
+    user_name_map = await _resolve_user_names(db, [model])
+    training_job_names = await _resolve_training_job_names(db, versions)
+    base = _build_model_response(model, user_name_map, training_job_names)
     detail = RegisteredModelDetailResponse(
         **base.model_dump(),
-        versions=[_build_version_response(v) for v in versions],
+        versions=[
+            _build_version_response(v, training_job_names.get(v.training_job_id) if v.training_job_id else None)
+            for v in versions
+        ],
     )
     return BaseResponse(data=detail, message="获取成功")
 
@@ -237,6 +329,7 @@ async def get_model_version(
     model_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
+    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "read"))],
 ) -> BaseResponse[ModelVersionResponse]:
     tenant_id = _require_tenant_id(user)
@@ -251,21 +344,81 @@ async def get_model_version(
         raise NotFoundException("模型版本不存在")
 
     await _verify_model_tenant(db, model_id, tenant_id)
-    return BaseResponse(data=_build_version_response(version), message="获取成功")
+
+    # Sync upload status
+    if version.status == ModelVersionStatus.UPLOADING:
+        tenant = await _get_tenant_or_fail(db, tenant_id)
+        await _sync_version_upload_status(version, db, minio, tenant)
+        await db.commit()
+        await db.refresh(version)
+
+    training_job_names = await _resolve_training_job_names(db, [version])
+    return BaseResponse(
+        data=_build_version_response(
+            version, training_job_names.get(version.training_job_id) if version.training_job_id else None
+        ),
+        message="获取成功",
+    )
 
 
-@router.get("/{model_id}/versions/{version_id}/download", response_model=BaseResponse[str])
-async def download_model_version(
+@router.get("/{model_id}/versions/{version_id}/files", response_model=BaseResponse[list[ModelVersionFileResponse]])
+async def list_version_files(
     model_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
     minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "read"))],
+) -> BaseResponse[list[ModelVersionFileResponse]]:
+    tenant_id = _require_tenant_id(user)
+    version = await _get_version_or_fail(db, version_id, model_id)
+    await _verify_model_tenant(db, model_id, tenant_id)
+
+    if version.status != ModelVersionStatus.AVAILABLE:
+        raise BadRequestException("模型文件尚未上传完成")
+
+    tenant = await _get_tenant_or_fail(db, tenant_id)
+    prefix = version.storage_path
+    objects = await asyncio.to_thread(minio.list_objects, tenant.name, prefix)
+
+    files: list[ModelVersionFileResponse] = []
+    for obj in objects:
+        # Strip prefix to get relative file name
+        object_name: str = obj["object_name"]
+        file_name = object_name[len(prefix) + 1 :] if object_name.startswith(prefix + "/") else object_name
+        files.append(
+            ModelVersionFileResponse(
+                file_name=file_name,
+                size_bytes=obj["size"],
+                content_type=obj["content_type"],
+                last_modified=obj.get("last_modified"),
+            )
+        )
+    return BaseResponse(data=files, message="获取成功")
+
+
+@router.post("/{model_id}/versions/{version_id}/files/download-url", response_model=BaseResponse[str])
+async def get_file_download_url(
+    model_id: uuid.UUID,
+    version_id: uuid.UUID,
+    body: ModelFileDownloadRequest,
+    db: DbDep,
+    minio: MinioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("models", "read"))],
 ) -> BaseResponse[str]:
     tenant_id = _require_tenant_id(user)
-    tenant = await _get_tenant_or_fail(db, tenant_id)
-    tenant_name = tenant.name
+    version = await _get_version_or_fail(db, version_id, model_id)
+    await _verify_model_tenant(db, model_id, tenant_id)
 
+    if version.status != ModelVersionStatus.AVAILABLE:
+        raise BadRequestException("模型文件尚未上传完成")
+
+    tenant = await _get_tenant_or_fail(db, tenant_id)
+    object_name = f"{version.storage_path}/{body.file_name}"
+    url = await asyncio.to_thread(minio.presigned_get_url, tenant.name, object_name)
+    return BaseResponse(data=url, message="获取成功")
+
+
+async def _get_version_or_fail(db: AsyncSession, version_id: uuid.UUID, model_id: uuid.UUID) -> ModelVersion:
     result = await db.execute(
         select(ModelVersion).where(
             ModelVersion.id == version_id,
@@ -275,13 +428,7 @@ async def download_model_version(
     version = result.scalar_one_or_none()
     if not version:
         raise NotFoundException("模型版本不存在")
-
-    await _verify_model_tenant(db, model_id, tenant_id)
-
-    import asyncio
-
-    url = await asyncio.to_thread(minio.presigned_get_url, tenant_name, version.storage_path)
-    return BaseResponse(data=url, message="获取成功")
+    return version
 
 
 async def _get_tenant_or_fail(db: AsyncSession, tenant_id: uuid.UUID) -> Tenant:
