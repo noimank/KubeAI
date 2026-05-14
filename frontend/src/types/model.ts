@@ -10,8 +10,12 @@ export interface ModelVersion {
   trainingJobId?: string
   trainingJobName?: string
   datasetId?: string
+  datasetName?: string
   datasetVersionId?: string
+  datasetVersionNumber?: number
   imageId?: string
+  imageName?: string
+  imageTag?: string
   hyperparameters?: Record<string, string>
   createdBy: string
   createdAt: string

@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getModel, getModelVersionFiles, getModelFileDownloadUrl } from '@/services/models'
 import { formatDate, formatFileSize } from '@/utils/format'
 import { getMessageInstance } from '@/utils/messageHolder'
+import VersionDetailDrawer from './version-detail'
 import type { ModelVersion, ModelVersionFile } from '@/types/model'
 
 const VERSION_STATUS_MAP: Record<string, { color: string; text: string }> = {
@@ -40,6 +41,8 @@ export default function ModelDetailPage() {
   const queryClient = useQueryClient()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [activeVersion, setActiveVersion] = useState<ModelVersion | null>(null)
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
+  const [selectedVersion, setSelectedVersion] = useState<ModelVersion | null>(null)
 
   const { data: model, isLoading } = useQuery({
     queryKey: ['model', id],
@@ -61,6 +64,11 @@ export default function ModelDetailPage() {
   const handleViewFiles = useCallback((version: ModelVersion) => {
     setActiveVersion(version)
     setDrawerOpen(true)
+  }, [])
+
+  const handleViewDetail = useCallback((version: ModelVersion) => {
+    setSelectedVersion(version)
+    setDetailDrawerOpen(true)
   }, [])
 
   const handleFileDownload = useCallback(
@@ -130,26 +138,40 @@ export default function ModelDetailPage() {
     },
     {
       title: '操作',
-      width: 100,
+      width: 150,
       render: (_: unknown, record: ModelVersion) => {
+        const viewDetail = (
+          <Button type="link" size="small" onClick={() => handleViewDetail(record)}>
+            查看详情
+          </Button>
+        )
         if (record.status === 'available') {
           return (
-            <Button type="link" size="small" onClick={() => handleViewFiles(record)}>
-              查看文件
-            </Button>
+            <Space>
+              {viewDetail}
+              <Button type="link" size="small" onClick={() => handleViewFiles(record)}>
+                查看文件
+              </Button>
+            </Space>
           )
         }
         if (record.status === 'uploading') {
           return (
-            <Button type="link" size="small" disabled>
-              上传中
-            </Button>
+            <Space>
+              {viewDetail}
+              <Button type="link" size="small" disabled>
+                上传中
+              </Button>
+            </Space>
           )
         }
         return (
-          <Button type="link" size="small" disabled>
-            上传失败
-          </Button>
+          <Space>
+            {viewDetail}
+            <Button type="link" size="small" disabled>
+              上传失败
+            </Button>
+          </Space>
         )
       },
     },
@@ -185,6 +207,13 @@ export default function ModelDetailPage() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onDownload={handleFileDownload}
+      />
+      <VersionDetailDrawer
+        modelId={id!}
+        modelName={model.name}
+        version={selectedVersion}
+        open={detailDrawerOpen}
+        onClose={() => setDetailDrawerOpen(false)}
       />
     </div>
   )

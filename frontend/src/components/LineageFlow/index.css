@@ -1,0 +1,120 @@
+.lineage-flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 16px 0;
+  overflow-x: auto;
+}
+
+.lineage-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 120px;
+  max-width: 160px;
+}
+
+.lineage-node-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1.5px solid;
+  text-align: center;
+  width: 100%;
+  transition: box-shadow 0.2s;
+}
+
+.lineage-node-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.lineage-node-card.clickable {
+  cursor: pointer;
+}
+
+/* Status: completed */
+.lineage-node-card.status-completed.dataset {
+  border-color: #1677ff;
+  background: #f0f5ff;
+}
+
+.lineage-node-card.status-completed.training {
+  border-color: #1677ff;
+  background: #f0f5ff;
+}
+
+.lineage-node-card.status-completed.model {
+  border-color: #52c41a;
+  background: #f6ffed;
+}
+
+/* Status: pending */
+.lineage-node-card.status-pending {
+  border-color: #d9d9d9;
+  border-style: dashed;
+  background: #fafafa;
+  color: #bfbfbf;
+}
+
+.lineage-node-card.status-pending .lineage-node-icon {
+  opacity: 0.4;
+}
+
+.lineage-node-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.lineage-node-label {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  word-break: break-all;
+}
+
+.lineage-node-sub-label {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.lineage-arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  color: #d9d9d9;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.lineage-arrow.status-active {
+  color: #1677ff;
+}
+
+/* Dark mode */
+[data-theme='dark'] .lineage-node-card.status-completed.dataset,
+[data-theme='dark'] .lineage-node-card.status-completed.training {
+  border-color: #1677ff;
+  background: rgba(22, 119, 255, 0.1);
+}
+
+[data-theme='dark'] .lineage-node-card.status-completed.model {
+  border-color: #52c41a;
+  background: rgba(82, 196, 26, 0.1);
+}
+
+[data-theme='dark'] .lineage-node-card.status-pending {
+  border-color: #434343;
+  background: rgba(255, 255, 255, 0.04);
+  color: #595959;
+}
+
+[data-theme='dark'] .lineage-arrow {
+  color: #434343;
+}
+
+[data-theme='dark'] .lineage-arrow.status-active {
+  color: #1677ff;
+}
