@@ -25,8 +25,12 @@ class ModelVersionResponse(BaseModel):
     training_job_id: uuid.UUID | None = None
     training_job_name: str | None = None
     dataset_id: uuid.UUID | None = None
+    dataset_name: str | None = None
     dataset_version_id: uuid.UUID | None = None
+    dataset_version_number: int | None = None
     image_id: uuid.UUID | None = None
+    image_name: str | None = None
+    image_tag: str | None = None
     hyperparameters: dict[str, str] | None = None
     created_by: uuid.UUID
     created_at: datetime

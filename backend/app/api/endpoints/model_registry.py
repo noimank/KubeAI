@@ -15,7 +15,9 @@ from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.pvc import make_workspace_host_path
 from app.integrations.k8s.upload_job import build_upload_job, create_upload_job, get_upload_job_status
 from app.integrations.minio import MinIOClient
+from app.models.dataset import Dataset, DatasetVersion
 from app.models.enums import ModelVersionStatus
+from app.models.image import Image
 from app.models.registered_model import ModelVersion, RegisteredModel
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
@@ -58,10 +60,16 @@ def _build_model_response(
     model: RegisteredModel,
     user_name_map: dict[uuid.UUID, str] | None = None,
     training_job_names: dict[uuid.UUID, str] | None = None,
+    dataset_names: dict[uuid.UUID, str] | None = None,
+    dataset_version_numbers: dict[uuid.UUID, int] | None = None,
+    image_info: dict[uuid.UUID, tuple[str, str]] | None = None,
 ) -> RegisteredModelResponse:
     versions = sorted(model.versions, key=lambda v: v.version_number)
     latest = versions[-1] if versions else None
     _tjn = training_job_names or {}
+    _dn = dataset_names or {}
+    _dvn = dataset_version_numbers or {}
+    _ii = image_info or {}
     return RegisteredModelResponse(
         id=model.id,
         name=model.name,
@@ -70,17 +78,31 @@ def _build_model_response(
         created_by=model.created_by,
         created_by_name=(user_name_map or {}).get(model.created_by),
         version_count=len(versions),
-        latest_version=_build_version_response(
-            latest, _tjn.get(latest.training_job_id) if latest and latest.training_job_id else None
-        )
-        if latest
-        else None,
+        latest_version=(
+            _build_version_response(
+                latest,
+                _tjn.get(latest.training_job_id) if latest and latest.training_job_id else None,
+                _dn.get(latest.dataset_id) if latest and latest.dataset_id else None,
+                _dvn.get(latest.dataset_version_id) if latest and latest.dataset_version_id else None,
+                (_ii.get(latest.image_id) or (None, None))[0] if latest and latest.image_id else None,
+                (_ii.get(latest.image_id) or (None, None))[1] if latest and latest.image_id else None,
+            )
+            if latest
+            else None
+        ),
         created_at=model.created_at,
         updated_at=model.updated_at,
     )
 
 
-def _build_version_response(v: ModelVersion, training_job_name: str | None = None) -> ModelVersionResponse:
+def _build_version_response(
+    v: ModelVersion,
+    training_job_name: str | None = None,
+    dataset_name: str | None = None,
+    dataset_version_number: int | None = None,
+    image_name: str | None = None,
+    image_tag: str | None = None,
+) -> ModelVersionResponse:
     return ModelVersionResponse(
         id=v.id,
         registered_model_id=v.registered_model_id,
@@ -93,8 +115,12 @@ def _build_version_response(v: ModelVersion, training_job_name: str | None = Non
         training_job_id=v.training_job_id,
         training_job_name=training_job_name,
         dataset_id=v.dataset_id,
+        dataset_name=dataset_name,
         dataset_version_id=v.dataset_version_id,
+        dataset_version_number=dataset_version_number,
         image_id=v.image_id,
+        image_name=image_name,
+        image_tag=image_tag,
         hyperparameters=v.hyperparameters,
         created_by=v.created_by,
         created_at=v.created_at,
@@ -115,6 +141,36 @@ async def _resolve_training_job_names(db: AsyncSession, versions: list[ModelVers
         return {}
     result = await db.execute(select(TrainingJob.id, TrainingJob.name).where(TrainingJob.id.in_(job_ids)))
     return {row.id: row.name for row in result.all()}
+
+
+async def _resolve_dataset_info(
+    db: AsyncSession, versions: list[ModelVersion]
+) -> tuple[dict[uuid.UUID, str], dict[uuid.UUID, int]]:
+    dataset_ids = {v.dataset_id for v in versions if v.dataset_id}
+    version_ids = {v.dataset_version_id for v in versions if v.dataset_version_id}
+
+    dataset_names: dict[uuid.UUID, str] = {}
+    version_numbers: dict[uuid.UUID, int] = {}
+
+    if dataset_ids:
+        result = await db.execute(select(Dataset.id, Dataset.name).where(Dataset.id.in_(dataset_ids)))
+        dataset_names = {row.id: row.name for row in result.all()}
+
+    if version_ids:
+        result = await db.execute(
+            select(DatasetVersion.id, DatasetVersion.version_number).where(DatasetVersion.id.in_(version_ids))
+        )
+        version_numbers = {row.id: row.version_number for row in result.all()}
+
+    return dataset_names, version_numbers
+
+
+async def _resolve_image_info(db: AsyncSession, versions: list[ModelVersion]) -> dict[uuid.UUID, tuple[str, str]]:
+    image_ids = {v.image_id for v in versions if v.image_id}
+    if not image_ids:
+        return {}
+    result = await db.execute(select(Image.id, Image.name, Image.tag).where(Image.id.in_(image_ids)))
+    return {row.id: (row.name, row.tag) for row in result.all()}
 
 
 async def _sync_version_upload_status(
@@ -199,7 +255,7 @@ async def register_model(
     short_id = uuid.uuid4().hex[:8]
     upload_job_name = f"kubeai-upload-{short_id}"
 
-    bucket = minio._bucket_name(tenant.name)
+    bucket = await asyncio.to_thread(minio.ensure_bucket, tenant.name)
     upload_job = build_upload_job(
         namespace=namespace,
         job_name=upload_job_name,
@@ -277,7 +333,12 @@ async def list_models(
     user_name_map = await _resolve_user_names(db, models)
     all_versions = [v for m in models for v in m.versions]
     training_job_names = await _resolve_training_job_names(db, all_versions)
-    items = [_build_model_response(m, user_name_map, training_job_names) for m in models]
+    dataset_names, dataset_version_numbers = await _resolve_dataset_info(db, all_versions)
+    image_info = await _resolve_image_info(db, all_versions)
+    items = [
+        _build_model_response(m, user_name_map, training_job_names, dataset_names, dataset_version_numbers, image_info)
+        for m in models
+    ]
     page_data = PageData(items=items, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
 
@@ -313,11 +374,22 @@ async def get_model(
 
     user_name_map = await _resolve_user_names(db, [model])
     training_job_names = await _resolve_training_job_names(db, versions)
-    base = _build_model_response(model, user_name_map, training_job_names)
+    dataset_names, dataset_version_numbers = await _resolve_dataset_info(db, versions)
+    image_info = await _resolve_image_info(db, versions)
+    base = _build_model_response(
+        model, user_name_map, training_job_names, dataset_names, dataset_version_numbers, image_info
+    )
     detail = RegisteredModelDetailResponse(
         **base.model_dump(),
         versions=[
-            _build_version_response(v, training_job_names.get(v.training_job_id) if v.training_job_id else None)
+            _build_version_response(
+                v,
+                training_job_names.get(v.training_job_id) if v.training_job_id else None,
+                dataset_names.get(v.dataset_id) if v.dataset_id else None,
+                dataset_version_numbers.get(v.dataset_version_id) if v.dataset_version_id else None,
+                (image_info.get(v.image_id) or (None, None))[0] if v.image_id else None,
+                (image_info.get(v.image_id) or (None, None))[1] if v.image_id else None,
+            )
             for v in versions
         ],
     )
@@ -353,9 +425,16 @@ async def get_model_version(
         await db.refresh(version)
 
     training_job_names = await _resolve_training_job_names(db, [version])
+    ds_names, ds_ver_nums = await _resolve_dataset_info(db, [version])
+    img_info = await _resolve_image_info(db, [version])
     return BaseResponse(
         data=_build_version_response(
-            version, training_job_names.get(version.training_job_id) if version.training_job_id else None
+            version,
+            training_job_names.get(version.training_job_id) if version.training_job_id else None,
+            ds_names.get(version.dataset_id) if version.dataset_id else None,
+            ds_ver_nums.get(version.dataset_version_id) if version.dataset_version_id else None,
+            (img_info.get(version.image_id) or (None, None))[0] if version.image_id else None,
+            (img_info.get(version.image_id) or (None, None))[1] if version.image_id else None,
         ),
         message="获取成功",
     )
@@ -414,7 +493,7 @@ async def get_file_download_url(
 
     tenant = await _get_tenant_or_fail(db, tenant_id)
     object_name = f"{version.storage_path}/{body.file_name}"
-    url = await asyncio.to_thread(minio.presigned_get_url, tenant.name, object_name)
+    url = await asyncio.to_thread(minio.presigned_get_url, tenant.name, object_name, download_filename=body.file_name)
     return BaseResponse(data=url, message="获取成功")
 
 

@@ -130,10 +130,21 @@ class MinIOClient:
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 获取对象信息失败: {e}") from e
 
-    def presigned_get_url(self, tenant_name: str, object_name: str, expires: timedelta = timedelta(hours=2)) -> str:
+    def presigned_get_url(
+        self,
+        tenant_name: str,
+        object_name: str,
+        expires: timedelta = timedelta(hours=2),
+        download_filename: str | None = None,
+    ) -> str:
         bucket = self._bucket_name(tenant_name)
         try:
-            return self._client.presigned_get_object(bucket, object_name, expires=expires)
+            extra_query: dict[str, str] = {}
+            if download_filename:
+                extra_query["response-content-disposition"] = f'attachment; filename="{download_filename}"'
+            return self._client.presigned_get_object(
+                bucket, object_name, expires=expires, extra_query_params=extra_query
+            )
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 生成预签名 URL 失败: {e}") from e
 

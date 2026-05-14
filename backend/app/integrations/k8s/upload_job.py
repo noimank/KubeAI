@@ -46,6 +46,10 @@ def build_upload_job(
                         k8s_client.V1Container(
                             name="uploader",
                             image="minio/mc:latest",
+                            resources=k8s_client.V1ResourceRequirements(
+                                requests={"cpu": "100m", "memory": "128Mi"},
+                                limits={"cpu": "500m", "memory": "256Mi"},
+                            ),
                             command=["/bin/sh", "-c"],
                             args=[
                                 f"mc alias set kubeai $MINIO_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY\n{copy_commands}"
