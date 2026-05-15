@@ -55,3 +55,7 @@ export interface InferenceServiceEvent {
   firstTimestamp: string | null
   lastTimestamp: string | null
 }
+
+export interface InferenceServiceScaleRequest {
+  replicas: number
+}

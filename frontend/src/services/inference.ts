@@ -4,6 +4,7 @@ import type {
   InferenceService,
   InferenceServiceCreate,
   InferenceServiceEvent,
+  InferenceServiceScaleRequest,
 } from '@/types/inference'
 
 export interface InferenceServiceCreateResult extends InferenceService {
@@ -56,5 +57,13 @@ export async function regenerateToken(id: string): Promise<string> {
 
 export async function getInferenceServiceEvents(id: string): Promise<InferenceServiceEvent[]> {
   const res = await api.get(`/inference-services/${id}/events`)
+  return res.data.data!
+}
+
+export async function scaleInferenceService(
+  id: string,
+  data: InferenceServiceScaleRequest,
+): Promise<InferenceService> {
+  const res = await api.post(`/inference-services/${id}/scale`, data)
   return res.data.data!
 }

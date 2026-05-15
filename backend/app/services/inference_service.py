@@ -215,6 +215,60 @@ class InferenceServiceService:
         await self.db.refresh(svc)
         return svc
 
+    async def scale_inference_service(
+        self, service_id: uuid.UUID, tenant_id: uuid.UUID, replicas: int
+    ) -> InferenceService:
+        svc = await self._get_service_or_fail(service_id, tenant_id)
+
+        if svc.status == InferenceServiceStatus.FAILED:
+            raise ConflictException("服务处于异常状态, 请先修复后再进行扩缩容操作")
+
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        # 扩容时检查 GPU 配额
+        if replicas > svc.replicas and svc.gpu_count > 0:
+            await self._check_gpu_quota(namespace, tenant.gpu_limit, svc.gpu_count * replicas)
+
+        # K8s 更新
+        if svc.kserve_name:
+            await patch_inferenceservice(
+                namespace,
+                svc.kserve_name,
+                {"spec": {"predictor": {"minReplicas": replicas, "maxReplicas": replicas}}},
+            )
+
+        old_status = svc.status
+        old_replicas = svc.replicas
+
+        # DB 更新
+        svc.replicas = replicas
+        svc.min_replicas = replicas
+        svc.max_replicas = replicas
+
+        # 状态处理
+        if old_status == InferenceServiceStatus.STOPPED and replicas > 0:
+            svc.status = InferenceServiceStatus.DEPLOYING
+        elif replicas == 0:
+            svc.status = InferenceServiceStatus.STOPPED
+
+        await self.db.commit()
+        await self.db.refresh(svc)
+
+        logger.info(
+            "inference_service_scaled",
+            extra={
+                "service_id": str(svc.id),
+                "tenant_id": str(tenant_id),
+                "old_replicas": old_replicas,
+                "new_replicas": replicas,
+                "old_status": old_status,
+                "new_status": svc.status,
+            },
+        )
+
+        return svc
+
     async def delete_inference_service(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> InferenceService:
         svc = await self._get_service_or_fail(service_id, tenant_id)
 

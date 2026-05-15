@@ -19,6 +19,8 @@ from app.schemas.inference_service import (
     InferenceServiceCreateResponse,
     InferenceServiceEventResponse,
     InferenceServiceResponse,
+    InferenceServiceScaleRequest,
+    InferenceServiceScaleResponse,
     ModelVersionSummary,
     TokenRegenerateResponse,
 )
@@ -138,6 +140,21 @@ async def stop_inference_service(
     svc = await service.stop_inference_service(service_id, tenant_id)
     resp = _to_response(svc)
     return BaseResponse(data=resp, message="推理服务已停止")
+
+
+@router.post("/{service_id}/scale", response_model=BaseResponse[InferenceServiceScaleResponse])
+async def scale_inference_service(
+    service_id: uuid.UUID,
+    req: InferenceServiceScaleRequest,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "write"))],
+) -> BaseResponse[InferenceServiceScaleResponse]:
+    service = InferenceServiceService(db)
+    tenant_id = _require_tenant_id(user)
+    svc = await service.scale_inference_service(service_id, tenant_id, req.replicas)
+    resp = InferenceServiceScaleResponse.model_validate(svc)
+    resp.has_token = svc.auth_token_hash is not None
+    return BaseResponse(data=resp, message="副本数调整成功")
 
 
 @router.delete("/{service_id}", response_model=BaseResponse[InferenceServiceResponse])

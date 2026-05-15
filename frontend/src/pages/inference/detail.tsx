@@ -6,8 +6,10 @@ import {
   Card,
   Collapse,
   Descriptions,
+  InputNumber,
   Modal,
   Popconfirm,
+  Popover,
   Space,
   Spin,
   Table,
@@ -24,6 +26,7 @@ import {
   getInferenceService,
   getInferenceServiceEvents,
   regenerateToken,
+  scaleInferenceService,
 } from '@/services/inference'
 import type { InferenceServiceEvent } from '@/types/inference'
 
@@ -41,6 +44,8 @@ export default function InferenceServiceDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [tokenVisible, setTokenVisible] = useState(() => !!location.state?.authToken)
+  const [scalePopoverOpen, setScalePopoverOpen] = useState(false)
+  const [scaleValue, setScaleValue] = useState(1)
   const authToken = (location.state as { authToken?: string } | null)?.authToken
 
   const hasPermission = useRbacStore((s) => s.hasPermission)
@@ -76,6 +81,18 @@ export default function InferenceServiceDetailPage() {
     },
   })
 
+  const scaleMutation = useMutation({
+    mutationFn: (replicas: number) => scaleInferenceService(id!, { replicas }),
+    onSuccess: () => {
+      getMessageInstance()?.success('副本数调整成功')
+      setScalePopoverOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) => {
+      getMessageInstance()?.error(err?.response?.data?.message || '副本数调整失败')
+    },
+  })
+
   const { data: events = [], isLoading: eventsLoading } = useQuery({
     queryKey: ['inferenceServiceEvents', id],
     queryFn: () => getInferenceServiceEvents(id!),
@@ -87,6 +104,22 @@ export default function InferenceServiceDetailPage() {
   if (!svc) return null
 
   const statusCfg = STATUS_CONFIG[svc.status] ?? { color: 'default', text: svc.status }
+
+  const showScaleBtn = canWrite && svc.status !== 'failed' && svc.status !== 'pending'
+
+  const handleScaleConfirm = () => {
+    if (scaleValue === 0 && svc.replicas > 0) {
+      Modal.confirm({
+        title: '确认缩容到零',
+        content: '确定将副本数调整为 0？服务将停止但配置保留，可随时恢复',
+        okText: '确认',
+        cancelText: '取消',
+        onOk: () => scaleMutation.mutate(0),
+      })
+    } else {
+      scaleMutation.mutate(scaleValue)
+    }
+  }
 
   const proxyUrl = svc.proxyEndpoint || ''
   const curlExample = proxyUrl
@@ -163,6 +196,58 @@ print(response.json())`
             )}
             {svc.gpuCount > 0 && <span>GPU: {svc.gpuCount} 张</span>}
             <span>副本: {svc.replicas}</span>
+            {showScaleBtn && (
+              <Popover
+                open={scalePopoverOpen}
+                onOpenChange={(open) => {
+                  setScalePopoverOpen(open)
+                  if (open) setScaleValue(svc.replicas)
+                }}
+                title={svc.status === 'stopped' ? '重启服务' : '调整副本数'}
+                trigger="click"
+                content={
+                  <div style={{ width: 240 }}>
+                    <div style={{ marginBottom: 8 }}>
+                      <span>目标副本数: </span>
+                      <InputNumber
+                        min={0}
+                        max={100}
+                        value={scaleValue}
+                        onChange={(v) => setScaleValue(v ?? 0)}
+                        style={{ width: 80 }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 8, color: '#888', fontSize: 12 }}>
+                      当前: {svc.replicas} → 目标: {scaleValue}
+                      {svc.gpuCount > 0 && <span> | 需要 GPU: {svc.gpuCount * scaleValue}</span>}
+                    </div>
+                    {svc.status === 'stopped' && scaleValue > 0 && (
+                      <Alert
+                        type="warning"
+                        message="服务已停止，调整副本数将重新启动服务"
+                        style={{ marginBottom: 8, fontSize: 12 }}
+                      />
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                      <Button size="small" onClick={() => setScalePopoverOpen(false)}>
+                        取消
+                      </Button>
+                      <Button
+                        size="small"
+                        type="primary"
+                        loading={scaleMutation.isPending}
+                        disabled={scaleValue === svc.replicas && svc.status !== 'stopped'}
+                        onClick={handleScaleConfirm}
+                      >
+                        {svc.status === 'stopped' && scaleValue > 0 ? '确认并启动' : '确认调整'}
+                      </Button>
+                    </div>
+                  </div>
+                }
+              >
+                <Button size="small">调整副本</Button>
+              </Popover>
+            )}
           </Space>
         }
       >

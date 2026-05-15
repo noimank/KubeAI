@@ -67,6 +67,14 @@ class InferenceServiceCreateResponse(InferenceServiceResponse):
     auth_token: str
 
 
+class InferenceServiceScaleRequest(BaseModel):
+    replicas: int = Field(..., ge=0, le=100, description="目标副本数")
+
+
+class InferenceServiceScaleResponse(InferenceServiceResponse):
+    pass
+
+
 class InferenceServiceEventResponse(BaseModel):
     type: str
     reason: str
