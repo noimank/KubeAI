@@ -139,7 +139,7 @@ class MinIOClient:
     ) -> str:
         bucket = self._bucket_name(tenant_name)
         try:
-            extra_query: dict[str, str] = {}
+            extra_query: dict[str, str | list[str] | tuple[str]] = {}
             if download_filename:
                 extra_query["response-content-disposition"] = f'attachment; filename="{download_filename}"'
             return self._client.presigned_get_object(
