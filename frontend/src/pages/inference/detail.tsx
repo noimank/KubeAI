@@ -10,14 +10,22 @@ import {
   Popconfirm,
   Space,
   Spin,
+  Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
 import { SyncOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import dayjs from 'dayjs'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
-import { getInferenceService, regenerateToken } from '@/services/inference'
+import {
+  getInferenceService,
+  getInferenceServiceEvents,
+  regenerateToken,
+} from '@/services/inference'
+import type { InferenceServiceEvent } from '@/types/inference'
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   pending: { color: 'warning', text: '等待中' },
@@ -66,6 +74,13 @@ export default function InferenceServiceDetailPage() {
         width: 560,
       })
     },
+  })
+
+  const { data: events = [], isLoading: eventsLoading } = useQuery({
+    queryKey: ['inferenceServiceEvents', id],
+    queryFn: () => getInferenceServiceEvents(id!),
+    enabled: !!id && !!svc?.kserveName && svc.status !== 'pending' && svc.status !== 'stopped',
+    refetchInterval: svc?.status === 'running' || svc?.status === 'deploying' ? 30000 : false,
   })
 
   if (isLoading) return <Spin />
@@ -139,12 +154,28 @@ print(response.json())`
         title={
           <Space>
             <span style={{ fontSize: 14 }}>状态:</span>
-            <Tag color={statusCfg.color}>{statusCfg.text}</Tag>
+            {svc.errorMessage && svc.status === 'failed' ? (
+              <Tooltip title={svc.errorMessage}>
+                <Tag color={statusCfg.color}>{statusCfg.text}</Tag>
+              </Tooltip>
+            ) : (
+              <Tag color={statusCfg.color}>{statusCfg.text}</Tag>
+            )}
             {svc.gpuCount > 0 && <span>GPU: {svc.gpuCount} 张</span>}
             <span>副本: {svc.replicas}</span>
           </Space>
         }
-      />
+      >
+        {svc.status === 'failed' && svc.errorMessage && (
+          <Alert
+            type="error"
+            message="推理服务异常"
+            description={svc.errorMessage}
+            showIcon
+            style={{ marginTop: 8 }}
+          />
+        )}
+      </Card>
 
       <Card size="small" style={{ marginBottom: 16 }} title="端点与认证">
         <Descriptions column={1} size="small">
@@ -237,6 +268,69 @@ print(response.json())`
           <Descriptions.Item label="更新时间">{svc.updatedAt}</Descriptions.Item>
         </Descriptions>
       </Card>
+
+      {svc.kserveName && svc.status !== 'pending' && svc.status !== 'stopped' && (
+        <Card size="small" style={{ marginTop: 16 }} title="事件日志">
+          {eventsLoading ? (
+            <Spin />
+          ) : events.length === 0 ? (
+            <Typography.Text type="secondary">暂无事件记录</Typography.Text>
+          ) : (
+            <Table<InferenceServiceEvent>
+              dataSource={events}
+              rowKey={(record) => `${record.type}-${record.reason}-${record.lastTimestamp}`}
+              size="small"
+              pagination={false}
+              scroll={{ x: 800 }}
+              columns={[
+                {
+                  title: '类型',
+                  dataIndex: 'type',
+                  width: 80,
+                  render: (type: string) => (
+                    <Tag color={type === 'Warning' ? 'red' : 'blue'}>
+                      {type === 'Warning' ? '警告' : '正常'}
+                    </Tag>
+                  ),
+                },
+                {
+                  title: '原因',
+                  dataIndex: 'reason',
+                  width: 120,
+                },
+                {
+                  title: '消息',
+                  dataIndex: 'message',
+                  ellipsis: { showTitle: false },
+                  render: (msg: string) => (
+                    <Tooltip title={msg}>
+                      <span>{msg}</span>
+                    </Tooltip>
+                  ),
+                },
+                {
+                  title: '资源',
+                  width: 160,
+                  render: (_: unknown, record: InferenceServiceEvent) =>
+                    `${record.involvedObjectKind}/${record.involvedObjectName}`,
+                },
+                {
+                  title: '时间',
+                  dataIndex: 'lastTimestamp',
+                  width: 180,
+                  render: (ts: string | null) =>
+                    ts ? dayjs(ts).format('YYYY-MM-DD HH:mm:ss') : '—',
+                },
+                {
+                  title: '次数',
+                  dataIndex: 'count',
+                  width: 60,
+                },
+              ]}
+            />
+          )}
+        </Card>
+      )}
     </div>
   )
 }

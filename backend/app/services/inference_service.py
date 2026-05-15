@@ -276,10 +276,14 @@ class InferenceServiceService:
 
         if new_status != svc.status:
             logger.info(
-                "InferenceService %s status synced: %s -> %s",
-                svc.kserve_name,
-                svc.status,
-                new_status,
+                "inference_service_status_changed",
+                extra={
+                    "service_id": str(svc.id),
+                    "old_status": svc.status,
+                    "new_status": new_status,
+                    "tenant_id": str(svc.tenant_id),
+                    "reason": ready_condition.get("reason", ""),
+                },
             )
             svc.status = new_status
 

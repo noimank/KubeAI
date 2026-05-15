@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query
@@ -7,12 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.exceptions import ForbiddenException
+from app.integrations.k8s.namespace import make_namespace_name
+from app.integrations.kserve.client import list_inference_service_events
 from app.models.inference_service import InferenceService
 from app.models.registered_model import ModelVersion
+from app.models.tenant import Tenant
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.inference_service import (
     InferenceServiceCreateRequest,
     InferenceServiceCreateResponse,
+    InferenceServiceEventResponse,
     InferenceServiceResponse,
     ModelVersionSummary,
     TokenRegenerateResponse,
@@ -36,6 +41,7 @@ def _require_tenant_id(user: object) -> uuid.UUID:
 def _to_response(svc: InferenceService) -> InferenceServiceResponse:
     resp = InferenceServiceResponse.model_validate(svc)
     resp.has_token = svc.auth_token_hash is not None
+    resp.error_message = svc.error_message
     return resp
 
 
@@ -159,3 +165,36 @@ async def regenerate_token(
     return BaseResponse(
         data=TokenRegenerateResponse(token=token, message="Token 已重新生成"), message="Token 重新生成成功"
     )
+
+
+@router.get("/{service_id}/events", response_model=BaseResponse[list[InferenceServiceEventResponse]])
+async def get_inference_service_events(
+    service_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "read"))],
+) -> BaseResponse[list[InferenceServiceEventResponse]]:
+    tenant_id = _require_tenant_id(user)
+    service = InferenceServiceService(db)
+    svc = await service.get_inference_service(service_id, tenant_id)
+
+    if not svc.kserve_name or svc.status in ("pending", "stopped"):
+        return BaseResponse(data=[], message="获取成功")
+
+    tenant = await db.get(Tenant, tenant_id)
+    namespace = (tenant.k8s_namespace_name or make_namespace_name(tenant.name)) if tenant else ""
+
+    raw_events = await list_inference_service_events(namespace, svc.kserve_name)
+    events = [
+        InferenceServiceEventResponse(
+            type=e["type"],
+            reason=e["reason"],
+            message=e["message"],
+            involved_object_kind=e["involved_object_kind"],
+            involved_object_name=e["involved_object_name"],
+            count=e["count"],
+            first_timestamp=datetime.fromisoformat(e["first_timestamp"]) if e.get("first_timestamp") else None,
+            last_timestamp=datetime.fromisoformat(e["last_timestamp"]) if e.get("last_timestamp") else None,
+        )
+        for e in raw_events
+    ]
+    return BaseResponse(data=events, message="获取成功")

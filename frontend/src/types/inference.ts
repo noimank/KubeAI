@@ -27,6 +27,7 @@ export interface InferenceService {
   hasToken: boolean
   description?: string
   envVars?: Record<string, string>
+  errorMessage?: string
   createdAt: string
   updatedAt: string
   modelVersion?: ModelVersionSummary
@@ -42,4 +43,15 @@ export interface InferenceServiceCreate {
   image?: string
   envVars?: Record<string, string>
   description?: string
+}
+
+export interface InferenceServiceEvent {
+  type: string
+  reason: string
+  message: string
+  involvedObjectKind: string
+  involvedObjectName: string
+  count: number
+  firstTimestamp: string | null
+  lastTimestamp: string | null
 }

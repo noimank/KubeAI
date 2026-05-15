@@ -45,6 +45,7 @@ class InferenceServiceResponse(BaseModel):
     has_token: bool = False
     description: str | None
     env_vars: dict[str, str] | None
+    error_message: str | None = None
     created_at: datetime
     updated_at: datetime
     model_version: ModelVersionSummary | None = None
@@ -64,3 +65,14 @@ class TokenRegenerateResponse(BaseModel):
 
 class InferenceServiceCreateResponse(InferenceServiceResponse):
     auth_token: str
+
+
+class InferenceServiceEventResponse(BaseModel):
+    type: str
+    reason: str
+    message: str
+    involved_object_kind: str
+    involved_object_name: str
+    count: int
+    first_timestamp: datetime | None
+    last_timestamp: datetime | None

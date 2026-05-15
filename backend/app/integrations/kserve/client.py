@@ -110,3 +110,51 @@ async def patch_inferenceservice(namespace: str, name: str, body: dict[str, Any]
             body=body,
         ),
     )
+
+
+async def list_inference_service_events(namespace: str, kserve_name: str) -> list[dict[str, Any]]:
+    core_v1 = (await get_k8s_clients())["core_v1"]
+    events: list[dict[str, Any]] = []
+
+    try:
+        # 1. InferenceService CRD level events
+        isv_resp = await core_v1.list_namespaced_event(
+            namespace=namespace,
+            field_selector=f"involvedObject.kind=InferenceService,involvedObject.name={kserve_name}",
+        )
+        for e in isv_resp.items:
+            events.append(_event_to_dict(e))
+    except Exception:
+        logger.warning("Failed to list InferenceService events for %s", kserve_name, exc_info=True)
+
+    try:
+        # 2. Get associated Pods
+        pods_resp = await core_v1.list_namespaced_pod(
+            namespace=namespace,
+            label_selector=f"serving.kserve.io/inferenceservice={kserve_name}",
+        )
+        if pods_resp.items:
+            pod_uids = {pod.metadata.uid for pod in pods_resp.items if pod.metadata.uid}
+            if pod_uids:
+                ns_resp = await core_v1.list_namespaced_event(namespace=namespace, limit=500)
+                for e in ns_resp.items:
+                    if e.involved_object and e.involved_object.uid in pod_uids:
+                        events.append(_event_to_dict(e))
+    except Exception:
+        logger.warning("Failed to list Pod events for %s", kserve_name, exc_info=True)
+
+    events.sort(key=lambda x: x.get("last_timestamp") or "", reverse=True)
+    return events[:100]
+
+
+def _event_to_dict(event: Any) -> dict[str, Any]:
+    return {
+        "type": event.type or "Normal",
+        "reason": event.reason or "",
+        "message": event.message or "",
+        "involved_object_kind": event.involved_object.kind if event.involved_object else "",
+        "involved_object_name": event.involved_object.name if event.involved_object else "",
+        "count": event.count or 1,
+        "first_timestamp": event.first_timestamp.isoformat() if event.first_timestamp else None,
+        "last_timestamp": event.last_timestamp.isoformat() if event.last_timestamp else None,
+    }

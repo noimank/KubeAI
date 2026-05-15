@@ -1,6 +1,10 @@
 import { api } from './api'
 import type { PageData } from '@/types/api'
-import type { InferenceService, InferenceServiceCreate } from '@/types/inference'
+import type {
+  InferenceService,
+  InferenceServiceCreate,
+  InferenceServiceEvent,
+} from '@/types/inference'
 
 export interface InferenceServiceCreateResult extends InferenceService {
   authToken: string
@@ -48,4 +52,9 @@ export async function deleteInferenceService(id: string): Promise<InferenceServi
 export async function regenerateToken(id: string): Promise<string> {
   const res = await api.post(`/inference-services/${id}/regenerate-token`)
   return res.data.data!.token
+}
+
+export async function getInferenceServiceEvents(id: string): Promise<InferenceServiceEvent[]> {
+  const res = await api.get(`/inference-services/${id}/events`)
+  return res.data.data!
 }
