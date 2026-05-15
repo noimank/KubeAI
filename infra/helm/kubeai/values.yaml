@@ -213,6 +213,17 @@ dcgmExporter:
       operator: Exists
       effect: NoSchedule
 
+# -- KServe (model serving inference)
+# Deploy KServe separately: infra/scripts/install-kserve.sh
+# Required for inference service management (InferenceService CRD).
+kserve:
+  enabled: false
+  namespace: kserve
+  version: "v0.17.0"
+  # Standard = RawDeployment (no Knative required)
+  # Knative = Serverless (requires Knative Serving)
+  deploymentMode: Standard
+
 # -- MLflow Tracking Server (experiment tracking)
 # Deploys MLflow with PostgreSQL backend store and PVC artifact storage.
 # When enabled, MLFLOW_TRACKING_URI is auto-injected into backend pods.

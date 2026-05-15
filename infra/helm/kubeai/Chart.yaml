@@ -44,11 +44,10 @@ dependencies:
     condition: dcgmExporter.enabled
     alias: dcgmExporter
 
-  # Post-MVP dependencies (uncomment when needed):
-  # - name: kserve
-  #   version: "0.14.x"
-  #   repository: https://kserve.github.io/charts
-  #   condition: kserve.enabled
+  # Post-MVP dependencies (install separately):
+  # KServe: deploy via infra/scripts/install-kserve.sh (uses OCI Helm charts)
+  #   helm install kserve-crd oci://ghcr.io/kserve/charts/kserve-crd --version v0.17.0 -n kserve --create-namespace
+  #   helm install kserve oci://ghcr.io/kserve/charts/kserve-resources --version v0.17.0 -n kserve --set kserve.controller.deploymentMode=Standard
   # - name: keda
   #   version: "2.16.x"
   #   repository: https://kedacore.github.io/charts

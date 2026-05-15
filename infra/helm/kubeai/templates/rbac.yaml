@@ -34,6 +34,12 @@ rules:
   - apiGroups: [scheduling.volcano.sh]
     resources: [queues, podgroups]
     verbs: [get, list]
+  - apiGroups: [serving.kserve.io]
+    resources: [inferenceservices]
+    verbs: [get, list, create, delete, patch, watch]
+  - apiGroups: [""]
+    resources: [pods, events]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
