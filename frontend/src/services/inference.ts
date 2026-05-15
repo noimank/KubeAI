@@ -2,6 +2,9 @@ import { api } from './api'
 import type { PageData } from '@/types/api'
 import type {
   AutoScalingUpdateRequest,
+  CanaryStartRequest,
+  CanaryStatusResponse,
+  CanaryTrafficUpdateRequest,
   InferenceService,
   InferenceServiceCreate,
   InferenceServiceEvent,
@@ -74,5 +77,33 @@ export async function updateAutoScaling(
   data: AutoScalingUpdateRequest,
 ): Promise<InferenceService> {
   const res = await api.patch(`/inference-services/${id}/autoscaling`, data)
+  return res.data.data!
+}
+
+export async function startCanary(id: string, data: CanaryStartRequest): Promise<InferenceService> {
+  const res = await api.post(`/inference-services/${id}/canary/start`, data)
+  return res.data.data!
+}
+
+export async function updateCanaryTraffic(
+  id: string,
+  data: CanaryTrafficUpdateRequest,
+): Promise<InferenceService> {
+  const res = await api.patch(`/inference-services/${id}/canary/traffic`, data)
+  return res.data.data!
+}
+
+export async function promoteCanary(id: string): Promise<InferenceService> {
+  const res = await api.post(`/inference-services/${id}/canary/promote`)
+  return res.data.data!
+}
+
+export async function rollbackCanary(id: string): Promise<InferenceService> {
+  const res = await api.post(`/inference-services/${id}/canary/rollback`)
+  return res.data.data!
+}
+
+export async function getCanaryStatus(id: string): Promise<CanaryStatusResponse> {
+  const res = await api.get(`/inference-services/${id}/canary/status`)
   return res.data.data!
 }

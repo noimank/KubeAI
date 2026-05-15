@@ -1,4 +1,5 @@
 import logging
+import random
 import uuid
 
 import httpx
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.core.exceptions import UnauthorizedException
+from app.integrations.kserve.client import get_inferenceservice
 from app.models.enums import InferenceServiceStatus
 from app.services.audit_service import AuditService
 from app.services.inference_service import InferenceServiceService
@@ -59,7 +61,19 @@ async def proxy_inference_request(
             media_type="application/json",
         )
 
-    target_url = f"{svc.endpoint_url}/{path}"
+    # Canary traffic routing
+    is_canary = False
+    target_base_url = svc.endpoint_url
+
+    if svc.canary_status == "running" and svc.canary_kserve_name:
+        canary_url = await _get_canary_endpoint_url(svc, db)
+        if canary_url:
+            rand = random.randint(0, 99)
+            if rand < (svc.canary_traffic_percent or 0):
+                target_base_url = canary_url
+                is_canary = True
+
+    target_url = f"{target_base_url}/{path}"
 
     body = await request.body()
     headers = {}
@@ -92,6 +106,7 @@ async def proxy_inference_request(
             resource_id=str(service_id),
             ip_address=_get_client_ip(request),
             tenant_id=svc.tenant_id,
+            detail={"canary": is_canary},
         )
         await db.commit()
     except Exception:
@@ -99,6 +114,7 @@ async def proxy_inference_request(
 
     excluded_headers = {"transfer-encoding", "content-encoding", "content-length"}
     response_headers = {k: v for k, v in resp.headers.items() if k.lower() not in excluded_headers}
+    response_headers["X-KubeAI-Canary"] = "true" if is_canary else "false"
 
     return Response(
         content=resp.content,
@@ -106,3 +122,24 @@ async def proxy_inference_request(
         headers=response_headers,
         media_type=resp.headers.get("Content-Type"),
     )
+
+
+async def _get_canary_endpoint_url(svc: object, db: AsyncSession) -> str | None:
+    from app.integrations.k8s.namespace import make_namespace_name
+    from app.models.tenant import Tenant
+
+    tenant_id = getattr(svc, "tenant_id", None)
+    canary_kserve_name = getattr(svc, "canary_kserve_name", None)
+    if not tenant_id or not canary_kserve_name:
+        return None
+
+    tenant = await db.get(Tenant, tenant_id)
+    if not tenant:
+        return None
+
+    namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+    canary_obj = await get_inferenceservice(namespace, canary_kserve_name)
+    if not canary_obj:
+        return None
+    url: str | None = canary_obj.get("status", {}).get("url")
+    return url

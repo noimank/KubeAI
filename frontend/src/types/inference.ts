@@ -2,6 +2,7 @@ export type InferenceServiceStatus = 'pending' | 'deploying' | 'running' | 'fail
 
 export type ScalingMode = 'fixed' | 'auto'
 export type MetricType = 'concurrency' | 'cpu'
+export type CanaryStatus = 'none' | 'deploying' | 'running' | 'failed'
 
 export interface AutoScalingConfig {
   scalingMode: ScalingMode
@@ -28,6 +29,7 @@ export interface ModelVersionSummary {
   versionNumber: number
   registeredModelId: string
   status: string
+  storagePath?: string
 }
 
 export interface InferenceService {
@@ -56,6 +58,10 @@ export interface InferenceService {
   targetMetricValue?: number
   cooldownPeriod: number
   pollingInterval: number
+  canaryStatus: CanaryStatus
+  canaryModelVersionId?: string
+  canaryTrafficPercent?: number
+  canaryKserveName?: string
   createdAt: string
   updatedAt: string
   modelVersion?: ModelVersionSummary
@@ -87,4 +93,22 @@ export interface InferenceServiceEvent {
 
 export interface InferenceServiceScaleRequest {
   replicas: number
+}
+
+export interface CanaryStartRequest {
+  canaryModelVersionId: string
+  canaryTrafficPercent: number
+}
+
+export interface CanaryTrafficUpdateRequest {
+  canaryTrafficPercent: number
+}
+
+export interface CanaryStatusResponse {
+  canaryStatus: CanaryStatus
+  canaryModelVersion?: ModelVersionSummary
+  canaryTrafficPercent?: number
+  stableTrafficPercent?: number
+  canaryEndpointUrl?: string
+  canaryEvents: InferenceServiceEvent[]
 }

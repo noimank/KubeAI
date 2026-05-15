@@ -47,6 +47,20 @@ class InferenceService(Base, TimestampMixin):
         String(255), nullable=True, index=True, comment="API Token 哈希"
     )
     proxy_endpoint: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="代理端点 URL")
+    canary_model_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("model_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="金丝雀模型版本 ID",
+    )
+    canary_traffic_percent: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="金丝雀流量百分比 (0-100)"
+    )
+    canary_kserve_name: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, comment="金丝雀 InferenceService K8s 名称"
+    )
+    canary_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="none", comment="金丝雀状态: none/deploying/running/failed"
+    )
     scaling_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, default="fixed", comment="伸缩模式: fixed/auto"
     )

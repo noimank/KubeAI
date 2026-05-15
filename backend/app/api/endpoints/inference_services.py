@@ -16,6 +16,9 @@ from app.models.tenant import Tenant
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.inference_service import (
     AutoScalingUpdateRequest,
+    CanaryStartRequest,
+    CanaryStatusResponse,
+    CanaryTrafficUpdateRequest,
     InferenceServiceCreateRequest,
     InferenceServiceCreateResponse,
     InferenceServiceEventResponse,
@@ -57,6 +60,7 @@ async def _enrich_with_model_version(db: AsyncSession, svc: InferenceServiceResp
             version_number=version.version_number,
             registered_model_id=version.registered_model_id,
             status=version.status,
+            storage_path=version.storage_path,
         )
     return svc
 
@@ -231,3 +235,119 @@ async def get_inference_service_events(
         for e in raw_events
     ]
     return BaseResponse(data=events, message="获取成功")
+
+
+# ── Canary endpoints ────────────────────────────────────────────────────────
+
+
+@router.post("/{service_id}/canary/start", response_model=BaseResponse[InferenceServiceResponse])
+async def start_canary(
+    service_id: uuid.UUID,
+    req: CanaryStartRequest,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "write"))],
+) -> BaseResponse[InferenceServiceResponse]:
+    service = InferenceServiceService(db)
+    tenant_id = _require_tenant_id(user)
+    svc = await service.start_canary(service_id, tenant_id, req)
+    resp = _to_response(svc)
+    await _enrich_with_model_version(db, resp)
+    return BaseResponse(data=resp, message="金丝雀版本部署中")
+
+
+@router.patch("/{service_id}/canary/traffic", response_model=BaseResponse[InferenceServiceResponse])
+async def update_canary_traffic(
+    service_id: uuid.UUID,
+    req: CanaryTrafficUpdateRequest,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "write"))],
+) -> BaseResponse[InferenceServiceResponse]:
+    service = InferenceServiceService(db)
+    tenant_id = _require_tenant_id(user)
+    svc = await service.update_canary_traffic(service_id, tenant_id, req)
+    resp = _to_response(svc)
+    await _enrich_with_model_version(db, resp)
+    return BaseResponse(data=resp, message="金丝雀流量已调整")
+
+
+@router.post("/{service_id}/canary/promote", response_model=BaseResponse[InferenceServiceResponse])
+async def promote_canary(
+    service_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "manage"))],
+) -> BaseResponse[InferenceServiceResponse]:
+    service = InferenceServiceService(db)
+    tenant_id = _require_tenant_id(user)
+    svc = await service.promote_canary(service_id, tenant_id)
+    resp = _to_response(svc)
+    await _enrich_with_model_version(db, resp)
+    return BaseResponse(data=resp, message="金丝雀版本已提升为稳定版本")
+
+
+@router.post("/{service_id}/canary/rollback", response_model=BaseResponse[InferenceServiceResponse])
+async def rollback_canary(
+    service_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "write"))],
+) -> BaseResponse[InferenceServiceResponse]:
+    service = InferenceServiceService(db)
+    tenant_id = _require_tenant_id(user)
+    svc = await service.rollback_canary(service_id, tenant_id)
+    resp = _to_response(svc)
+    await _enrich_with_model_version(db, resp)
+    return BaseResponse(data=resp, message="金丝雀版本已回滚")
+
+
+@router.get("/{service_id}/canary/status", response_model=BaseResponse[CanaryStatusResponse])
+async def get_canary_status(
+    service_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "read"))],
+) -> BaseResponse[CanaryStatusResponse]:
+    tenant_id = _require_tenant_id(user)
+    service = InferenceServiceService(db)
+    svc = await service.get_inference_service(service_id, tenant_id)
+
+    canary_model_version: ModelVersionSummary | None = None
+    if svc.canary_model_version_id:
+        result = await db.execute(select(ModelVersion).where(ModelVersion.id == svc.canary_model_version_id))
+        version = result.scalar_one_or_none()
+        if version:
+            canary_model_version = ModelVersionSummary(
+                id=version.id,
+                version_number=version.version_number,
+                registered_model_id=version.registered_model_id,
+                status=version.status,
+                storage_path=version.storage_path,
+            )
+
+    canary_endpoint_url = await service.get_canary_endpoint_url(svc, tenant_id)
+
+    canary_events: list[InferenceServiceEventResponse] = []
+    if svc.canary_kserve_name and svc.canary_status != "none":
+        tenant = await db.get(Tenant, tenant_id)
+        namespace = (tenant.k8s_namespace_name or make_namespace_name(tenant.name)) if tenant else ""
+        raw_events = await list_inference_service_events(namespace, svc.canary_kserve_name)
+        canary_events = [
+            InferenceServiceEventResponse(
+                type=e["type"],
+                reason=e["reason"],
+                message=e["message"],
+                involved_object_kind=e["involved_object_kind"],
+                involved_object_name=e["involved_object_name"],
+                count=e["count"],
+                first_timestamp=datetime.fromisoformat(e["first_timestamp"]) if e.get("first_timestamp") else None,
+                last_timestamp=datetime.fromisoformat(e["last_timestamp"]) if e.get("last_timestamp") else None,
+            )
+            for e in raw_events
+        ]
+
+    data = CanaryStatusResponse(
+        canary_status=svc.canary_status,
+        canary_model_version=canary_model_version,
+        canary_traffic_percent=svc.canary_traffic_percent,
+        stable_traffic_percent=100 - svc.canary_traffic_percent if svc.canary_traffic_percent is not None else None,
+        canary_endpoint_url=canary_endpoint_url,
+        canary_events=canary_events,
+    )
+    return BaseResponse(data=data, message="获取成功")

@@ -44,6 +44,7 @@ class ModelVersionSummary(BaseModel):
     version_number: int
     registered_model_id: uuid.UUID
     status: str
+    storage_path: str | None = None
 
 
 class InferenceServiceResponse(BaseModel):
@@ -74,6 +75,10 @@ class InferenceServiceResponse(BaseModel):
     target_metric_value: int | None = None
     cooldown_period: int = 300
     polling_interval: int = 30
+    canary_status: str = "none"
+    canary_model_version_id: uuid.UUID | None = None
+    canary_traffic_percent: int | None = None
+    canary_kserve_name: str | None = None
     created_at: datetime
     updated_at: datetime
     model_version: ModelVersionSummary | None = None
@@ -133,3 +138,21 @@ class InferenceServiceEventResponse(BaseModel):
     count: int
     first_timestamp: datetime | None
     last_timestamp: datetime | None
+
+
+class CanaryStartRequest(BaseModel):
+    canary_model_version_id: uuid.UUID
+    canary_traffic_percent: int = Field(default=10, ge=1, le=99)
+
+
+class CanaryTrafficUpdateRequest(BaseModel):
+    canary_traffic_percent: int = Field(..., ge=0, le=100)
+
+
+class CanaryStatusResponse(BaseModel):
+    canary_status: str
+    canary_model_version: ModelVersionSummary | None = None
+    canary_traffic_percent: int | None = None
+    stable_traffic_percent: int | None = None
+    canary_endpoint_url: str | None = None
+    canary_events: list[InferenceServiceEventResponse] = []

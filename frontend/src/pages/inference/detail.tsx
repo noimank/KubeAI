@@ -12,7 +12,9 @@ import {
   Modal,
   Popconfirm,
   Popover,
+  Progress,
   Select,
+  Slider,
   Space,
   Spin,
   Switch,
@@ -21,7 +23,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd'
-import { ThunderboltOutlined, SyncOutlined } from '@ant-design/icons'
+import { ExperimentOutlined, ThunderboltOutlined, SyncOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import { getMessageInstance } from '@/utils/messageHolder'
@@ -33,7 +35,13 @@ import {
   regenerateToken,
   scaleInferenceService,
   updateAutoScaling,
+  startCanary,
+  updateCanaryTraffic,
+  promoteCanary,
+  rollbackCanary,
+  getCanaryStatus,
 } from '@/services/inference'
+import { getModel } from '@/services/models'
 import type { AutoScalingUpdateRequest, InferenceServiceEvent, MetricType } from '@/types/inference'
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
@@ -42,6 +50,13 @@ const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   running: { color: 'success', text: '运行中' },
   failed: { color: 'error', text: '已失败' },
   stopped: { color: 'default', text: '已停止' },
+}
+
+const CANARY_STATUS_CONFIG: Record<string, { color: string; text: string }> = {
+  none: { color: 'default', text: '无金丝雀' },
+  deploying: { color: 'processing', text: '部署中' },
+  running: { color: 'success', text: '运行中' },
+  failed: { color: 'error', text: '已失败' },
 }
 
 const METRIC_TYPE_OPTIONS = [
@@ -58,10 +73,13 @@ export default function InferenceServiceDetailPage() {
   const [scalePopoverOpen, setScalePopoverOpen] = useState(false)
   const [scaleValue, setScaleValue] = useState(1)
   const [autoScalingModalOpen, setAutoScalingModalOpen] = useState(false)
+  const [canaryStartModalOpen, setCanaryStartModalOpen] = useState(false)
+  const [canaryTrafficModalOpen, setCanaryTrafficModalOpen] = useState(false)
   const authToken = (location.state as { authToken?: string } | null)?.authToken
 
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const canWrite = hasPermission('inference_services:write')
+  const canManage = hasPermission('inference_services:manage')
 
   const { data: svc, isLoading } = useQuery({
     queryKey: ['inferenceService', id],
@@ -69,8 +87,18 @@ export default function InferenceServiceDetailPage() {
     enabled: !!id,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      return status && ['pending', 'deploying'].includes(status) ? 5000 : false
+      const canaryStatus = query.state.data?.canaryStatus
+      if (status && ['pending', 'deploying'].includes(status)) return 5000
+      if (canaryStatus === 'deploying') return 5000
+      return false
     },
+  })
+
+  const { data: canaryStatusData } = useQuery({
+    queryKey: ['canaryStatus', id],
+    queryFn: () => getCanaryStatus(id!),
+    enabled: !!id && !!svc?.canaryKserveName && svc.canaryStatus !== 'none',
+    refetchInterval: svc?.canaryStatus === 'deploying' ? 5000 : 30000,
   })
 
   const regenerateMutation = useMutation({
@@ -114,6 +142,57 @@ export default function InferenceServiceDetailPage() {
     },
     onError: (err: { response?: { data?: { message?: string } } }) => {
       getMessageInstance()?.error(err?.response?.data?.message || '自动伸缩配置失败')
+    },
+  })
+
+  const startCanaryMutation = useMutation({
+    mutationFn: (data: { canaryModelVersionId: string; canaryTrafficPercent: number }) =>
+      startCanary(id!, data),
+    onSuccess: () => {
+      getMessageInstance()?.success('金丝雀版本部署中...')
+      setCanaryStartModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+      queryClient.invalidateQueries({ queryKey: ['canaryStatus', id] })
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) => {
+      getMessageInstance()?.error(err?.response?.data?.message || '金丝雀启动失败')
+    },
+  })
+
+  const promoteCanaryMutation = useMutation({
+    mutationFn: promoteCanary,
+    onSuccess: () => {
+      getMessageInstance()?.success('金丝雀版本已提升为稳定版本')
+      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+      queryClient.invalidateQueries({ queryKey: ['canaryStatus', id] })
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) => {
+      getMessageInstance()?.error(err?.response?.data?.message || '金丝雀提升失败')
+    },
+  })
+
+  const rollbackCanaryMutation = useMutation({
+    mutationFn: rollbackCanary,
+    onSuccess: () => {
+      getMessageInstance()?.success('金丝雀版本已回滚')
+      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+      queryClient.invalidateQueries({ queryKey: ['canaryStatus', id] })
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) => {
+      getMessageInstance()?.error(err?.response?.data?.message || '金丝雀回滚失败')
+    },
+  })
+
+  const updateTrafficMutation = useMutation({
+    mutationFn: (data: { canaryTrafficPercent: number }) => updateCanaryTraffic(id!, data),
+    onSuccess: () => {
+      getMessageInstance()?.success('金丝雀流量已调整')
+      setCanaryTrafficModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+      queryClient.invalidateQueries({ queryKey: ['canaryStatus', id] })
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) => {
+      getMessageInstance()?.error(err?.response?.data?.message || '流量调整失败')
     },
   })
 
@@ -237,6 +316,25 @@ print(response.json())`
               }
             : undefined
         }
+      />
+
+      <CanaryStartModal
+        open={canaryStartModalOpen}
+        onCancel={() => setCanaryStartModalOpen(false)}
+        onSubmit={(data) => startCanaryMutation.mutate(data)}
+        loading={startCanaryMutation.isPending}
+        currentModelVersionId={svc.modelVersionId}
+        registeredModelId={svc.modelVersion?.registeredModelId}
+        gpuCount={svc.gpuCount}
+        replicas={svc.replicas}
+      />
+
+      <CanaryTrafficModal
+        open={canaryTrafficModalOpen}
+        onCancel={() => setCanaryTrafficModalOpen(false)}
+        onSubmit={(data) => updateTrafficMutation.mutate(data)}
+        loading={updateTrafficMutation.isPending}
+        currentPercent={svc.canaryTrafficPercent ?? 0}
       />
 
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
@@ -383,6 +481,22 @@ print(response.json())`
           />
         )}
       </Card>
+
+      {/* Canary Section */}
+      <CanarySection
+        svc={svc}
+        canaryStatusData={canaryStatusData}
+        canaryEvents={canaryStatusData?.canaryEvents ?? []}
+        onStartCanary={() => setCanaryStartModalOpen(true)}
+        onAdjustTraffic={() => setCanaryTrafficModalOpen(true)}
+        onPromote={() => promoteCanaryMutation.mutate(id!)}
+        onRollback={() => rollbackCanaryMutation.mutate(id!)}
+        onRetry={() => rollbackCanaryMutation.mutate(id!)}
+        canWrite={canWrite}
+        canManage={canManage}
+        promoteLoading={promoteCanaryMutation.isPending}
+        rollbackLoading={rollbackCanaryMutation.isPending}
+      />
 
       <Card size="small" style={{ marginBottom: 16 }} title="端点与认证">
         <Descriptions column={1} size="small">
@@ -541,6 +655,428 @@ print(response.json())`
     </div>
   )
 }
+
+/* ── Canary Section Component ──────────────────────────────────────────── */
+
+function CanarySection({
+  svc,
+  canaryStatusData,
+  canaryEvents,
+  onStartCanary,
+  onAdjustTraffic,
+  onPromote,
+  onRollback,
+  onRetry,
+  canWrite,
+  canManage,
+  promoteLoading,
+  rollbackLoading,
+}: {
+  svc: import('@/types/inference').InferenceService
+  canaryStatusData: import('@/types/inference').CanaryStatusResponse | undefined
+  canaryEvents: InferenceServiceEvent[]
+  onStartCanary: () => void
+  onAdjustTraffic: () => void
+  onPromote: () => void
+  onRollback: () => void
+  onRetry: () => void
+  canWrite: boolean
+  canManage: boolean
+  promoteLoading: boolean
+  rollbackLoading: boolean
+}) {
+  const canaryCfg = CANARY_STATUS_CONFIG[svc.canaryStatus] ?? {
+    color: 'default',
+    text: svc.canaryStatus,
+  }
+
+  const hasActiveCanary = svc.canaryStatus !== 'none'
+
+  // No canary - show start button
+  if (!hasActiveCanary) {
+    if (svc.status !== 'running' || !canWrite) return null
+    return (
+      <Card size="small" style={{ marginBottom: 16 }} title="金丝雀发布">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography.Text type="secondary">
+            当前服务运行稳定，可启动金丝雀发布逐步上线新模型版本
+          </Typography.Text>
+          <Button type="primary" icon={<ExperimentOutlined />} onClick={onStartCanary}>
+            启动金丝雀发布
+          </Button>
+        </div>
+      </Card>
+    )
+  }
+
+  const canaryPercent = svc.canaryTrafficPercent ?? 0
+  const stablePercent = 100 - canaryPercent
+
+  return (
+    <Card
+      size="small"
+      style={{ marginBottom: 16 }}
+      title={
+        <Space>
+          <span>金丝雀发布</span>
+          <Tag color={canaryCfg.color}>{canaryCfg.text}</Tag>
+          {svc.canaryStatus === 'running' && <Tag color="blue">{canaryPercent}% 流量</Tag>}
+        </Space>
+      }
+    >
+      {/* Deploying status */}
+      {svc.canaryStatus === 'deploying' && (
+        <Alert
+          type="info"
+          message="金丝雀版本正在部署中，请等待就绪..."
+          showIcon
+          style={{ marginBottom: 12 }}
+        />
+      )}
+
+      {/* Failed status */}
+      {svc.canaryStatus === 'failed' && (
+        <Alert
+          type="error"
+          message="金丝雀版本部署失败"
+          description="请检查事件日志了解失败原因"
+          showIcon
+          action={
+            canWrite ? (
+              <Button size="small" danger loading={rollbackLoading} onClick={onRetry}>
+                清理并重试
+              </Button>
+            ) : undefined
+          }
+          style={{ marginBottom: 12 }}
+        />
+      )}
+
+      {/* Running status - traffic visualization */}
+      {svc.canaryStatus === 'running' && (
+        <>
+          <Alert
+            type="info"
+            message={`金丝雀版本正在接收 ${canaryPercent}% 的流量`}
+            description="确认指标正常后再逐步提升流量"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: 12 }}>
+                稳定版本 (
+                {svc.modelVersion?.versionNumber ? `v${svc.modelVersion.versionNumber}` : '当前'})
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>
+                金丝雀 (
+                {canaryStatusData?.canaryModelVersion
+                  ? `v${canaryStatusData.canaryModelVersion.versionNumber}`
+                  : '新版本'}
+                )
+              </span>
+            </div>
+            <Progress
+              percent={100}
+              success={{ percent: stablePercent, strokeColor: '#1677ff' }}
+              strokeColor="#52c41a"
+              showInfo={false}
+              size="small"
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+              <span style={{ fontSize: 12, color: '#1677ff' }}>{stablePercent}% 流量</span>
+              <span style={{ fontSize: 12, color: '#52c41a' }}>{canaryPercent}% 流量</span>
+            </div>
+          </div>
+
+          {canWrite && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <Button onClick={onAdjustTraffic}>调整流量</Button>
+              {canManage && (
+                <Popconfirm
+                  title="提升金丝雀版本"
+                  description="确认将金丝雀版本提升为稳定版本？此操作不可撤销"
+                  onConfirm={onPromote}
+                  okText="确认提升"
+                  cancelText="取消"
+                >
+                  <Button type="primary" loading={promoteLoading}>
+                    提升为稳定版本
+                  </Button>
+                </Popconfirm>
+              )}
+              <Popconfirm
+                title="回滚金丝雀"
+                description="确认回滚金丝雀？金丝雀版本将被删除"
+                onConfirm={onRollback}
+                okText="确认回滚"
+                cancelText="取消"
+              >
+                <Button danger loading={rollbackLoading}>
+                  回滚
+                </Button>
+              </Popconfirm>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Canary events */}
+      {svc.canaryKserveName && svc.canaryStatus !== 'none' && canaryEvents.length > 0 && (
+        <Collapse
+          size="small"
+          items={[
+            {
+              key: 'canary-events',
+              label: `金丝雀事件 (${canaryEvents.length})`,
+              children: (
+                <Table<InferenceServiceEvent>
+                  dataSource={canaryEvents}
+                  rowKey={(record) =>
+                    `canary-${record.type}-${record.reason}-${record.lastTimestamp}`
+                  }
+                  size="small"
+                  pagination={{ pageSize: 5, size: 'small' }}
+                  scroll={{ x: 700 }}
+                  columns={[
+                    {
+                      title: '类型',
+                      dataIndex: 'type',
+                      width: 70,
+                      render: (type: string) => (
+                        <Tag color={type === 'Warning' ? 'red' : 'blue'} style={{ fontSize: 11 }}>
+                          {type === 'Warning' ? '警告' : '正常'}
+                        </Tag>
+                      ),
+                    },
+                    { title: '原因', dataIndex: 'reason', width: 110 },
+                    {
+                      title: '消息',
+                      dataIndex: 'message',
+                      ellipsis: { showTitle: false },
+                      render: (msg: string) => (
+                        <Tooltip title={msg}>
+                          <span>{msg}</span>
+                        </Tooltip>
+                      ),
+                    },
+                    {
+                      title: '时间',
+                      dataIndex: 'lastTimestamp',
+                      width: 160,
+                      render: (ts: string | null) =>
+                        ts ? dayjs(ts).format('MM-DD HH:mm:ss') : '—',
+                    },
+                  ]}
+                />
+              ),
+            },
+          ]}
+        />
+      )}
+    </Card>
+  )
+}
+
+/* ── Canary Start Modal ──────────────────────────────────────────────────── */
+
+function CanaryStartModal({
+  open,
+  onCancel,
+  onSubmit,
+  loading,
+  currentModelVersionId,
+  registeredModelId,
+  gpuCount,
+  replicas,
+}: {
+  open: boolean
+  onCancel: () => void
+  onSubmit: (data: { canaryModelVersionId: string; canaryTrafficPercent: number }) => void
+  loading: boolean
+  currentModelVersionId: string
+  registeredModelId?: string
+  gpuCount: number
+  replicas: number
+}) {
+  const [form] = Form.useForm()
+  const { quota } = useResourceQuota()
+  const trafficPercent = Form.useWatch('canaryTrafficPercent', form) ?? 10
+
+  const { data: modelDetail } = useQuery({
+    queryKey: ['model', registeredModelId],
+    queryFn: () => getModel(registeredModelId!),
+    enabled: !!registeredModelId && open,
+  })
+
+  const availableVersions =
+    modelDetail?.versions.filter(
+      (v) => v.id !== currentModelVersionId && v.status === 'available',
+    ) ?? []
+
+  const gpuPreview = gpuCount * replicas
+  const gpuAvailable = quota ? quota.gpu.total - quota.gpu.used : 0
+
+  const handleFinish = () => {
+    form.validateFields().then((values) => {
+      onSubmit({
+        canaryModelVersionId: values.canaryModelVersionId,
+        canaryTrafficPercent: values.canaryTrafficPercent,
+      })
+    })
+  }
+
+  return (
+    <Modal
+      open={open}
+      title="启动金丝雀发布"
+      onCancel={onCancel}
+      onOk={handleFinish}
+      confirmLoading={loading}
+      okText="启动金丝雀"
+      cancelText="取消"
+      width={520}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical" initialValues={{ canaryTrafficPercent: 10 }}>
+        <Form.Item
+          name="canaryModelVersionId"
+          label="金丝雀模型版本"
+          rules={[{ required: true, message: '请选择金丝雀模型版本' }]}
+        >
+          <Select
+            placeholder="选择模型版本"
+            options={availableVersions.map((v) => ({
+              label: `v${v.versionNumber} — ${v.description || v.storagePath}`,
+              value: v.id,
+            }))}
+            notFoundContent="没有可用的模型版本"
+          />
+        </Form.Item>
+        <Form.Item label="初始流量比例" style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Slider
+              min={1}
+              max={99}
+              value={trafficPercent}
+              onChange={(v) => form.setFieldValue('canaryTrafficPercent', v)}
+              style={{ flex: 1 }}
+            />
+            <InputNumber
+              min={1}
+              max={99}
+              value={trafficPercent}
+              onChange={(v) => form.setFieldValue('canaryTrafficPercent', v ?? 10)}
+              style={{ width: 70 }}
+              addonAfter="%"
+            />
+          </div>
+        </Form.Item>
+        <Form.Item name="canaryTrafficPercent" hidden>
+          <InputNumber />
+        </Form.Item>
+
+        {gpuCount > 0 && (
+          <div
+            style={{ padding: '8px 12px', background: '#fafafa', borderRadius: 6, marginTop: 8 }}
+          >
+            <Typography.Text style={{ fontSize: 12 }}>
+              资源预估: {gpuCount} GPU × {replicas} 副本 = {gpuPreview} GPU
+              {quota && (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    color: gpuPreview > gpuAvailable ? '#ff4d4f' : '#52c41a',
+                  }}
+                >
+                  (可用: {gpuAvailable} GPU)
+                </span>
+              )}
+            </Typography.Text>
+          </div>
+        )}
+      </Form>
+    </Modal>
+  )
+}
+
+/* ── Canary Traffic Modal ──────────────────────────────────────────────────── */
+
+function CanaryTrafficModal({
+  open,
+  onCancel,
+  onSubmit,
+  loading,
+  currentPercent,
+}: {
+  open: boolean
+  onCancel: () => void
+  onSubmit: (data: { canaryTrafficPercent: number }) => void
+  loading: boolean
+  currentPercent: number
+}) {
+  const [percent, setPercent] = useState(currentPercent)
+
+  const handleFinish = () => {
+    onSubmit({ canaryTrafficPercent: percent })
+  }
+
+  return (
+    <Modal
+      open={open}
+      title="调整金丝雀流量"
+      onCancel={onCancel}
+      onOk={handleFinish}
+      confirmLoading={loading}
+      okText="确认调整"
+      cancelText="取消"
+      destroyOnClose
+    >
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <Slider
+            min={0}
+            max={100}
+            value={percent}
+            onChange={setPercent}
+            style={{ flex: 1 }}
+            marks={{
+              0: { label: '回滚' },
+              25: '25%',
+              50: '50%',
+              75: '75%',
+              100: { label: '完全提升' },
+            }}
+          />
+          <InputNumber
+            min={0}
+            max={100}
+            value={percent}
+            onChange={(v) => setPercent(v ?? 0)}
+            style={{ width: 80 }}
+            addonAfter="%"
+          />
+        </div>
+        {percent === 0 && (
+          <Alert type="warning" message="设置为 0% 将回滚金丝雀，金丝雀版本将被删除" showIcon />
+        )}
+        {percent === 100 && (
+          <Alert
+            type="info"
+            message="设置为 100% 将提升金丝雀为稳定版本，此操作不可撤销"
+            showIcon
+          />
+        )}
+        {percent > 0 && percent < 100 && (
+          <Alert type="info" message="确认指标正常后再逐步提升流量" showIcon />
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+/* ── AutoScaling Modal ──────────────────────────────────────────────────── */
 
 function AutoScalingModal({
   open,
