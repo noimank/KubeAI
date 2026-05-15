@@ -6,29 +6,35 @@ import {
   Card,
   Collapse,
   Descriptions,
+  Divider,
+  Form,
   InputNumber,
   Modal,
   Popconfirm,
   Popover,
+  Select,
   Space,
   Spin,
+  Switch,
   Table,
   Tag,
   Tooltip,
   Typography,
 } from 'antd'
-import { SyncOutlined } from '@ant-design/icons'
+import { ThunderboltOutlined, SyncOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
+import { useResourceQuota } from '@/hooks/useResourceQuota'
 import {
   getInferenceService,
   getInferenceServiceEvents,
   regenerateToken,
   scaleInferenceService,
+  updateAutoScaling,
 } from '@/services/inference'
-import type { InferenceServiceEvent } from '@/types/inference'
+import type { AutoScalingUpdateRequest, InferenceServiceEvent, MetricType } from '@/types/inference'
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   pending: { color: 'warning', text: '等待中' },
@@ -38,6 +44,11 @@ const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   stopped: { color: 'default', text: '已停止' },
 }
 
+const METRIC_TYPE_OPTIONS = [
+  { label: '并发请求数', value: 'concurrency' },
+  { label: 'CPU 利用率', value: 'cpu' },
+]
+
 export default function InferenceServiceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
@@ -46,6 +57,7 @@ export default function InferenceServiceDetailPage() {
   const [tokenVisible, setTokenVisible] = useState(() => !!location.state?.authToken)
   const [scalePopoverOpen, setScalePopoverOpen] = useState(false)
   const [scaleValue, setScaleValue] = useState(1)
+  const [autoScalingModalOpen, setAutoScalingModalOpen] = useState(false)
   const authToken = (location.state as { authToken?: string } | null)?.authToken
 
   const hasPermission = useRbacStore((s) => s.hasPermission)
@@ -93,6 +105,18 @@ export default function InferenceServiceDetailPage() {
     },
   })
 
+  const autoScalingMutation = useMutation({
+    mutationFn: (data: AutoScalingUpdateRequest) => updateAutoScaling(id!, data),
+    onSuccess: () => {
+      getMessageInstance()?.success('自动伸缩配置已更新')
+      setAutoScalingModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) => {
+      getMessageInstance()?.error(err?.response?.data?.message || '自动伸缩配置失败')
+    },
+  })
+
   const { data: events = [], isLoading: eventsLoading } = useQuery({
     queryKey: ['inferenceServiceEvents', id],
     queryFn: () => getInferenceServiceEvents(id!),
@@ -104,7 +128,7 @@ export default function InferenceServiceDetailPage() {
   if (!svc) return null
 
   const statusCfg = STATUS_CONFIG[svc.status] ?? { color: 'default', text: svc.status }
-
+  const isAutoMode = svc.scalingMode === 'auto'
   const showScaleBtn = canWrite && svc.status !== 'failed' && svc.status !== 'pending'
 
   const handleScaleConfirm = () => {
@@ -121,6 +145,28 @@ export default function InferenceServiceDetailPage() {
     }
   }
 
+  const handleToggleAutoScaling = (checked: boolean) => {
+    if (checked) {
+      setAutoScalingModalOpen(true)
+    } else {
+      Modal.confirm({
+        title: '切换为手动模式',
+        content: '将删除自动伸缩配置，副本数将固定为当前值。确定继续？',
+        okText: '确认切换',
+        cancelText: '取消',
+        onOk: () => {
+          autoScalingMutation.mutate({
+            scalingMode: 'fixed',
+            minReplicas: svc.replicas || 1,
+            maxReplicas: svc.replicas || 1,
+            cooldownPeriod: 300,
+            pollingInterval: 30,
+          })
+        },
+      })
+    }
+  }
+
   const proxyUrl = svc.proxyEndpoint || ''
   const curlExample = proxyUrl
     ? `curl -X POST '${proxyUrl}' \\
@@ -128,7 +174,6 @@ export default function InferenceServiceDetailPage() {
   -H 'Content-Type: application/json' \\
   -d '{"instances": [[6.8, 2.8, 4.8, 1.4]]}'`
     : ''
-
   const pythonExample = proxyUrl
     ? `import requests
 
@@ -174,6 +219,26 @@ print(response.json())`
         </Modal>
       )}
 
+      <AutoScalingModal
+        open={autoScalingModalOpen}
+        onCancel={() => setAutoScalingModalOpen(false)}
+        onSubmit={(data) => autoScalingMutation.mutate(data)}
+        loading={autoScalingMutation.isPending}
+        gpuCount={svc.gpuCount}
+        initialData={
+          isAutoMode
+            ? {
+                minReplicas: svc.minReplicas,
+                maxReplicas: svc.maxReplicas,
+                targetMetricType: svc.targetMetricType,
+                targetMetricValue: svc.targetMetricValue,
+                cooldownPeriod: svc.cooldownPeriod,
+                pollingInterval: svc.pollingInterval,
+              }
+            : undefined
+        }
+      />
+
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
           推理服务详情 - {svc.name}
@@ -195,8 +260,41 @@ print(response.json())`
               <Tag color={statusCfg.color}>{statusCfg.text}</Tag>
             )}
             {svc.gpuCount > 0 && <span>GPU: {svc.gpuCount} 张</span>}
-            <span>副本: {svc.replicas}</span>
-            {showScaleBtn && (
+            <span>
+              副本:{' '}
+              {isAutoMode ? (
+                <Tooltip title={`当前: ${svc.replicas}`}>
+                  {svc.minReplicas}-{svc.maxReplicas}
+                </Tooltip>
+              ) : (
+                svc.replicas
+              )}
+            </span>
+            {canWrite && (
+              <>
+                <Divider type="vertical" />
+                <Space size={4}>
+                  <span style={{ fontSize: 12, color: '#888' }}>自动伸缩</span>
+                  <Switch
+                    size="small"
+                    checked={isAutoMode}
+                    onChange={handleToggleAutoScaling}
+                    disabled={svc.status === 'failed'}
+                  />
+                </Space>
+              </>
+            )}
+            {isAutoMode && (
+              <Tag icon={<ThunderboltOutlined />} color="blue">
+                自动伸缩
+              </Tag>
+            )}
+            {isAutoMode && canWrite && (
+              <Button size="small" type="link" onClick={() => setAutoScalingModalOpen(true)}>
+                伸缩配置
+              </Button>
+            )}
+            {showScaleBtn && !isAutoMode && (
               <Popover
                 open={scalePopoverOpen}
                 onOpenChange={(open) => {
@@ -251,6 +349,30 @@ print(response.json())`
           </Space>
         }
       >
+        {isAutoMode && svc.minReplicas === 0 && svc.status === 'stopped' && (
+          <Alert
+            type="info"
+            message="自动缩容到零，流量恢复后将自动扩容"
+            showIcon
+            style={{ marginTop: 8 }}
+          />
+        )}
+        {isAutoMode && svc.minReplicas === 0 && svc.status !== 'stopped' && (
+          <Alert
+            type="info"
+            message="支持缩容到零，无流量时自动释放 GPU 资源"
+            showIcon
+            style={{ marginTop: 8 }}
+          />
+        )}
+        {isAutoMode && (
+          <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+            当前副本: {svc.replicas} | 指标:{' '}
+            {svc.targetMetricType === 'cpu' ? 'CPU 利用率' : '并发请求数'}{' '}
+            {svc.targetMetricValue &&
+              `> ${svc.targetMetricValue}${svc.targetMetricType === 'cpu' ? '%' : ''}`}
+          </div>
+        )}
         {svc.status === 'failed' && svc.errorMessage && (
           <Alert
             type="error"
@@ -417,5 +539,155 @@ print(response.json())`
         </Card>
       )}
     </div>
+  )
+}
+
+function AutoScalingModal({
+  open,
+  onCancel,
+  onSubmit,
+  loading,
+  gpuCount,
+  initialData,
+}: {
+  open: boolean
+  onCancel: () => void
+  onSubmit: (data: AutoScalingUpdateRequest) => void
+  loading: boolean
+  gpuCount: number
+  initialData?: {
+    minReplicas: number
+    maxReplicas: number
+    targetMetricType?: MetricType
+    targetMetricValue?: number
+    cooldownPeriod: number
+    pollingInterval: number
+  }
+}) {
+  const [form] = Form.useForm()
+  const { quota } = useResourceQuota()
+
+  const maxReplicas = Form.useWatch('maxReplicas', form) || 1
+
+  const gpuPreview = gpuCount * maxReplicas
+  const gpuAvailable = quota ? quota.gpu.total - quota.gpu.used : 0
+
+  const handleFinish = () => {
+    form.validateFields().then((values) => {
+      onSubmit({
+        scalingMode: 'auto',
+        minReplicas: values.minReplicas,
+        maxReplicas: values.maxReplicas,
+        targetMetricType: values.targetMetricType,
+        targetMetricValue: values.targetMetricValue,
+        cooldownPeriod: values.cooldownPeriod ?? 300,
+        pollingInterval: values.pollingInterval ?? 30,
+      })
+    })
+  }
+
+  return (
+    <Modal
+      open={open}
+      title="自动伸缩配置"
+      onCancel={onCancel}
+      onOk={handleFinish}
+      confirmLoading={loading}
+      okText="保存配置"
+      cancelText="取消"
+      width={520}
+      destroyOnClose
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          minReplicas: initialData?.minReplicas ?? 0,
+          maxReplicas: initialData?.maxReplicas ?? 5,
+          targetMetricType: initialData?.targetMetricType ?? 'cpu',
+          targetMetricValue: initialData?.targetMetricValue ?? 70,
+          cooldownPeriod: initialData?.cooldownPeriod ?? 300,
+          pollingInterval: initialData?.pollingInterval ?? 30,
+        }}
+      >
+        <div style={{ display: 'flex', gap: 16 }}>
+          <Form.Item
+            name="minReplicas"
+            label="最小副本数"
+            rules={[{ required: true, message: '请输入最小副本数' }]}
+            style={{ flex: 1 }}
+          >
+            <InputNumber min={0} max={100} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="maxReplicas"
+            label="最大副本数"
+            rules={[{ required: true, message: '请输入最大副本数' }]}
+            style={{ flex: 1 }}
+          >
+            <InputNumber min={1} max={100} style={{ width: '100%' }} />
+          </Form.Item>
+        </div>
+
+        <div style={{ display: 'flex', gap: 16 }}>
+          <Form.Item
+            name="targetMetricType"
+            label="目标指标"
+            rules={[{ required: true, message: '请选择指标类型' }]}
+            style={{ flex: 1 }}
+          >
+            <Select options={METRIC_TYPE_OPTIONS} />
+          </Form.Item>
+          <Form.Item
+            name="targetMetricValue"
+            label="目标值"
+            rules={[{ required: true, message: '请输入目标值' }]}
+            style={{ flex: 1 }}
+          >
+            <InputNumber min={1} style={{ width: '100%' }} />
+          </Form.Item>
+        </div>
+
+        <Collapse
+          size="small"
+          items={[
+            {
+              key: 'advanced',
+              label: '高级配置',
+              children: (
+                <div style={{ display: 'flex', gap: 16 }}>
+                  <Form.Item name="cooldownPeriod" label="冷却时间（秒）" style={{ flex: 1 }}>
+                    <InputNumber min={0} max={3600} style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Form.Item name="pollingInterval" label="轮询间隔（秒）" style={{ flex: 1 }}>
+                    <InputNumber min={5} max={300} style={{ width: '100%' }} />
+                  </Form.Item>
+                </div>
+              ),
+            },
+          ]}
+        />
+
+        {gpuCount > 0 && (
+          <div
+            style={{ marginTop: 12, padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}
+          >
+            <Typography.Text style={{ fontSize: 12 }}>
+              GPU 预估: {gpuCount} x {maxReplicas} = {gpuPreview} 张
+              {quota && (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    color: gpuPreview > gpuAvailable ? '#ff4d4f' : '#52c41a',
+                  }}
+                >
+                  (可用: {gpuAvailable} 张)
+                </span>
+              )}
+            </Typography.Text>
+          </div>
+        )}
+      </Form>
+    </Modal>
   )
 }

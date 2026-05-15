@@ -15,6 +15,7 @@ from app.models.registered_model import ModelVersion
 from app.models.tenant import Tenant
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.inference_service import (
+    AutoScalingUpdateRequest,
     InferenceServiceCreateRequest,
     InferenceServiceCreateResponse,
     InferenceServiceEventResponse,
@@ -80,6 +81,7 @@ async def create_inference_service(
         image=req.image,
         env_vars=req.env_vars,
         description=req.description,
+        auto_scaling=req.auto_scaling,
     )
     resp = InferenceServiceCreateResponse.model_validate(
         {**{k: v for k, v in svc.__dict__.items() if not k.startswith("_")}, "auth_token": api_token, "has_token": True}
@@ -182,6 +184,20 @@ async def regenerate_token(
     return BaseResponse(
         data=TokenRegenerateResponse(token=token, message="Token 已重新生成"), message="Token 重新生成成功"
     )
+
+
+@router.patch("/{service_id}/autoscaling", response_model=BaseResponse[InferenceServiceResponse])
+async def update_auto_scaling(
+    service_id: uuid.UUID,
+    req: AutoScalingUpdateRequest,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "write"))],
+) -> BaseResponse[InferenceServiceResponse]:
+    service = InferenceServiceService(db)
+    tenant_id = _require_tenant_id(user)
+    svc = await service.update_auto_scaling(service_id, tenant_id, req)
+    resp = _to_response(svc)
+    return BaseResponse(data=resp, message="自动伸缩配置更新成功")
 
 
 @router.get("/{service_id}/events", response_model=BaseResponse[list[InferenceServiceEventResponse]])

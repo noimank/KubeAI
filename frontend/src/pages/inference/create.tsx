@@ -1,5 +1,18 @@
 import { useState } from 'react'
-import { Button, Descriptions, Form, Input, InputNumber, Select, Steps, Tag } from 'antd'
+import {
+  Button,
+  Collapse,
+  Descriptions,
+  Divider,
+  Form,
+  Input,
+  InputNumber,
+  Radio,
+  Space,
+  Select,
+  Steps,
+  Tag,
+} from 'antd'
 import type { FormInstance } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -19,6 +32,13 @@ interface FormValues {
   replicas: number
   image?: string
   description?: string
+  scalingMode?: 'fixed' | 'auto'
+  minReplicas?: number
+  maxReplicas?: number
+  targetMetricType?: 'concurrency' | 'cpu'
+  targetMetricValue?: number
+  cooldownPeriod?: number
+  pollingInterval?: number
 }
 
 const MEMORY_OPTIONS = [
@@ -27,6 +47,11 @@ const MEMORY_OPTIONS = [
   { label: '16 Gi', value: '16Gi' },
   { label: '32 Gi', value: '32Gi' },
   { label: '64 Gi', value: '64Gi' },
+]
+
+const METRIC_TYPE_OPTIONS = [
+  { label: '并发请求数', value: 'concurrency' },
+  { label: 'CPU 利用率', value: 'cpu' },
 ]
 
 export default function CreateInferenceServicePage() {
@@ -51,6 +76,7 @@ export default function CreateInferenceServicePage() {
   })
 
   const versions = modelDetail?.versions ?? []
+  const scalingMode = Form.useWatch('scalingMode', form) ?? 'fixed'
 
   const handleNext = async () => {
     try {
@@ -73,6 +99,7 @@ export default function CreateInferenceServicePage() {
     try {
       setSubmitting(true)
       const values = await form.validateFields()
+      const isAuto = values.scalingMode === 'auto'
       const res: InferenceServiceCreateResult = await createInferenceService({
         name: values.name,
         modelVersionId: values.modelVersionId,
@@ -82,6 +109,17 @@ export default function CreateInferenceServicePage() {
         replicas: values.replicas,
         image: values.image || undefined,
         description: values.description || undefined,
+        autoScaling: isAuto
+          ? {
+              scalingMode: 'auto',
+              minReplicas: values.minReplicas ?? 0,
+              maxReplicas: values.maxReplicas ?? 5,
+              targetMetricType: values.targetMetricType,
+              targetMetricValue: values.targetMetricValue,
+              cooldownPeriod: values.cooldownPeriod ?? 300,
+              pollingInterval: values.pollingInterval ?? 30,
+            }
+          : undefined,
       })
       getMessageInstance()?.success('推理服务创建成功')
       navigate(`/inference/${res.id}`, { state: { authToken: res.authToken } })
@@ -167,6 +205,89 @@ export default function CreateInferenceServicePage() {
           <Form.Item name="image" label="推理镜像" extra="留空使用 KServe 默认推理镜像">
             <Input placeholder="如 harbor.example.com/kubeai/sklearn-server:latest" />
           </Form.Item>
+
+          <Divider>伸缩模式</Divider>
+
+          <Form.Item name="scalingMode" label="伸缩模式" initialValue="fixed">
+            <Radio.Group>
+              <Radio value="fixed">固定副本</Radio>
+              <Radio value="auto">自动伸缩</Radio>
+            </Radio.Group>
+          </Form.Item>
+
+          {scalingMode === 'auto' && (
+            <>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <Form.Item
+                  name="minReplicas"
+                  label="最小副本数"
+                  initialValue={0}
+                  rules={[{ required: true, message: '请输入最小副本数' }]}
+                  style={{ flex: 1 }}
+                >
+                  <InputNumber min={0} max={100} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item
+                  name="maxReplicas"
+                  label="最大副本数"
+                  initialValue={5}
+                  rules={[{ required: true, message: '请输入最大副本数' }]}
+                  style={{ flex: 1 }}
+                >
+                  <InputNumber min={1} max={100} style={{ width: '100%' }} />
+                </Form.Item>
+              </div>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <Form.Item
+                  name="targetMetricType"
+                  label="目标指标"
+                  initialValue="cpu"
+                  rules={[{ required: true, message: '请选择指标类型' }]}
+                  style={{ flex: 1 }}
+                >
+                  <Select options={METRIC_TYPE_OPTIONS} />
+                </Form.Item>
+                <Form.Item
+                  name="targetMetricValue"
+                  label="目标值"
+                  initialValue={70}
+                  rules={[{ required: true, message: '请输入目标值' }]}
+                  style={{ flex: 1 }}
+                >
+                  <InputNumber min={1} style={{ width: '100%' }} />
+                </Form.Item>
+              </div>
+              <Collapse
+                size="small"
+                items={[
+                  {
+                    key: 'advanced',
+                    label: '高级配置',
+                    children: (
+                      <div style={{ display: 'flex', gap: 16 }}>
+                        <Form.Item
+                          name="cooldownPeriod"
+                          label="冷却时间（秒）"
+                          initialValue={300}
+                          style={{ flex: 1 }}
+                        >
+                          <InputNumber min={0} max={3600} style={{ width: '100%' }} />
+                        </Form.Item>
+                        <Form.Item
+                          name="pollingInterval"
+                          label="轮询间隔（秒）"
+                          initialValue={30}
+                          style={{ flex: 1 }}
+                        >
+                          <InputNumber min={5} max={300} style={{ width: '100%' }} />
+                        </Form.Item>
+                      </div>
+                    ),
+                  },
+                ]}
+              />
+            </>
+          )}
         </>
       ),
     },
@@ -233,6 +354,7 @@ function ConfirmStep({
     : '未选择'
   const version = versions.find((v) => v.id === values.modelVersionId)
   const versionLabel = version ? `v${version.versionNumber}` : '—'
+  const isAuto = values.scalingMode === 'auto'
 
   return (
     <Descriptions column={2} bordered size="small">
@@ -248,6 +370,20 @@ function ConfirmStep({
       <Descriptions.Item label="副本数">{values.replicas ?? 1}</Descriptions.Item>
       <Descriptions.Item label="推理镜像" span={2}>
         {values.image || <Tag>KServe 默认镜像</Tag>}
+      </Descriptions.Item>
+      <Descriptions.Item label="伸缩模式" span={2}>
+        {isAuto ? (
+          <Space>
+            <Tag color="blue">自动伸缩</Tag>
+            <span>
+              {values.minReplicas}-{values.maxReplicas} 副本 |{' '}
+              {values.targetMetricType === 'cpu' ? 'CPU 利用率' : '并发请求数'} &gt;{' '}
+              {values.targetMetricValue}
+            </span>
+          </Space>
+        ) : (
+          <Tag>固定副本</Tag>
+        )}
       </Descriptions.Item>
     </Descriptions>
   )

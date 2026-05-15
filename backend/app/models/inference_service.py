@@ -47,6 +47,15 @@ class InferenceService(Base, TimestampMixin):
         String(255), nullable=True, index=True, comment="API Token 哈希"
     )
     proxy_endpoint: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="代理端点 URL")
+    scaling_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="fixed", comment="伸缩模式: fixed/auto"
+    )
+    target_metric_type: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, comment="目标指标类型: concurrency/cpu"
+    )
+    target_metric_value: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="目标指标阈值")
+    cooldown_period: Mapped[int] = mapped_column(Integer, nullable=False, default=300, comment="冷却时间(秒)")
+    polling_interval: Mapped[int] = mapped_column(Integer, nullable=False, default=30, comment="轮询间隔(秒)")
 
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("id", uuid.uuid4())

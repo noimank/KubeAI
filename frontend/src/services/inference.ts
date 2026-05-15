@@ -1,6 +1,7 @@
 import { api } from './api'
 import type { PageData } from '@/types/api'
 import type {
+  AutoScalingUpdateRequest,
   InferenceService,
   InferenceServiceCreate,
   InferenceServiceEvent,
@@ -65,5 +66,13 @@ export async function scaleInferenceService(
   data: InferenceServiceScaleRequest,
 ): Promise<InferenceService> {
   const res = await api.post(`/inference-services/${id}/scale`, data)
+  return res.data.data!
+}
+
+export async function updateAutoScaling(
+  id: string,
+  data: AutoScalingUpdateRequest,
+): Promise<InferenceService> {
+  const res = await api.patch(`/inference-services/${id}/autoscaling`, data)
   return res.data.data!
 }

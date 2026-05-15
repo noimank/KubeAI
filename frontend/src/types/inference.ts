@@ -1,5 +1,28 @@
 export type InferenceServiceStatus = 'pending' | 'deploying' | 'running' | 'failed' | 'stopped'
 
+export type ScalingMode = 'fixed' | 'auto'
+export type MetricType = 'concurrency' | 'cpu'
+
+export interface AutoScalingConfig {
+  scalingMode: ScalingMode
+  minReplicas: number
+  maxReplicas: number
+  targetMetricType?: MetricType
+  targetMetricValue?: number
+  cooldownPeriod: number
+  pollingInterval: number
+}
+
+export interface AutoScalingUpdateRequest {
+  scalingMode: ScalingMode
+  minReplicas: number
+  maxReplicas: number
+  targetMetricType?: MetricType
+  targetMetricValue?: number
+  cooldownPeriod: number
+  pollingInterval: number
+}
+
 export interface ModelVersionSummary {
   id: string
   versionNumber: number
@@ -28,6 +51,11 @@ export interface InferenceService {
   description?: string
   envVars?: Record<string, string>
   errorMessage?: string
+  scalingMode: ScalingMode
+  targetMetricType?: MetricType
+  targetMetricValue?: number
+  cooldownPeriod: number
+  pollingInterval: number
   createdAt: string
   updatedAt: string
   modelVersion?: ModelVersionSummary
@@ -43,6 +71,7 @@ export interface InferenceServiceCreate {
   image?: string
   envVars?: Record<string, string>
   description?: string
+  autoScaling?: AutoScalingConfig
 }
 
 export interface InferenceServiceEvent {

@@ -9,11 +9,13 @@ def build_inferenceservice(
     model_format: str = "custom",
     resources: dict[str, Any] | None = None,
     replicas: int = 1,
+    min_replicas: int | None = None,
+    max_replicas: int | None = None,
     env_vars: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     predictor: dict[str, Any] = {
-        "minReplicas": replicas,
-        "maxReplicas": replicas,
+        "minReplicas": min_replicas if min_replicas is not None else replicas,
+        "maxReplicas": max_replicas if max_replicas is not None else replicas,
         "model": {
             "modelFormat": {"name": model_format},
             "storageUri": storage_uri,

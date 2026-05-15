@@ -16,6 +16,12 @@ from app.core.security import generate_api_token, hash_api_token
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.resource_quota import get_quota_used
+from app.integrations.keda.builder import build_scaled_object
+from app.integrations.keda.client import (
+    create_scaled_object,
+    delete_scaled_object,
+    patch_scaled_object,
+)
 from app.integrations.kserve.builder import build_inferenceservice, build_resource_spec
 from app.integrations.kserve.client import (
     create_inferenceservice,
@@ -33,6 +39,8 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from app.schemas.inference_service import AutoScalingConfig, AutoScalingUpdateRequest
+
 logger = logging.getLogger(__name__)
 
 TERMINAL_STATUSES = {InferenceServiceStatus.FAILED, InferenceServiceStatus.STOPPED}
@@ -41,6 +49,8 @@ NON_TERMINAL_STATUSES = {
     InferenceServiceStatus.DEPLOYING,
     InferenceServiceStatus.RUNNING,
 }
+
+KEDA_SCALER_SUFFIX = "-autoscaler"
 
 
 class InferenceServiceService:
@@ -61,17 +71,22 @@ class InferenceServiceService:
         image: str | None = None,
         env_vars: dict[str, str] | None = None,
         description: str | None = None,
+        auto_scaling: AutoScalingConfig | None = None,
     ) -> tuple[InferenceService, str]:
         model_version = await self._get_model_version_or_fail(model_version_id)
 
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
-        await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_count * replicas)
+        is_auto = auto_scaling is not None and auto_scaling.scaling_mode == "auto"
+        min_rep = auto_scaling.min_replicas if auto_scaling is not None and is_auto else replicas
+        max_rep = auto_scaling.max_replicas if auto_scaling is not None and is_auto else replicas
+        gpu_needed = gpu_count * max_rep if is_auto else gpu_count * replicas
+        await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_needed)
 
         api_token = generate_api_token()
 
-        svc = InferenceService(
+        svc_kwargs: dict[str, Any] = dict(
             tenant_id=tenant_id,
             created_by=user_id,
             name=name,
@@ -81,13 +96,21 @@ class InferenceServiceService:
             cpu=cpu,
             memory=memory,
             replicas=replicas,
-            min_replicas=replicas,
-            max_replicas=replicas,
+            min_replicas=min_rep,
+            max_replicas=max_rep,
+            scaling_mode="auto" if is_auto else "fixed",
             status=InferenceServiceStatus.PENDING,
             description=description,
             env_vars=env_vars,
             auth_token_hash=hash_api_token(api_token),
         )
+        if is_auto and auto_scaling is not None:
+            svc_kwargs["target_metric_type"] = auto_scaling.target_metric_type
+            svc_kwargs["target_metric_value"] = auto_scaling.target_metric_value
+            svc_kwargs["cooldown_period"] = auto_scaling.cooldown_period
+            svc_kwargs["polling_interval"] = auto_scaling.polling_interval
+
+        svc = InferenceService(**svc_kwargs)
         self.db.add(svc)
         await self.db.flush()
 
@@ -101,6 +124,8 @@ class InferenceServiceService:
             storage_uri=storage_uri,
             resources=resources,
             replicas=replicas,
+            min_replicas=min_rep,
+            max_replicas=max_rep,
             env_vars=env_vars,
         )
 
@@ -122,11 +147,154 @@ class InferenceServiceService:
             await self.db.commit()
             raise
 
+        if is_auto and auto_scaling is not None:
+            try:
+                deploy_name = f"{kserve_name}-predictor"
+                scaled_obj = build_scaled_object(
+                    name=f"{kserve_name}{KEDA_SCALER_SUFFIX}",
+                    namespace=namespace,
+                    deploy_name=deploy_name,
+                    min_replicas=min_rep,
+                    max_replicas=max_rep,
+                    metric_type=auto_scaling.target_metric_type,  # type: ignore[arg-type]
+                    metric_value=auto_scaling.target_metric_value,  # type: ignore[arg-type]
+                    cooldown_period=auto_scaling.cooldown_period,
+                    polling_interval=auto_scaling.polling_interval,
+                )
+                await create_scaled_object(namespace, scaled_obj)
+            except Exception as e:
+                logger.error("Failed to create ScaledObject for %s: %s", kserve_name, e)
+                try:
+                    await delete_inferenceservice(namespace, kserve_name)
+                except Exception:
+                    logger.debug("Cleanup: InferenceService %s deletion failed after ScaledObject error", kserve_name)
+                svc.status = InferenceServiceStatus.FAILED
+                svc.error_message = f"自动伸缩配置失败: {e}"
+                await self.db.commit()
+                raise ExternalServiceException(f"KEDA 自动伸缩配置失败, 请确认集群已安装 KEDA: {e}") from e
+
         svc.kserve_name = kserve_name
         svc.status = InferenceServiceStatus.DEPLOYING
         await self.db.commit()
         await self.db.refresh(svc)
         return svc, api_token
+
+    async def update_auto_scaling(
+        self,
+        service_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        config: AutoScalingUpdateRequest,
+    ) -> InferenceService:
+        svc = await self._get_service_or_fail(service_id, tenant_id)
+
+        if svc.status == InferenceServiceStatus.FAILED:
+            raise ConflictException("服务处于异常状态, 请先修复后再调整伸缩配置")
+
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        old_mode = svc.scaling_mode
+        new_mode = config.scaling_mode
+
+        if new_mode == "auto":
+            gpu_needed = svc.gpu_count * config.max_replicas
+            await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_needed)
+
+        if old_mode == "auto" and new_mode == "fixed":
+            # auto → fixed: 删除 ScaledObject, KServe min=max=当前副本
+            if svc.kserve_name:
+                try:
+                    await delete_scaled_object(namespace, f"{svc.kserve_name}{KEDA_SCALER_SUFFIX}")
+                except Exception as e:
+                    logger.warning("Failed to delete ScaledObject for %s: %s", svc.kserve_name, e)
+
+            target_rep = svc.replicas if svc.replicas > 0 else 1
+            if svc.kserve_name:
+                await patch_inferenceservice(
+                    namespace,
+                    svc.kserve_name,
+                    {"spec": {"predictor": {"minReplicas": target_rep, "maxReplicas": target_rep}}},
+                )
+            svc.min_replicas = target_rep
+            svc.max_replicas = target_rep
+            svc.scaling_mode = "fixed"
+            svc.target_metric_type = None
+            svc.target_metric_value = None
+
+        elif new_mode == "auto" and old_mode == "fixed":
+            # fixed → auto: 创建 ScaledObject, KServe min/max 为配置范围
+            deploy_name = f"{svc.kserve_name}-predictor" if svc.kserve_name else ""
+            scaled_obj = build_scaled_object(
+                name=f"{svc.kserve_name}{KEDA_SCALER_SUFFIX}",
+                namespace=namespace,
+                deploy_name=deploy_name,
+                min_replicas=config.min_replicas,
+                max_replicas=config.max_replicas,
+                metric_type=config.target_metric_type,  # type: ignore[arg-type]
+                metric_value=config.target_metric_value,  # type: ignore[arg-type]
+                cooldown_period=config.cooldown_period,
+                polling_interval=config.polling_interval,
+            )
+            try:
+                await create_scaled_object(namespace, scaled_obj)
+            except Exception as e:
+                raise ExternalServiceException(f"KEDA 自动伸缩配置失败: {e}") from e
+
+            if svc.kserve_name:
+                await patch_inferenceservice(
+                    namespace,
+                    svc.kserve_name,
+                    {"spec": {"predictor": {"minReplicas": config.min_replicas, "maxReplicas": config.max_replicas}}},
+                )
+            svc.scaling_mode = "auto"
+            svc.min_replicas = config.min_replicas
+            svc.max_replicas = config.max_replicas
+            svc.target_metric_type = config.target_metric_type
+            svc.target_metric_value = config.target_metric_value
+            svc.cooldown_period = config.cooldown_period
+            svc.polling_interval = config.polling_interval
+
+        elif new_mode == "auto" and old_mode == "auto":
+            # auto → auto: 更新 ScaledObject, 更新 KServe min/max
+            scaled_obj_body = {
+                "spec": {
+                    "minReplicaCount": config.min_replicas,
+                    "maxReplicaCount": config.max_replicas,
+                    "cooldownPeriod": config.cooldown_period,
+                    "pollingInterval": config.polling_interval,
+                    "triggers": build_scaled_object(
+                        name="",
+                        namespace="",
+                        deploy_name="",
+                        min_replicas=config.min_replicas,
+                        max_replicas=config.max_replicas,
+                        metric_type=config.target_metric_type,  # type: ignore[arg-type]
+                        metric_value=config.target_metric_value,  # type: ignore[arg-type]
+                        cooldown_period=config.cooldown_period,
+                        polling_interval=config.polling_interval,
+                    )["spec"]["triggers"],
+                }
+            }
+            try:
+                await patch_scaled_object(namespace, f"{svc.kserve_name}{KEDA_SCALER_SUFFIX}", scaled_obj_body)
+            except Exception as e:
+                raise ExternalServiceException(f"KEDA 伸缩配置更新失败: {e}") from e
+
+            if svc.kserve_name:
+                await patch_inferenceservice(
+                    namespace,
+                    svc.kserve_name,
+                    {"spec": {"predictor": {"minReplicas": config.min_replicas, "maxReplicas": config.max_replicas}}},
+                )
+            svc.min_replicas = config.min_replicas
+            svc.max_replicas = config.max_replicas
+            svc.target_metric_type = config.target_metric_type
+            svc.target_metric_value = config.target_metric_value
+            svc.cooldown_period = config.cooldown_period
+            svc.polling_interval = config.polling_interval
+
+        await self.db.commit()
+        await self.db.refresh(svc)
+        return svc
 
     async def regenerate_token(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
         svc = await self._get_service_or_fail(service_id, tenant_id)
@@ -200,6 +368,13 @@ class InferenceServiceService:
         if svc.kserve_name:
             tenant = await self._get_tenant_or_fail(tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+            if svc.scaling_mode == "auto":
+                try:
+                    await delete_scaled_object(namespace, f"{svc.kserve_name}{KEDA_SCALER_SUFFIX}")
+                except Exception as e:
+                    logger.warning("Failed to delete ScaledObject for %s: %s", svc.kserve_name, e)
+
             try:
                 await patch_inferenceservice(
                     namespace,
@@ -222,6 +397,9 @@ class InferenceServiceService:
 
         if svc.status == InferenceServiceStatus.FAILED:
             raise ConflictException("服务处于异常状态, 请先修复后再进行扩缩容操作")
+
+        if svc.scaling_mode == "auto":
+            raise ConflictException("自动伸缩模式下不支持手动调整副本数, 请通过自动伸缩配置调整或先切换到手动模式")
 
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
@@ -275,6 +453,13 @@ class InferenceServiceService:
         if svc.kserve_name:
             tenant = await self._get_tenant_or_fail(tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+            if svc.scaling_mode == "auto":
+                try:
+                    await delete_scaled_object(namespace, f"{svc.kserve_name}{KEDA_SCALER_SUFFIX}")
+                except Exception as e:
+                    logger.warning("Failed to delete ScaledObject for %s: %s", svc.kserve_name, e)
+
             try:
                 await delete_inferenceservice(namespace, svc.kserve_name)
             except Exception as e:
