@@ -43,6 +43,10 @@ class InferenceService(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="描述")
     env_vars: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True, comment="环境变量")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True, comment="错误信息")
+    auth_token_hash: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, index=True, comment="API Token 哈希"
+    )
+    proxy_endpoint: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="代理端点 URL")
 
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("id", uuid.uuid4())

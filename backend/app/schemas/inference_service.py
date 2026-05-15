@@ -41,6 +41,8 @@ class InferenceServiceResponse(BaseModel):
     status: str
     kserve_name: str | None
     endpoint_url: str | None
+    proxy_endpoint: str | None
+    has_token: bool = False
     description: str | None
     env_vars: dict[str, str] | None
     created_at: datetime
@@ -53,3 +55,12 @@ class InferenceServiceListParams(BaseModel):
     page_size: int = Field(default=20, ge=1, le=100)
     status: str | None = None
     name: str | None = None
+
+
+class TokenRegenerateResponse(BaseModel):
+    token: str
+    message: str
+
+
+class InferenceServiceCreateResponse(InferenceServiceResponse):
+    auth_token: str

@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -14,6 +16,19 @@ def hash_password(plain: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
+
+
+def generate_api_token(prefix: str = "sk") -> str:
+    raw = secrets.token_hex(32)
+    return f"{prefix}-{raw}"
+
+
+def hash_api_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def verify_api_token(token: str, token_hash: str) -> bool:
+    return hash_api_token(token) == token_hash
 
 
 def create_access_token(payload: dict[str, Any], expires_delta: timedelta | None = None) -> str:

@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import ResourceAwarePanel from '@/components/ResourceAwarePanel'
 import { createInferenceService } from '@/services/inference'
+import type { InferenceServiceCreateResult } from '@/services/inference'
 import { getModel, getModels } from '@/services/models'
 
 interface FormValues {
@@ -72,7 +73,7 @@ export default function CreateInferenceServicePage() {
     try {
       setSubmitting(true)
       const values = await form.validateFields()
-      const res = await createInferenceService({
+      const res: InferenceServiceCreateResult = await createInferenceService({
         name: values.name,
         modelVersionId: values.modelVersionId,
         gpuCount: values.gpuCount,
@@ -83,7 +84,7 @@ export default function CreateInferenceServicePage() {
         description: values.description || undefined,
       })
       getMessageInstance()?.success('推理服务创建成功')
-      navigate(`/inference/${res.id}`)
+      navigate(`/inference/${res.id}`, { state: { authToken: res.authToken } })
     } catch {
       // error handled by interceptor
     } finally {

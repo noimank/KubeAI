@@ -2,6 +2,10 @@ import { api } from './api'
 import type { PageData } from '@/types/api'
 import type { InferenceService, InferenceServiceCreate } from '@/types/inference'
 
+export interface InferenceServiceCreateResult extends InferenceService {
+  authToken: string
+}
+
 export async function getInferenceServices(params: {
   current: number
   pageSize: number
@@ -26,7 +30,7 @@ export async function getInferenceService(id: string): Promise<InferenceService>
 
 export async function createInferenceService(
   data: InferenceServiceCreate,
-): Promise<InferenceService> {
+): Promise<InferenceServiceCreateResult> {
   const res = await api.post('/inference-services', data)
   return res.data.data!
 }
@@ -39,4 +43,9 @@ export async function stopInferenceService(id: string): Promise<InferenceService
 export async function deleteInferenceService(id: string): Promise<InferenceService> {
   const res = await api.delete(`/inference-services/${id}`)
   return res.data.data!
+}
+
+export async function regenerateToken(id: string): Promise<string> {
+  const res = await api.post(`/inference-services/${id}/regenerate-token`)
+  return res.data.data!.token
 }

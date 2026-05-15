@@ -23,6 +23,8 @@ export interface InferenceService {
   status: InferenceServiceStatus
   kserveName?: string
   endpointUrl?: string
+  proxyEndpoint?: string
+  hasToken: boolean
   description?: string
   envVars?: Record<string, string>
   createdAt: string

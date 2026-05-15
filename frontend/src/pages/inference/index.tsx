@@ -106,8 +106,8 @@ export default function InferencePage() {
       width: 80,
     },
     {
-      title: '端点 URL',
-      dataIndex: 'endpointUrl',
+      title: '推理端点',
+      dataIndex: 'proxyEndpoint',
       width: 260,
       ellipsis: true,
       render: (url: string | undefined) =>

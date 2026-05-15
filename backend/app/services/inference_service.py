@@ -12,6 +12,7 @@ from app.core.exceptions import (
     NotFoundException,
     QuotaExceededException,
 )
+from app.core.security import generate_api_token, hash_api_token
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.resource_quota import get_quota_used
@@ -24,7 +25,7 @@ from app.integrations.kserve.client import (
 )
 from app.models.enums import InferenceServiceStatus
 from app.models.inference_service import InferenceService
-from app.models.registered_model import ModelVersion
+from app.models.registered_model import ModelVersion, RegisteredModel
 from app.models.tenant import Tenant
 
 if TYPE_CHECKING:
@@ -60,13 +61,15 @@ class InferenceServiceService:
         image: str | None = None,
         env_vars: dict[str, str] | None = None,
         description: str | None = None,
-    ) -> InferenceService:
+    ) -> tuple[InferenceService, str]:
         model_version = await self._get_model_version_or_fail(model_version_id)
 
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
         await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_count * replicas)
+
+        api_token = generate_api_token()
 
         svc = InferenceService(
             tenant_id=tenant_id,
@@ -83,6 +86,7 @@ class InferenceServiceService:
             status=InferenceServiceStatus.PENDING,
             description=description,
             env_vars=env_vars,
+            auth_token_hash=hash_api_token(api_token),
         )
         self.db.add(svc)
         await self.db.flush()
@@ -122,7 +126,14 @@ class InferenceServiceService:
         svc.status = InferenceServiceStatus.DEPLOYING
         await self.db.commit()
         await self.db.refresh(svc)
-        return svc
+        return svc, api_token
+
+    async def regenerate_token(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
+        svc = await self._get_service_or_fail(service_id, tenant_id)
+        new_token = generate_api_token()
+        svc.auth_token_hash = hash_api_token(new_token)
+        await self.db.commit()
+        return new_token
 
     async def list_inference_services(
         self,
@@ -245,6 +256,14 @@ class InferenceServiceService:
             url = status_data.get("url")
             if url:
                 svc.endpoint_url = url
+            if not svc.proxy_endpoint:
+                mv = await self.db.get(ModelVersion, svc.model_version_id)
+                if mv:
+                    rm = await self.db.get(RegisteredModel, mv.registered_model_id)
+                    if rm:
+                        svc.proxy_endpoint = (
+                            f"{settings.API_BASE_URL}/api/inference-proxy/{svc.id}/v1/models/{rm.name}:predict"
+                        )
         else:
             reason = ready_condition.get("reason", "")
             message = ready_condition.get("message", "")
@@ -281,6 +300,12 @@ class InferenceServiceService:
             raise QuotaExceededException(
                 f"GPU 配额不足: 已使用 {gpu_used} 张, 配额 {gpu_limit} 张, 请求 {requested} 张"
             )
+
+    @staticmethod
+    async def get_service_by_token(db: AsyncSession, token: str) -> InferenceService | None:
+        token_hash = hash_api_token(token)
+        result = await db.execute(select(InferenceService).where(InferenceService.auth_token_hash == token_hash))
+        return result.scalar_one_or_none()
 
     async def _get_service_or_fail(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> InferenceService:
         result = await self.db.execute(
