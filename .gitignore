@@ -33,3 +33,4 @@ frontend/dist
 # Infrastructure
 infra/helm/kubeai/charts/
 infra/helm/kubeai/Chart.lock
+.opencode
