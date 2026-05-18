@@ -6,24 +6,22 @@ import {
   Card,
   Collapse,
   Descriptions,
-  Divider,
   Form,
   InputNumber,
   Modal,
   Popconfirm,
-  Popover,
   Progress,
   Select,
   Slider,
   Space,
   Spin,
-  Switch,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
 } from 'antd'
-import { ExperimentOutlined, ThunderboltOutlined, SyncOutlined } from '@ant-design/icons'
+import { ExperimentOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import { getMessageInstance } from '@/utils/messageHolder'
@@ -33,8 +31,6 @@ import {
   getInferenceService,
   getInferenceServiceEvents,
   regenerateToken,
-  scaleInferenceService,
-  updateAutoScaling,
   startCanary,
   updateCanaryTraffic,
   promoteCanary,
@@ -42,7 +38,9 @@ import {
   getCanaryStatus,
 } from '@/services/inference'
 import { getModel } from '@/services/models'
-import type { AutoScalingUpdateRequest, InferenceServiceEvent, MetricType } from '@/types/inference'
+import { MonitorTab } from './components/MonitorTab'
+import { ConfigTab } from './components/ConfigTab'
+import type { InferenceServiceEvent } from '@/types/inference'
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   pending: { color: 'warning', text: '等待中' },
@@ -59,10 +57,7 @@ const CANARY_STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   failed: { color: 'error', text: '已失败' },
 }
 
-const METRIC_TYPE_OPTIONS = [
-  { label: '并发请求数', value: 'concurrency' },
-  { label: 'CPU 利用率', value: 'cpu' },
-]
+const GIGITAL_STORAGE_KEY = 'inference_guide_dismissed'
 
 export default function InferenceServiceDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -70,11 +65,14 @@ export default function InferenceServiceDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [tokenVisible, setTokenVisible] = useState(() => !!location.state?.authToken)
-  const [scalePopoverOpen, setScalePopoverOpen] = useState(false)
-  const [scaleValue, setScaleValue] = useState(1)
-  const [autoScalingModalOpen, setAutoScalingModalOpen] = useState(false)
   const [canaryStartModalOpen, setCanaryStartModalOpen] = useState(false)
   const [canaryTrafficModalOpen, setCanaryTrafficModalOpen] = useState(false)
+  const [showGuide, setShowGuide] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return !localStorage.getItem(GIGITAL_STORAGE_KEY)
+    }
+    return true
+  })
   const authToken = (location.state as { authToken?: string } | null)?.authToken
 
   const hasPermission = useRbacStore((s) => s.hasPermission)
@@ -118,30 +116,6 @@ export default function InferenceServiceDetailPage() {
         ),
         width: 560,
       })
-    },
-  })
-
-  const scaleMutation = useMutation({
-    mutationFn: (replicas: number) => scaleInferenceService(id!, { replicas }),
-    onSuccess: () => {
-      getMessageInstance()?.success('副本数调整成功')
-      setScalePopoverOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
-    },
-    onError: (err: { response?: { data?: { message?: string } } }) => {
-      getMessageInstance()?.error(err?.response?.data?.message || '副本数调整失败')
-    },
-  })
-
-  const autoScalingMutation = useMutation({
-    mutationFn: (data: AutoScalingUpdateRequest) => updateAutoScaling(id!, data),
-    onSuccess: () => {
-      getMessageInstance()?.success('自动伸缩配置已更新')
-      setAutoScalingModalOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
-    },
-    onError: (err: { response?: { data?: { message?: string } } }) => {
-      getMessageInstance()?.error(err?.response?.data?.message || '自动伸缩配置失败')
     },
   })
 
@@ -208,43 +182,6 @@ export default function InferenceServiceDetailPage() {
 
   const statusCfg = STATUS_CONFIG[svc.status] ?? { color: 'default', text: svc.status }
   const isAutoMode = svc.scalingMode === 'auto'
-  const showScaleBtn = canWrite && svc.status !== 'failed' && svc.status !== 'pending'
-
-  const handleScaleConfirm = () => {
-    if (scaleValue === 0 && svc.replicas > 0) {
-      Modal.confirm({
-        title: '确认缩容到零',
-        content: '确定将副本数调整为 0？服务将停止但配置保留，可随时恢复',
-        okText: '确认',
-        cancelText: '取消',
-        onOk: () => scaleMutation.mutate(0),
-      })
-    } else {
-      scaleMutation.mutate(scaleValue)
-    }
-  }
-
-  const handleToggleAutoScaling = (checked: boolean) => {
-    if (checked) {
-      setAutoScalingModalOpen(true)
-    } else {
-      Modal.confirm({
-        title: '切换为手动模式',
-        content: '将删除自动伸缩配置，副本数将固定为当前值。确定继续？',
-        okText: '确认切换',
-        cancelText: '取消',
-        onOk: () => {
-          autoScalingMutation.mutate({
-            scalingMode: 'fixed',
-            minReplicas: svc.replicas || 1,
-            maxReplicas: svc.replicas || 1,
-            cooldownPeriod: 300,
-            pollingInterval: 30,
-          })
-        },
-      })
-    }
-  }
 
   const proxyUrl = svc.proxyEndpoint || ''
   const curlExample = proxyUrl
@@ -266,6 +203,59 @@ response = requests.post(
 )
 print(response.json())`
     : ''
+
+  const handleDismissGuide = () => {
+    setShowGuide(false)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(GIGITAL_STORAGE_KEY, 'true')
+    }
+  }
+
+  const copyEndpointUrl = () => {
+    if (proxyUrl) {
+      navigator.clipboard.writeText(proxyUrl)
+      getMessageInstance()?.success('端点 URL 已复制')
+    }
+  }
+
+  const tabItems = [
+    {
+      key: 'overview',
+      label: '概览',
+      children: (
+        <OverviewTab
+          svc={svc}
+          statusCfg={statusCfg}
+          canWrite={canWrite}
+          proxyUrl={proxyUrl}
+          curlExample={curlExample}
+          pythonExample={pythonExample}
+          regenerateMutation={regenerateMutation}
+          canaryStatusData={canaryStatusData}
+          canaryEvents={canaryStatusData?.canaryEvents ?? []}
+          onStartCanary={() => setCanaryStartModalOpen(true)}
+          onAdjustTraffic={() => setCanaryTrafficModalOpen(true)}
+          onPromote={() => promoteCanaryMutation.mutate(id!)}
+          onRollback={() => rollbackCanaryMutation.mutate(id!)}
+          canManage={canManage}
+          promoteLoading={promoteCanaryMutation.isPending}
+          rollbackLoading={rollbackCanaryMutation.isPending}
+        />
+      ),
+    },
+    {
+      key: 'monitor',
+      label: '监控',
+      children: (
+        <MonitorTab serviceStatus={svc.status} events={events} eventsLoading={eventsLoading} />
+      ),
+    },
+    {
+      key: 'config',
+      label: '配置',
+      children: <ConfigTab service={svc} canWrite={canWrite} />,
+    },
+  ]
 
   return (
     <div style={{ padding: 0 }}>
@@ -298,26 +288,6 @@ print(response.json())`
         </Modal>
       )}
 
-      <AutoScalingModal
-        open={autoScalingModalOpen}
-        onCancel={() => setAutoScalingModalOpen(false)}
-        onSubmit={(data) => autoScalingMutation.mutate(data)}
-        loading={autoScalingMutation.isPending}
-        gpuCount={svc.gpuCount}
-        initialData={
-          isAutoMode
-            ? {
-                minReplicas: svc.minReplicas,
-                maxReplicas: svc.maxReplicas,
-                targetMetricType: svc.targetMetricType,
-                targetMetricValue: svc.targetMetricValue,
-                cooldownPeriod: svc.cooldownPeriod,
-                pollingInterval: svc.pollingInterval,
-              }
-            : undefined
-        }
-      />
-
       <CanaryStartModal
         open={canaryStartModalOpen}
         onCancel={() => setCanaryStartModalOpen(false)}
@@ -344,6 +314,45 @@ print(response.json())`
         <Button onClick={() => navigate('/inference')}>返回列表</Button>
       </div>
 
+      {/* 部署成功引导卡片 */}
+      {showGuide && svc.status === 'running' && proxyUrl && (
+        <Card
+          style={{
+            marginBottom: 16,
+            background: '#f6ffed',
+            border: '1px solid #b7eb8f',
+          }}
+        >
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              推理服务部署成功！
+            </Typography.Title>
+            <Typography.Text>端点已就绪，可以开始使用了</Typography.Text>
+            <Space>
+              <Button onClick={copyEndpointUrl}>复制端点</Button>
+              <Button
+                onClick={() =>
+                  document.querySelector<HTMLElement>('[data-tab-key="monitor"]')?.click()
+                }
+              >
+                查看监控
+              </Button>
+              <Button
+                onClick={() =>
+                  document.querySelector<HTMLElement>('[data-tab-key="config"]')?.click()
+                }
+              >
+                配置伸缩
+              </Button>
+            </Space>
+            <Button type="link" size="small" onClick={handleDismissGuide}>
+              不再显示
+            </Button>
+          </Space>
+        </Card>
+      )}
+
+      {/* 顶部状态卡片（始终可见） */}
       <Card
         size="small"
         style={{ marginBottom: 16 }}
@@ -368,83 +377,20 @@ print(response.json())`
                 svc.replicas
               )}
             </span>
-            {canWrite && (
-              <>
-                <Divider type="vertical" />
-                <Space size={4}>
-                  <span style={{ fontSize: 12, color: '#888' }}>自动伸缩</span>
-                  <Switch
-                    size="small"
-                    checked={isAutoMode}
-                    onChange={handleToggleAutoScaling}
-                    disabled={svc.status === 'failed'}
-                  />
-                </Space>
-              </>
-            )}
-            {isAutoMode && (
-              <Tag icon={<ThunderboltOutlined />} color="blue">
-                自动伸缩
-              </Tag>
-            )}
-            {isAutoMode && canWrite && (
-              <Button size="small" type="link" onClick={() => setAutoScalingModalOpen(true)}>
-                伸缩配置
-              </Button>
-            )}
-            {showScaleBtn && !isAutoMode && (
-              <Popover
-                open={scalePopoverOpen}
-                onOpenChange={(open) => {
-                  setScalePopoverOpen(open)
-                  if (open) setScaleValue(svc.replicas)
-                }}
-                title={svc.status === 'stopped' ? '重启服务' : '调整副本数'}
-                trigger="click"
-                content={
-                  <div style={{ width: 240 }}>
-                    <div style={{ marginBottom: 8 }}>
-                      <span>目标副本数: </span>
-                      <InputNumber
-                        min={0}
-                        max={100}
-                        value={scaleValue}
-                        onChange={(v) => setScaleValue(v ?? 0)}
-                        style={{ width: 80 }}
-                      />
-                    </div>
-                    <div style={{ marginBottom: 8, color: '#888', fontSize: 12 }}>
-                      当前: {svc.replicas} → 目标: {scaleValue}
-                      {svc.gpuCount > 0 && <span> | 需要 GPU: {svc.gpuCount * scaleValue}</span>}
-                    </div>
-                    {svc.status === 'stopped' && scaleValue > 0 && (
-                      <Alert
-                        type="warning"
-                        message="服务已停止，调整副本数将重新启动服务"
-                        style={{ marginBottom: 8, fontSize: 12 }}
-                      />
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                      <Button size="small" onClick={() => setScalePopoverOpen(false)}>
-                        取消
-                      </Button>
-                      <Button
-                        size="small"
-                        type="primary"
-                        loading={scaleMutation.isPending}
-                        disabled={scaleValue === svc.replicas && svc.status !== 'stopped'}
-                        onClick={handleScaleConfirm}
-                      >
-                        {svc.status === 'stopped' && scaleValue > 0 ? '确认并启动' : '确认调整'}
-                      </Button>
-                    </div>
-                  </div>
-                }
-              >
-                <Button size="small">调整副本</Button>
-              </Popover>
-            )}
+            {isAutoMode && <Tag color="blue">自动伸缩</Tag>}
           </Space>
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+              queryClient.invalidateQueries({ queryKey: ['canaryStatus', id] })
+            }}
+          >
+            刷新
+          </Button>
         }
       >
         {isAutoMode && svc.minReplicas === 0 && svc.status === 'stopped' && (
@@ -463,14 +409,6 @@ print(response.json())`
             style={{ marginTop: 8 }}
           />
         )}
-        {isAutoMode && (
-          <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-            当前副本: {svc.replicas} | 指标:{' '}
-            {svc.targetMetricType === 'cpu' ? 'CPU 利用率' : '并发请求数'}{' '}
-            {svc.targetMetricValue &&
-              `> ${svc.targetMetricValue}${svc.targetMetricType === 'cpu' ? '%' : ''}`}
-          </div>
-        )}
         {svc.status === 'failed' && svc.errorMessage && (
           <Alert
             type="error"
@@ -482,23 +420,77 @@ print(response.json())`
         )}
       </Card>
 
-      {/* Canary Section */}
-      <CanarySection
-        svc={svc}
-        canaryStatusData={canaryStatusData}
-        canaryEvents={canaryStatusData?.canaryEvents ?? []}
-        onStartCanary={() => setCanaryStartModalOpen(true)}
-        onAdjustTraffic={() => setCanaryTrafficModalOpen(true)}
-        onPromote={() => promoteCanaryMutation.mutate(id!)}
-        onRollback={() => rollbackCanaryMutation.mutate(id!)}
-        onRetry={() => rollbackCanaryMutation.mutate(id!)}
-        canWrite={canWrite}
-        canManage={canManage}
-        promoteLoading={promoteCanaryMutation.isPending}
-        rollbackLoading={rollbackCanaryMutation.isPending}
-      />
+      {/* Tab 组织内容 */}
+      <Tabs defaultActiveKey="overview" items={tabItems} />
+    </div>
+  )
+}
 
-      <Card size="small" style={{ marginBottom: 16 }} title="端点与认证">
+/* ── OverviewTab Component ──────────────────────────────────────────────── */
+
+function OverviewTab({
+  svc,
+  statusCfg,
+  canWrite,
+  proxyUrl,
+  curlExample,
+  pythonExample,
+  regenerateMutation,
+  canaryStatusData,
+  canaryEvents,
+  onStartCanary,
+  onAdjustTraffic,
+  onPromote,
+  onRollback,
+  canManage,
+  promoteLoading,
+  rollbackLoading,
+}: {
+  svc: import('@/types/inference').InferenceService
+  statusCfg: { color: string; text: string }
+  canWrite: boolean
+  proxyUrl: string
+  curlExample: string
+  pythonExample: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  regenerateMutation: { mutate: (...args: any[]) => void; isPending: boolean }
+  canaryStatusData: import('@/types/inference').CanaryStatusResponse | undefined
+  canaryEvents: InferenceServiceEvent[]
+  onStartCanary: () => void
+  onAdjustTraffic: () => void
+  onPromote: () => void
+  onRollback: () => void
+  canManage: boolean
+  promoteLoading: boolean
+  rollbackLoading: boolean
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* 基本信息卡片 */}
+      <Card size="small" title="基本信息">
+        <Descriptions column={2} bordered size="small">
+          <Descriptions.Item label="模型版本">
+            {svc.modelVersion
+              ? `v${svc.modelVersion.versionNumber}`
+              : svc.modelVersionId.slice(0, 8)}
+          </Descriptions.Item>
+          <Descriptions.Item label="状态">
+            <Tag color={statusCfg.color}>{statusCfg.text}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="GPU">
+            {svc.gpuCount > 0 ? `${svc.gpuCount} 张` : '—'}
+          </Descriptions.Item>
+          <Descriptions.Item label="内存">{svc.memory}</Descriptions.Item>
+          <Descriptions.Item label="描述" span={2}>
+            {svc.description || '—'}
+          </Descriptions.Item>
+          <Descriptions.Item label="创建时间">{svc.createdAt}</Descriptions.Item>
+          <Descriptions.Item label="更新时间">{svc.updatedAt}</Descriptions.Item>
+        </Descriptions>
+      </Card>
+
+      {/* 端点与认证卡片 */}
+      <Card size="small" title="端点与认证">
         <Descriptions column={1} size="small">
           <Descriptions.Item label="推理 URL">
             {proxyUrl ? (
@@ -578,85 +570,25 @@ print(response.json())`
         )}
       </Card>
 
-      <Card size="small" title="基本信息">
-        <Descriptions column={2} bordered size="small">
-          <Descriptions.Item label="CPU">{svc.cpu} 核</Descriptions.Item>
-          <Descriptions.Item label="内存">{svc.memory}</Descriptions.Item>
-          <Descriptions.Item label="描述" span={2}>
-            {svc.description || '—'}
-          </Descriptions.Item>
-          <Descriptions.Item label="创建时间">{svc.createdAt}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{svc.updatedAt}</Descriptions.Item>
-        </Descriptions>
-      </Card>
-
-      {svc.kserveName && svc.status !== 'pending' && svc.status !== 'stopped' && (
-        <Card size="small" style={{ marginTop: 16 }} title="事件日志">
-          {eventsLoading ? (
-            <Spin />
-          ) : events.length === 0 ? (
-            <Typography.Text type="secondary">暂无事件记录</Typography.Text>
-          ) : (
-            <Table<InferenceServiceEvent>
-              dataSource={events}
-              rowKey={(record) => `${record.type}-${record.reason}-${record.lastTimestamp}`}
-              size="small"
-              pagination={false}
-              scroll={{ x: 800 }}
-              columns={[
-                {
-                  title: '类型',
-                  dataIndex: 'type',
-                  width: 80,
-                  render: (type: string) => (
-                    <Tag color={type === 'Warning' ? 'red' : 'blue'}>
-                      {type === 'Warning' ? '警告' : '正常'}
-                    </Tag>
-                  ),
-                },
-                {
-                  title: '原因',
-                  dataIndex: 'reason',
-                  width: 120,
-                },
-                {
-                  title: '消息',
-                  dataIndex: 'message',
-                  ellipsis: { showTitle: false },
-                  render: (msg: string) => (
-                    <Tooltip title={msg}>
-                      <span>{msg}</span>
-                    </Tooltip>
-                  ),
-                },
-                {
-                  title: '资源',
-                  width: 160,
-                  render: (_: unknown, record: InferenceServiceEvent) =>
-                    `${record.involvedObjectKind}/${record.involvedObjectName}`,
-                },
-                {
-                  title: '时间',
-                  dataIndex: 'lastTimestamp',
-                  width: 180,
-                  render: (ts: string | null) =>
-                    ts ? dayjs(ts).format('YYYY-MM-DD HH:mm:ss') : '—',
-                },
-                {
-                  title: '次数',
-                  dataIndex: 'count',
-                  width: 60,
-                },
-              ]}
-            />
-          )}
-        </Card>
-      )}
+      {/* 金丝雀发布卡片 */}
+      <CanarySection
+        svc={svc}
+        canaryStatusData={canaryStatusData}
+        canaryEvents={canaryEvents}
+        onStartCanary={onStartCanary}
+        onAdjustTraffic={onAdjustTraffic}
+        onPromote={onPromote}
+        onRollback={onRollback}
+        canWrite={canWrite}
+        canManage={canManage}
+        promoteLoading={promoteLoading}
+        rollbackLoading={rollbackLoading}
+      />
     </div>
   )
 }
 
-/* ── Canary Section Component ──────────────────────────────────────────── */
+/* ── CanarySection Component ──────────────────────────────────────────── */
 
 function CanarySection({
   svc,
@@ -666,7 +598,6 @@ function CanarySection({
   onAdjustTraffic,
   onPromote,
   onRollback,
-  onRetry,
   canWrite,
   canManage,
   promoteLoading,
@@ -679,7 +610,6 @@ function CanarySection({
   onAdjustTraffic: () => void
   onPromote: () => void
   onRollback: () => void
-  onRetry: () => void
   canWrite: boolean
   canManage: boolean
   promoteLoading: boolean
@@ -692,11 +622,10 @@ function CanarySection({
 
   const hasActiveCanary = svc.canaryStatus !== 'none'
 
-  // No canary - show start button
   if (!hasActiveCanary) {
     if (svc.status !== 'running' || !canWrite) return null
     return (
-      <Card size="small" style={{ marginBottom: 16 }} title="金丝雀发布">
+      <Card size="small" title="金丝雀发布">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography.Text type="secondary">
             当前服务运行稳定，可启动金丝雀发布逐步上线新模型版本
@@ -715,7 +644,6 @@ function CanarySection({
   return (
     <Card
       size="small"
-      style={{ marginBottom: 16 }}
       title={
         <Space>
           <span>金丝雀发布</span>
@@ -724,7 +652,6 @@ function CanarySection({
         </Space>
       }
     >
-      {/* Deploying status */}
       {svc.canaryStatus === 'deploying' && (
         <Alert
           type="info"
@@ -734,16 +661,15 @@ function CanarySection({
         />
       )}
 
-      {/* Failed status */}
       {svc.canaryStatus === 'failed' && (
         <Alert
           type="error"
           message="金丝雀版本部署失败"
-          description="请检查事件日志了解失败原因"
+          description="请检查监控 Tab 中的事件日志了解失败原因"
           showIcon
           action={
             canWrite ? (
-              <Button size="small" danger loading={rollbackLoading} onClick={onRetry}>
+              <Button size="small" danger loading={rollbackLoading} onClick={onRollback}>
                 清理并重试
               </Button>
             ) : undefined
@@ -752,7 +678,6 @@ function CanarySection({
         />
       )}
 
-      {/* Running status - traffic visualization */}
       {svc.canaryStatus === 'running' && (
         <>
           <Alert
@@ -822,7 +747,6 @@ function CanarySection({
         </>
       )}
 
-      {/* Canary events */}
       {svc.canaryKserveName && svc.canaryStatus !== 'none' && canaryEvents.length > 0 && (
         <Collapse
           size="small"
@@ -1072,158 +996,6 @@ function CanaryTrafficModal({
           <Alert type="info" message="确认指标正常后再逐步提升流量" showIcon />
         )}
       </div>
-    </Modal>
-  )
-}
-
-/* ── AutoScaling Modal ──────────────────────────────────────────────────── */
-
-function AutoScalingModal({
-  open,
-  onCancel,
-  onSubmit,
-  loading,
-  gpuCount,
-  initialData,
-}: {
-  open: boolean
-  onCancel: () => void
-  onSubmit: (data: AutoScalingUpdateRequest) => void
-  loading: boolean
-  gpuCount: number
-  initialData?: {
-    minReplicas: number
-    maxReplicas: number
-    targetMetricType?: MetricType
-    targetMetricValue?: number
-    cooldownPeriod: number
-    pollingInterval: number
-  }
-}) {
-  const [form] = Form.useForm()
-  const { quota } = useResourceQuota()
-
-  const maxReplicas = Form.useWatch('maxReplicas', form) || 1
-
-  const gpuPreview = gpuCount * maxReplicas
-  const gpuAvailable = quota ? quota.gpu.total - quota.gpu.used : 0
-
-  const handleFinish = () => {
-    form.validateFields().then((values) => {
-      onSubmit({
-        scalingMode: 'auto',
-        minReplicas: values.minReplicas,
-        maxReplicas: values.maxReplicas,
-        targetMetricType: values.targetMetricType,
-        targetMetricValue: values.targetMetricValue,
-        cooldownPeriod: values.cooldownPeriod ?? 300,
-        pollingInterval: values.pollingInterval ?? 30,
-      })
-    })
-  }
-
-  return (
-    <Modal
-      open={open}
-      title="自动伸缩配置"
-      onCancel={onCancel}
-      onOk={handleFinish}
-      confirmLoading={loading}
-      okText="保存配置"
-      cancelText="取消"
-      width={520}
-      destroyOnClose
-    >
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={{
-          minReplicas: initialData?.minReplicas ?? 0,
-          maxReplicas: initialData?.maxReplicas ?? 5,
-          targetMetricType: initialData?.targetMetricType ?? 'cpu',
-          targetMetricValue: initialData?.targetMetricValue ?? 70,
-          cooldownPeriod: initialData?.cooldownPeriod ?? 300,
-          pollingInterval: initialData?.pollingInterval ?? 30,
-        }}
-      >
-        <div style={{ display: 'flex', gap: 16 }}>
-          <Form.Item
-            name="minReplicas"
-            label="最小副本数"
-            rules={[{ required: true, message: '请输入最小副本数' }]}
-            style={{ flex: 1 }}
-          >
-            <InputNumber min={0} max={100} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item
-            name="maxReplicas"
-            label="最大副本数"
-            rules={[{ required: true, message: '请输入最大副本数' }]}
-            style={{ flex: 1 }}
-          >
-            <InputNumber min={1} max={100} style={{ width: '100%' }} />
-          </Form.Item>
-        </div>
-
-        <div style={{ display: 'flex', gap: 16 }}>
-          <Form.Item
-            name="targetMetricType"
-            label="目标指标"
-            rules={[{ required: true, message: '请选择指标类型' }]}
-            style={{ flex: 1 }}
-          >
-            <Select options={METRIC_TYPE_OPTIONS} />
-          </Form.Item>
-          <Form.Item
-            name="targetMetricValue"
-            label="目标值"
-            rules={[{ required: true, message: '请输入目标值' }]}
-            style={{ flex: 1 }}
-          >
-            <InputNumber min={1} style={{ width: '100%' }} />
-          </Form.Item>
-        </div>
-
-        <Collapse
-          size="small"
-          items={[
-            {
-              key: 'advanced',
-              label: '高级配置',
-              children: (
-                <div style={{ display: 'flex', gap: 16 }}>
-                  <Form.Item name="cooldownPeriod" label="冷却时间（秒）" style={{ flex: 1 }}>
-                    <InputNumber min={0} max={3600} style={{ width: '100%' }} />
-                  </Form.Item>
-                  <Form.Item name="pollingInterval" label="轮询间隔（秒）" style={{ flex: 1 }}>
-                    <InputNumber min={5} max={300} style={{ width: '100%' }} />
-                  </Form.Item>
-                </div>
-              ),
-            },
-          ]}
-        />
-
-        {gpuCount > 0 && (
-          <div
-            style={{ marginTop: 12, padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}
-          >
-            <Typography.Text style={{ fontSize: 12 }}>
-              GPU 预估: {gpuCount} x {maxReplicas} = {gpuPreview} 张
-              {quota && (
-                <span
-                  style={{
-                    marginLeft: 8,
-                    color: gpuPreview > gpuAvailable ? '#ff4d4f' : '#52c41a',
-                  }}
-                >
-                  (可用: {gpuAvailable} 张)
-                </span>
-              )}
-            </Typography.Text>
-          </div>
-        )}
-      </Form>
     </Modal>
   )
 }

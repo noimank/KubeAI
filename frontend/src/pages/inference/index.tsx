@@ -92,6 +92,20 @@ export default function InferencePage() {
       ),
     },
     {
+      title: '模型版本',
+      width: 150,
+      render: (_: unknown, record: InferenceService) => {
+        if (!record.modelVersion) return <Typography.Text type="secondary">—</Typography.Text>
+        return (
+          <Typography.Text>
+            {record.modelVersion.versionNumber
+              ? `v${record.modelVersion.versionNumber}`
+              : record.modelVersion.id.slice(0, 8)}
+          </Typography.Text>
+        )
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       width: 100,
