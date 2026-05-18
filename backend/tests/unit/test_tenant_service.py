@@ -84,6 +84,7 @@ class TestCreateTenant:
                 TenantCreateRequest(name="test-tenant", display_name="Test"),
             )
 
+    @patch("app.services.tenant_service.delete_s3_credentials_secret")
     @patch("app.services.tenant_service.delete_network_policy")
     @patch("app.services.tenant_service.delete_resource_quota")
     @patch("app.services.tenant_service.delete_namespace")
@@ -102,6 +103,7 @@ class TestCreateTenant:
         mock_delete_ns,
         mock_delete_quota,
         mock_delete_np,
+        mock_delete_s3,
         tenant_service,
         mock_db,
     ):
@@ -114,6 +116,7 @@ class TestCreateTenant:
                 TenantCreateRequest(name="test", display_name="Test"),
             )
 
+        mock_delete_s3.assert_called_once()
         mock_delete_quota.assert_called_once()
         mock_delete_np.assert_called_once()
         mock_delete_ns.assert_called_once()

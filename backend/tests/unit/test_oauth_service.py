@@ -95,7 +95,7 @@ class TestFindOrCreateUser:
         mock_db.execute = AsyncMock(return_value=_sync_result(None))
         mock_db.flush = AsyncMock()
 
-        with patch("app.services.oauth_service.hash_password", return_value="hashed"):
+        with patch("app.services.oauth_service.hash_password", new=AsyncMock(return_value="hashed")):
             user = await oauth_service._find_or_create_user("ext-123", "testuser", "test@example.com")
 
         assert user.auth_provider == "oidc"
@@ -133,7 +133,7 @@ class TestFindOrCreateUser:
         mock_db.execute = AsyncMock(side_effect=mock_execute)
         mock_db.flush = AsyncMock()
 
-        with patch("app.services.oauth_service.hash_password", return_value="hashed"):
+        with patch("app.services.oauth_service.hash_password", new=AsyncMock(return_value="hashed")):
             user = await oauth_service._find_or_create_user("ext-456", "testuser", "new@example.com")
 
         assert user.username == "testuser_1"
@@ -155,7 +155,7 @@ class TestFindOrCreateUser:
         mock_db.execute = AsyncMock(side_effect=mock_execute)
         mock_db.flush = AsyncMock()
 
-        with patch("app.services.oauth_service.hash_password", return_value="hashed"):
+        with patch("app.services.oauth_service.hash_password", new=AsyncMock(return_value="hashed")):
             user = await oauth_service._find_or_create_user("ext-789", "newuser", "taken@example.com")
 
         assert user.email == "newuser@oauth.local"
@@ -164,7 +164,7 @@ class TestFindOrCreateUser:
         mock_db.execute = AsyncMock(return_value=_sync_result(None))
         mock_db.flush = AsyncMock()
 
-        with patch("app.services.oauth_service.hash_password", return_value="hashed"):
+        with patch("app.services.oauth_service.hash_password", new=AsyncMock(return_value="hashed")):
             user = await oauth_service._find_or_create_user("ext-id-abc", "", "")
 
         assert user.username == "ext-id-abc"

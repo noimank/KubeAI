@@ -215,10 +215,10 @@ class TestBuildImageEndpoint:
     @pytest.mark.asyncio(loop_scope="session")
     @patch("app.services.image_service.k8s_job")
     @patch("app.services.image_service.k8s_secret")
-    @patch("app.services.image_service.harbor_client")
+    @patch("app.services.image_service.get_harbor_client")
     @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
     async def test_build_image_no_tenant(
-        self, _, mock_harbor, mock_secret, mock_job, client: AsyncClient, admin_headers
+        self, _, mock_get_harbor, mock_secret, mock_job, client: AsyncClient, admin_headers
     ):
         """Admin without tenant_id should get 403 when trying to build"""
         resp = await client.post(

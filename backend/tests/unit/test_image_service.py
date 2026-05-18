@@ -266,10 +266,13 @@ class TestDeleteImage:
 class TestBuildImage:
     @patch("app.services.image_service.k8s_secret")
     @patch("app.services.image_service.k8s_job")
-    @patch("app.services.image_service.harbor_client")
-    async def test_build_image_success(self, mock_harbor, mock_job, mock_secret, service, mock_db):
-        mock_harbor.ensure_project.return_value = {"name": "kubeai-test"}
+    @patch("app.services.image_service.get_harbor_client")
+    async def test_build_image_success(self, mock_get_harbor, mock_job, mock_secret, service, mock_db):
+        mock_harbor = MagicMock()
+        mock_harbor.ensure_project = AsyncMock(return_value={"name": "kubeai-test"})
         mock_harbor.make_harbor_dockerconfig.return_value = {".dockerconfigjson": "{}"}
+        mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-img:v1"
+        mock_get_harbor.return_value = mock_harbor
         mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-img:v1"
         mock_job.make_job_name.return_value = "image-build-test"
         mock_job.make_configmap_name.return_value = "dockerfile-test"
@@ -305,9 +308,11 @@ class TestBuildImage:
             )
 
     @patch("app.services.image_service.k8s_job")
-    @patch("app.services.image_service.harbor_client")
-    async def test_build_image_k8s_failure_marks_failed(self, mock_harbor, mock_job, service, mock_db):
-        mock_harbor.ensure_project.side_effect = Exception("K8s unavailable")
+    @patch("app.services.image_service.get_harbor_client")
+    async def test_build_image_k8s_failure_marks_failed(self, mock_get_harbor, mock_job, service, mock_db):
+        mock_harbor = MagicMock()
+        mock_harbor.ensure_project = AsyncMock(side_effect=Exception("K8s unavailable"))
+        mock_get_harbor.return_value = mock_harbor
 
         tenant_id = uuid.uuid4()
         with pytest.raises(Exception, match="K8s unavailable"):
@@ -343,8 +348,8 @@ class TestRebuildImage:
             await service.rebuild_image(image.id)
 
     @patch("app.services.image_service.k8s_job")
-    @patch("app.services.image_service.harbor_client")
-    async def test_rebuild_success(self, mock_harbor, mock_job, service, mock_db):
+    @patch("app.services.image_service.get_harbor_client")
+    async def test_rebuild_success(self, mock_get_harbor, mock_job, service, mock_db):
         image = _make_custom_image(build_status=BuildStatus.FAILED)
         mock_db.execute.return_value = _sync_result(image)
 
@@ -355,7 +360,9 @@ class TestRebuildImage:
         mock_job.submit_job = AsyncMock(return_value=MagicMock())
         mock_job.delete_configmap = AsyncMock()
         mock_job.delete_job = AsyncMock()
+        mock_harbor = MagicMock()
         mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-custom:v1.0"
+        mock_get_harbor.return_value = mock_harbor
 
         result = await service.rebuild_image(image.id)
 
@@ -384,8 +391,8 @@ class TestGetBuildLog:
 
 class TestSyncBuildStatus:
     @patch("app.services.image_service.k8s_job")
-    @patch("app.services.image_service.harbor_client")
-    async def test_sync_to_succeeded(self, mock_harbor, mock_job, service, mock_db):
+    @patch("app.services.image_service.get_harbor_client")
+    async def test_sync_to_succeeded(self, mock_get_harbor, mock_job, service, mock_db):
         tenant_id = uuid.uuid4()
         image = _make_custom_image(
             tenant_id=tenant_id,
@@ -394,7 +401,9 @@ class TestSyncBuildStatus:
         mock_job.get_job_status = AsyncMock(return_value={"status": "succeeded", "active": False})
         mock_job.make_configmap_name.return_value = "dockerfile-test"
         mock_job.delete_configmap = AsyncMock()
+        mock_harbor = MagicMock()
         mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-custom:v1.0"
+        mock_get_harbor.return_value = mock_harbor
 
         result = await service.sync_build_status(image)
 

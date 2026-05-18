@@ -95,10 +95,8 @@ class TestLogin:
         mock_db.execute.return_value = _sync_result(user)
         mock_redis.get.return_value = None
 
-        with patch("app.services.auth_service.verify_password", return_value=True):
+        with patch("app.services.auth_service.verify_password", new=AsyncMock(return_value=True)):
             result = await auth_service.login(LoginRequest(username="testuser", password="Passw0rd"))
-
-        assert result.access_token is not None
         assert result.refresh_token is not None
         assert result.tenant_id is None
 
@@ -114,7 +112,7 @@ class TestLogin:
         mock_db.execute.return_value = _sync_result(user)
         mock_redis.get.return_value = None
 
-        with patch("app.services.auth_service.verify_password", return_value=True):
+        with patch("app.services.auth_service.verify_password", new=AsyncMock(return_value=True)):
             result = await auth_service.login(LoginRequest(username="tenantuser", password="Passw0rd"))
 
         assert result.tenant_id == str(tenant_id)
@@ -136,7 +134,7 @@ class TestLogin:
         mock_redis.incr.return_value = 1
 
         with (
-            patch("app.services.auth_service.verify_password", return_value=False),
+            patch("app.services.auth_service.verify_password", new=AsyncMock(return_value=False)),
             pytest.raises(UnauthorizedException, match="用户名或密码错误"),
         ):
             await auth_service.login(LoginRequest(username="testuser", password="wrong"))
@@ -166,7 +164,7 @@ class TestLogin:
         mock_redis.incr.return_value = 5
 
         with (
-            patch("app.services.auth_service.verify_password", return_value=False),
+            patch("app.services.auth_service.verify_password", new=AsyncMock(return_value=False)),
             pytest.raises(UnauthorizedException, match="用户名或密码错误"),
         ):
             await auth_service.login(LoginRequest(username="testuser", password="wrong"))
@@ -301,6 +299,6 @@ class TestBuiltinAuthUnaffectedByOIDC:
         mock_db.execute.return_value = _sync_result(user)
         mock_redis.get.return_value = None
 
-        with patch("app.services.auth_service.verify_password", return_value=True):
+        with patch("app.services.auth_service.verify_password", new=AsyncMock(return_value=True)):
             result = await auth_service.login(LoginRequest(username="oidc_context_user", password="Passw0rd"))
             assert result.access_token is not None

@@ -410,22 +410,11 @@ class TestEnrichExperimentNewFields:
 
 
 class TestMLflowClientDegradation:
-    async def test_get_mlflow_client_disabled(self):
-        with patch("app.integrations.mlflow.client.settings") as mock_settings:
-            mock_settings.MLFLOW_ENABLED = False
-            from app.integrations.mlflow.client import get_mlflow_client
+    async def test_get_mlflow_client_returns_none_when_not_initialized(self):
+        from app.core.events import get_mlflow_client
 
+        with patch("app.core.events.mlflow_client", None):
             assert get_mlflow_client() is None
-
-    async def test_get_mlflow_client_enabled(self):
-        with patch("app.integrations.mlflow.client.settings") as mock_settings:
-            mock_settings.MLFLOW_ENABLED = True
-            mock_settings.MLFLOW_TRACKING_URI = "http://mlflow:5000"
-            from app.integrations.mlflow.client import get_mlflow_client
-
-            client = get_mlflow_client()
-            assert client is not None
-            assert client._base_url == "http://mlflow:5000"
 
     async def test_search_experiments_returns_empty_on_failure(self):
         from app.integrations.mlflow.client import MLflowClient
@@ -433,6 +422,7 @@ class TestMLflowClientDegradation:
         client = MLflowClient(base_url="http://nonexistent:5000")
         result = await client.search_experiments()
         assert result == []
+        await client.close()
 
     async def test_get_run_returns_none_on_failure(self):
         from app.integrations.mlflow.client import MLflowClient
@@ -440,6 +430,7 @@ class TestMLflowClientDegradation:
         client = MLflowClient(base_url="http://nonexistent:5000")
         result = await client.get_run("nonexistent-run")
         assert result is None
+        await client.close()
 
 
 class TestVcjobBuilderMlflowEnv:

@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -13,58 +13,60 @@ def harbor():
         mock_settings.HARBOR_USERNAME = "admin"
         mock_settings.HARBOR_PASSWORD = "Harbor12345"
         mock_settings.HARBOR_PROJECT_PREFIX = "kubeai-"
-        return HarborClient()
+        client = HarborClient()
+    return client
 
 
 class TestHealthCheck:
-    @patch("app.integrations.harbor.client.httpx.get")
-    def test_health_check_ok(self, mock_get, harbor):
-        mock_get.return_value = MagicMock(status_code=200)
-        assert harbor.health_check() is True
-        mock_get.assert_called_once()
+    async def test_health_check_ok(self, harbor):
+        mock_resp = MagicMock(status_code=200)
+        harbor._client.get = AsyncMock(return_value=mock_resp)
 
-    @patch("app.integrations.harbor.client.httpx.get")
-    def test_health_check_fail(self, mock_get, harbor):
-        mock_get.side_effect = httpx.HTTPError("connection error")
-        assert harbor.health_check() is False
+        assert await harbor.health_check() is True
+        harbor._client.get.assert_called_once()
+
+    async def test_health_check_fail(self, harbor):
+        harbor._client.get = AsyncMock(side_effect=httpx.HTTPError("connection error"))
+
+        assert await harbor.health_check() is False
 
 
 class TestGetProject:
-    @patch("app.integrations.harbor.client.httpx.get")
-    def test_get_project_found(self, mock_get, harbor):
-        mock_get.return_value = MagicMock(
+    async def test_get_project_found(self, harbor):
+        mock_resp = MagicMock(
             status_code=200,
             json=lambda: [{"name": "kubeai-test", "project_id": 1}],
         )
-        result = harbor.get_project("kubeai-test")
+        harbor._client.get = AsyncMock(return_value=mock_resp)
+
+        result = await harbor.get_project("kubeai-test")
         assert result is not None
         assert result["name"] == "kubeai-test"
 
-    @patch("app.integrations.harbor.client.httpx.get")
-    def test_get_project_not_found(self, mock_get, harbor):
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: [])
-        result = harbor.get_project("kubeai-missing")
+    async def test_get_project_not_found(self, harbor):
+        mock_resp = MagicMock(status_code=200, json=lambda: [])
+        harbor._client.get = AsyncMock(return_value=mock_resp)
+
+        result = await harbor.get_project("kubeai-missing")
         assert result is None
 
 
 class TestEnsureProject:
-    @patch.object(HarborClient, "get_project")
-    def test_ensure_project_already_exists(self, mock_get, harbor):
-        mock_get.return_value = {"name": "kubeai-test", "project_id": 1}
-        result = harbor.ensure_project("kubeai-test")
+    async def test_ensure_project_already_exists(self, harbor):
+        existing = {"name": "kubeai-test", "project_id": 1}
+        harbor.get_project = AsyncMock(return_value=existing)
+
+        result = await harbor.ensure_project("kubeai-test")
         assert result["name"] == "kubeai-test"
 
-    @patch("app.integrations.harbor.client.httpx.post")
-    @patch.object(HarborClient, "get_project")
-    def test_ensure_project_create_new(self, mock_get, mock_post, harbor):
-        mock_get.side_effect = [
-            None,
-            {"name": "kubeai-new", "project_id": 2},
-        ]
-        mock_post.return_value = MagicMock(status_code=201)
-        result = harbor.ensure_project("kubeai-new")
+    async def test_ensure_project_create_new(self, harbor):
+        harbor.get_project = AsyncMock(side_effect=[None, {"name": "kubeai-new", "project_id": 2}])
+        mock_resp = MagicMock(status_code=201)
+        harbor._client.post = AsyncMock(return_value=mock_resp)
+
+        result = await harbor.ensure_project("kubeai-new")
         assert result["name"] == "kubeai-new"
-        mock_post.assert_called_once()
+        harbor._client.post.assert_called_once()
 
 
 class TestMakeHarborImageRef:

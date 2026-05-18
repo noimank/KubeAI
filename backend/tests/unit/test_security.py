@@ -12,23 +12,23 @@ from app.core.security import (
 
 
 class TestPasswordHash:
-    def test_hash_password_returns_hash(self):
-        hashed = hash_password("mypassword")
+    async def test_hash_password_returns_hash(self):
+        hashed = await hash_password("mypassword")
         assert isinstance(hashed, str)
         assert hashed != "mypassword"
 
-    def test_hash_password_different_each_time(self):
-        h1 = hash_password("samepassword")
-        h2 = hash_password("samepassword")
+    async def test_hash_password_different_each_time(self):
+        h1 = await hash_password("samepassword")
+        h2 = await hash_password("samepassword")
         assert h1 != h2
 
-    def test_verify_password_correct(self):
-        hashed = hash_password("mypassword")
-        assert verify_password("mypassword", hashed) is True
+    async def test_verify_password_correct(self):
+        hashed = await hash_password("mypassword")
+        assert await verify_password("mypassword", hashed) is True
 
-    def test_verify_password_incorrect(self):
-        hashed = hash_password("mypassword")
-        assert verify_password("wrongpassword", hashed) is False
+    async def test_verify_password_incorrect(self):
+        hashed = await hash_password("mypassword")
+        assert await verify_password("wrongpassword", hashed) is False
 
 
 class TestAccessToken:
