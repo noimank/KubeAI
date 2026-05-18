@@ -14,46 +14,41 @@ class HarborClient:
         self.base_url = settings.HARBOR_URL.rstrip("/")
         self.username = settings.HARBOR_USERNAME
         self.password = settings.HARBOR_PASSWORD
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url,
+            auth=(self.username, self.password),
+            timeout=httpx.Timeout(10.0, connect=5.0),
+            verify=False,
+        )
 
-    def _get_auth(self) -> tuple[str, str]:
-        return (self.username, self.password)
+    async def close(self) -> None:
+        await self._client.aclose()
 
-    def health_check(self) -> bool:
+    async def health_check(self) -> bool:
         try:
-            resp = httpx.get(
-                f"{self.base_url}/api/v2.0/systeminfo",
-                auth=self._get_auth(),
-                timeout=5,
-                verify=False,
-            )
+            resp = await self._client.get("/api/v2.0/systeminfo")
             return resp.status_code == 200
         except httpx.HTTPError:
             return False
 
-    def ensure_project(self, project_name: str) -> dict[str, Any]:
-        existing = self.get_project(project_name)
+    async def ensure_project(self, project_name: str) -> dict[str, Any]:
+        existing = await self.get_project(project_name)
         if existing:
             return existing
 
-        resp = httpx.post(
-            f"{self.base_url}/api/v2.0/projects",
-            auth=self._get_auth(),
+        resp = await self._client.post(
+            "/api/v2.0/projects",
             json={"project_name": project_name, "public": False},
-            timeout=10,
-            verify=False,
         )
         if resp.status_code in (201, 409):
-            return self.get_project(project_name) or {}
+            return (await self.get_project(project_name)) or {}
         resp.raise_for_status()
         return {}
 
-    def get_project(self, project_name: str) -> dict[str, Any] | None:
-        resp = httpx.get(
-            f"{self.base_url}/api/v2.0/projects",
-            auth=self._get_auth(),
+    async def get_project(self, project_name: str) -> dict[str, Any] | None:
+        resp = await self._client.get(
+            "/api/v2.0/projects",
             params={"name": project_name},
-            timeout=10,
-            verify=False,
         )
         if resp.status_code != 200:
             return None
@@ -80,6 +75,3 @@ class HarborClient:
             }
         }
         return {"config.json": json.dumps(docker_config)}
-
-
-harbor_client = HarborClient()

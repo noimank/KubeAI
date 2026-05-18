@@ -6,9 +6,11 @@ from app.core.config import settings
 from app.core.database import async_session_factory, close_db
 from app.core.redis import close_redis, init_redis
 from app.core.security import hash_password
+from app.integrations.harbor.client import HarborClient
 from app.integrations.k8s.client import close_k8s_clients
 from app.integrations.labelstudio import LabelStudioClient
 from app.integrations.minio import MinIOClient
+from app.integrations.mlflow.client import MLflowClient
 from app.integrations.prometheus.client import PrometheusClient
 from app.models.enums import TenantStatus, UserRole
 from app.models.tenant import Tenant
@@ -17,14 +19,22 @@ from app.models.user import User
 logger = structlog.get_logger()
 
 minio_client: MinIOClient | None = None
+harbor_client: HarborClient | None = None
 prometheus_client: PrometheusClient | None = None
 labelstudio_client: LabelStudioClient | None = None
+mlflow_client: MLflowClient | None = None
 
 
 def get_minio_client() -> MinIOClient:
     if minio_client is None:
         raise RuntimeError("MinIO client not initialized")
     return minio_client
+
+
+def get_harbor_client() -> HarborClient:
+    if harbor_client is None:
+        raise RuntimeError("Harbor client not initialized")
+    return harbor_client
 
 
 def get_prometheus_client() -> PrometheusClient | None:
@@ -35,6 +45,10 @@ def get_labelstudio_client() -> LabelStudioClient:
     if labelstudio_client is None:
         raise RuntimeError("LabelStudio 客户端未初始化")
     return labelstudio_client
+
+
+def get_mlflow_client() -> MLflowClient | None:
+    return mlflow_client
 
 
 async def _init_admin_user() -> None:
@@ -64,7 +78,7 @@ async def _init_admin_user() -> None:
                 User(
                     username="admin",
                     email="admin@163.com",
-                    hashed_password=hash_password("Admin123456"),
+                    hashed_password=await hash_password("Admin123456"),
                     role=UserRole.ADMIN,
                     is_active=True,
                     tenant_id=tenant.id,
@@ -103,21 +117,34 @@ async def on_startup() -> None:
     CasbinEnforcer.initialize(settings.DATABASE_URL)
     await _init_admin_user()
     minio_client = MinIOClient()
+    global harbor_client, mlflow_client
+    harbor_client = HarborClient()
     if settings.PROMETHEUS_URL:
         prometheus_client = PrometheusClient()
     if settings.LABEL_STUDIO_API_TOKEN:
         labelstudio_client = LabelStudioClient()
+    if settings.MLFLOW_ENABLED:
+        mlflow_client = MLflowClient()
     logger.info("application_startup", app="KubeAI")
 
 
 async def on_shutdown() -> None:
-    global prometheus_client, labelstudio_client
+    global prometheus_client, labelstudio_client, harbor_client, minio_client, mlflow_client
     if prometheus_client:
         await prometheus_client.close()
         prometheus_client = None
     if labelstudio_client:
         await labelstudio_client.close()
         labelstudio_client = None
+    if harbor_client:
+        await harbor_client.close()
+        harbor_client = None
+    if minio_client:
+        minio_client.close()
+        minio_client = None
+    if mlflow_client:
+        await mlflow_client.close()
+        mlflow_client = None
     await close_k8s_clients()
     await close_db()
     await close_redis()

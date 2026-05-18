@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, case, func, or_, select
 
 from app.core.config import settings
+from app.core.events import get_harbor_client
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.integrations.base import K8S_NAMESPACE_PREFIX, sanitize_k8s_name
-from app.integrations.harbor.client import harbor_client
 from app.integrations.k8s import job as k8s_job
 from app.integrations.k8s import secret as k8s_secret
 from app.models.enums import AuditAction, BuildStatus, ResourceType
@@ -238,9 +237,9 @@ class ImageService:
 
         try:
             harbor_project = f"{settings.HARBOR_PROJECT_PREFIX}{sanitize_k8s_name(tenant_name)}"
-            await asyncio.to_thread(harbor_client.ensure_project, harbor_project)
+            await get_harbor_client().ensure_project(harbor_project)
 
-            harbor_dockerconfig = harbor_client.make_harbor_dockerconfig()
+            harbor_dockerconfig = get_harbor_client().make_harbor_dockerconfig()
             await k8s_secret.create_secret(
                 namespace=namespace,
                 name=k8s_job.HARBOR_SECRET_NAME,
@@ -249,7 +248,7 @@ class ImageService:
 
             await k8s_job.create_configmap(namespace=namespace, name=cm_name, data={"Dockerfile": dockerfile})
 
-            destination = harbor_client.make_harbor_image_ref(
+            destination = get_harbor_client().make_harbor_image_ref(
                 tenant_name=tenant_name,
                 name=name,
                 tag=tag,
@@ -325,7 +324,7 @@ class ImageService:
             data={"Dockerfile": image.dockerfile or ""},
         )
 
-        destination = harbor_client.make_harbor_image_ref(
+        destination = get_harbor_client().make_harbor_image_ref(
             tenant_name=tenant_name,
             name=image.name,
             tag=image.tag,
@@ -368,7 +367,7 @@ class ImageService:
 
         if status.get("status") == "succeeded":
             image.build_status = BuildStatus.PUSHING
-            destination = harbor_client.make_harbor_image_ref(
+            destination = get_harbor_client().make_harbor_image_ref(
                 tenant_name=tenant_name,
                 name=image.name,
                 tag=image.tag,

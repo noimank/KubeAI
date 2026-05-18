@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 
-from app.integrations.mlflow.client import get_mlflow_client
+from app.core.events import get_mlflow_client
 from app.models.dataset import DatasetVersion
 from app.models.experiment import Experiment
 from app.models.image import Image

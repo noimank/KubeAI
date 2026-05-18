@@ -26,6 +26,11 @@ class MinIOClient:
         )
         self._prefix = settings.MINIO_BUCKET_PREFIX
 
+    def close(self) -> None:
+        http_pool = getattr(self._client, "_http", None)
+        if http_pool is not None:
+            http_pool.clear()
+
     def _bucket_name(self, tenant_name: str) -> str:
         return f"{self._prefix}{sanitize_k8s_name(tenant_name)}"
 
