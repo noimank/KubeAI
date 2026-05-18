@@ -4,10 +4,13 @@ import logging
 from kubernetes_asyncio import client
 from kubernetes_asyncio.client.rest import ApiException
 
+from app.core.config import settings
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
+
+S3_SECRET_NAME = "s3-credentials"
 
 
 def _encode_secret_data(data: dict[str, str]) -> dict[str, str]:
@@ -64,6 +67,29 @@ async def get_secret(namespace: str, name: str) -> dict[str, str] | None:
         if e.status == 404:
             return None
         raise
+
+
+async def create_s3_credentials_secret(namespace: str) -> client.V1Secret:
+    """Create S3 credentials secret for tenant namespace (MinIO access)."""
+    return await create_secret(
+        namespace=namespace,
+        name=S3_SECRET_NAME,
+        data={
+            "AWS_ACCESS_KEY_ID": settings.MINIO_ACCESS_KEY,
+            "AWS_SECRET_ACCESS_KEY": settings.MINIO_SECRET_KEY,
+            "AWS_DEFAULT_REGION": "us-east-1",
+        },
+    )
+
+
+async def delete_s3_credentials_secret(namespace: str) -> None:
+    """Delete S3 credentials secret from tenant namespace."""
+    await delete_secret(namespace=namespace, name=S3_SECRET_NAME)
+
+
+async def ensure_s3_credentials_secret(namespace: str) -> None:
+    """Ensure S3 credentials secret exists in tenant namespace."""
+    await create_s3_credentials_secret(namespace)
 
 
 def make_secret_name(tenant_name: str, credential_name: str) -> str:

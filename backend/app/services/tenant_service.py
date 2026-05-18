@@ -22,6 +22,7 @@ from app.integrations.k8s.resource_quota import (
     get_quota_used,
     update_resource_quota,
 )
+from app.integrations.k8s.secret import delete_s3_credentials_secret, ensure_s3_credentials_secret
 from app.models.enums import AuditAction, ResourceType, TenantStatus, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -67,7 +68,9 @@ class TenantService:
                 )
                 await create_resource_quota(namespace, quota)
                 await create_tenant_network_policy(namespace)
+                await ensure_s3_credentials_secret(namespace)
             except Exception:
+                await delete_s3_credentials_secret(namespace)
                 await delete_resource_quota(namespace)
                 await delete_network_policy(namespace)
                 await delete_namespace(namespace)
@@ -234,6 +237,7 @@ class TenantService:
         namespace = tenant.k8s_namespace_name
         if namespace:
             cleanup_ops: list[tuple[Callable[[str], Awaitable[None]], str]] = [
+                (delete_s3_credentials_secret, "S3CredentialsSecret"),
                 (delete_resource_quota, "ResourceQuota"),
                 (delete_network_policy, "NetworkPolicy"),
                 (delete_namespace, "Namespace"),
