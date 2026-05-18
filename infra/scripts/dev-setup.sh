@@ -5,13 +5,13 @@ set -euo pipefail
 # Development Environment Setup for KubeAI Platform
 #
 # Installs:
-#   - Local Docker services (PostgreSQL, Redis, MinIO via Docker)
+#   - Infrastructure via Helm (PostgreSQL, Redis, MinIO, Harbor, etc.)
 #   - Backend dependencies and migrations
 #   - Frontend dependencies
 #   - Kubernetes components (Volcano, KEDA, KServe) for dev cluster
 #
 # Prerequisites:
-#   - Docker + Kubernetes cluster (Docker Desktop, kind, minikube)
+#   - Kubernetes cluster (kind, minikube, etc.)
 #   - Helm 3.8+
 #   - uv (Python package manager)
 #   - pnpm (Node.js package manager)
@@ -107,11 +107,11 @@ install_k8s_components() {
     log "K8s components installation complete."
 }
 
-# -- Full setup (Docker + local dev)
+# -- Full setup (Helm + local dev)
 if [[ "$K8S_ONLY" == false ]]; then
     log "Checking prerequisites..."
     MISSING=0
-    for cmd in docker uv pnpm; do
+    for cmd in helm kubectl uv pnpm; do
         if ! check_cmd "$cmd"; then MISSING=1; fi
     done
     if [ $MISSING -eq 1 ]; then
@@ -119,25 +119,20 @@ if [[ "$K8S_ONLY" == false ]]; then
         exit 1
     fi
 
-    # Check for docker-compose file
-    DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
-    if [ ! -f "$DOCKER_COMPOSE_FILE" ]; then
-        warn "docker-compose.yml not found. Skipping Docker services."
+    # -- Deploy infrastructure via Helm
+    if check_in_cluster; then
+        HELM_VALUES="$PROJECT_ROOT/infra/helm/kubeai/values-dev.yaml"
+        if [ ! -f "$HELM_VALUES" ]; then
+            warn "values-dev.yaml not found. Skipping Helm deployment."
+        else
+            log "Deploying PostgreSQL, Redis, MinIO via Helm..."
+            helm upgrade --install kubeai "$PROJECT_ROOT/infra/helm/kubeai/" \
+                -f "$HELM_VALUES" \
+                -n kubeai --create-namespace
+            log "Helm deployment complete."
+        fi
     else
-        # -- Start infrastructure services
-        log "Starting PostgreSQL, Redis, MinIO..."
-        cd "$PROJECT_ROOT"
-        docker compose -f "$DOCKER_COMPOSE_FILE" up -d
-
-        # -- Wait for services
-        log "Waiting for services to be healthy..."
-        for i in $(seq 1 30); do
-            if docker exec kubeai-postgres pg_isready &>/dev/null; then
-                break
-            fi
-            sleep 1
-        done
-        log "PostgreSQL is ready."
+        warn "No Kubernetes cluster detected. Skipping Helm deployment."
     fi
 
     # -- Backend setup

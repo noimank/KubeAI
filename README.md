@@ -8,18 +8,12 @@ Kubernetes-native AI/ML 平台。
 - Node.js 20+
 - [uv](https://docs.astral.sh/uv/) (Python 包管理)
 - pnpm (`corepack enable && corepack prepare pnpm@latest --activate`)
-- Docker + K8s 集群 (kind / minikube / Docker Desktop)
+- Kubernetes 集群 (kind / minikube / Docker Desktop 等)
 - Helm 3.8+
 
 ## 快速开始
 
-### 1. 启动本地 Docker 服务（PostgreSQL, Redis, MinIO）
-
-```bash
-docker compose up -d
-```
-
-### 2. 安装 K8s 基础设施组件
+### 1. 安装 K8s 基础设施组件
 
 所有组件可通过 `infra/scripts/setup-infra.sh` 一键安装：
 
@@ -34,7 +28,7 @@ docker compose up -d
 ./infra/scripts/setup-infra.sh --uninstall  # 卸载所有组件
 ```
 
-### 3. Helm 部署完整平台（生产）
+### 2. Helm 部署完整平台
 
 ```bash
 helm repo add bitnami https://charts.bitnami.com/bitnami
@@ -48,7 +42,7 @@ helm install kubeai infra/helm/kubeai/ \
 
 一键部署 PostgreSQL、Redis、MinIO、Volcano 调度器、后端、前端。
 
-### 4. 本地开发（仅后端/前端热更新）
+### 3. 本地开发（仅后端/前端热更新）
 
 先确保集群中已部署基础服务（PostgreSQL、Redis、MinIO），然后：
 
@@ -69,8 +63,8 @@ pnpm dev                      # 启动 http://localhost:3000，自动代理 /api
 或使用开发环境脚本一键配置：
 
 ```bash
-./infra/scripts/dev-setup.sh              # 完整开发环境（Docker + K8s + 后端 + 前端）
-./infra/scripts/dev-setup.sh --k8s-only    # 仅安装 K8s 组件
+./infra/scripts/dev-setup.sh              # 完整开发环境（Helm + K8s + 后端 + 前端）
+./infra/scripts/dev-setup.sh --k8s-only   # 仅安装 K8s 组件
 ```
 
 ### 默认账号
@@ -102,7 +96,7 @@ pnpm typecheck  # TypeScript 检查
 pnpm test       # Vitest
 ```
 
-## Docker 构建
+## 容器镜像构建
 
 ```bash
 docker build -t kubeai-backend -f infra/images/backend/Dockerfile .

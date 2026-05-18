@@ -24,7 +24,7 @@ pnpm test                  # Vitest
 pnpm test:watch            # Vitest watch 模式
 
 # 基础设施 (项目根目录)
-docker compose -f docker-compose.dev.yml up -d  # PostgreSQL 17 + Redis 7 + MinIO
+helm install kubeai infra/helm/kubeai/ -f infra/helm/kubeai/values-dev.yaml -n kubeai --create-namespace
 
 # 数据库迁移
 uv run alembic upgrade head
