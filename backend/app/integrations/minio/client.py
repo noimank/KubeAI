@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
+from functools import partial
 from typing import Any
 
 from minio import Minio
@@ -27,25 +29,28 @@ class MinIOClient:
     def _bucket_name(self, tenant_name: str) -> str:
         return f"{self._prefix}{sanitize_k8s_name(tenant_name)}"
 
-    def health_check(self) -> bool:
+    async def _run_sync(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
+        return await asyncio.to_thread(partial(fn, *args, **kwargs))
+
+    async def health_check(self) -> bool:
         try:
-            self._client.list_buckets()
+            await self._run_sync(self._client.list_buckets)
             return True
         except Exception as e:
             logger.error("MinIO health check failed: %s", e)
             raise ExternalServiceException(f"MinIO 连接失败: {e}") from e
 
-    def ensure_bucket(self, tenant_name: str) -> str:
+    async def ensure_bucket(self, tenant_name: str) -> str:
         bucket = self._bucket_name(tenant_name)
         try:
-            if not self._client.bucket_exists(bucket):
-                self._client.make_bucket(bucket)
+            if not await self._run_sync(self._client.bucket_exists, bucket):
+                await self._run_sync(self._client.make_bucket, bucket)
                 logger.info("Created MinIO bucket: %s", bucket)
             return bucket
         except S3Error as e:
             raise ExternalServiceException(f"MinIO bucket 操作失败: {e}") from e
 
-    def upload_file(
+    async def upload_file(
         self,
         tenant_name: str,
         object_name: str,
@@ -55,7 +60,8 @@ class MinIOClient:
     ) -> str:
         bucket = self._bucket_name(tenant_name)
         try:
-            result = self._client.fput_object(
+            result = await self._run_sync(
+                self._client.fput_object,
                 bucket_name=bucket,
                 object_name=object_name,
                 file_path=file_path,
@@ -66,7 +72,7 @@ class MinIOClient:
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 文件上传失败: {e}") from e
 
-    def upload_stream(
+    async def upload_stream(
         self,
         tenant_name: str,
         object_name: str,
@@ -77,7 +83,8 @@ class MinIOClient:
     ) -> str:
         bucket = self._bucket_name(tenant_name)
         try:
-            result = self._client.put_object(
+            result = await self._run_sync(
+                self._client.put_object,
                 bucket_name=bucket,
                 object_name=object_name,
                 data=data,
@@ -89,10 +96,10 @@ class MinIOClient:
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 流式上传失败: {e}") from e
 
-    def list_objects(self, tenant_name: str, prefix: str = "") -> list[dict[str, Any]]:
+    async def list_objects(self, tenant_name: str, prefix: str = "") -> list[dict[str, Any]]:
         bucket = self._bucket_name(tenant_name)
         try:
-            objects = self._client.list_objects(bucket, prefix=prefix, recursive=True)
+            objects = await self._run_sync(self._client.list_objects, bucket, prefix=prefix, recursive=True)
             result: list[dict[str, Any]] = []
             for obj in objects:
                 if obj.is_dir:
@@ -117,10 +124,10 @@ class MinIOClient:
         except Exception as e:
             raise ExternalServiceException(f"MinIO 列出对象失败: {e}") from e
 
-    def get_object_info(self, tenant_name: str, object_name: str) -> dict[str, Any]:
+    async def get_object_info(self, tenant_name: str, object_name: str) -> dict[str, Any]:
         bucket = self._bucket_name(tenant_name)
         try:
-            stat = self._client.stat_object(bucket, object_name)
+            stat = await self._run_sync(self._client.stat_object, bucket, object_name)
             return {
                 "object_name": stat.object_name,
                 "size": stat.size,
@@ -130,7 +137,7 @@ class MinIOClient:
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 获取对象信息失败: {e}") from e
 
-    def presigned_get_url(
+    async def presigned_get_url(
         self,
         tenant_name: str,
         object_name: str,
@@ -142,23 +149,23 @@ class MinIOClient:
             extra_query: dict[str, str | list[str] | tuple[str]] = {}
             if download_filename:
                 extra_query["response-content-disposition"] = f'attachment; filename="{download_filename}"'
-            return self._client.presigned_get_object(
-                bucket, object_name, expires=expires, extra_query_params=extra_query
+            return await self._run_sync(
+                self._client.presigned_get_object, bucket, object_name, expires=expires, extra_query_params=extra_query
             )
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 生成预签名 URL 失败: {e}") from e
 
-    def delete_object(self, tenant_name: str, object_name: str) -> None:
+    async def delete_object(self, tenant_name: str, object_name: str) -> None:
         bucket = self._bucket_name(tenant_name)
         try:
-            self._client.remove_object(bucket, object_name)
+            await self._run_sync(self._client.remove_object, bucket, object_name)
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 删除对象失败: {e}") from e
 
-    def delete_objects(self, tenant_name: str, object_names: list[str]) -> None:
+    async def delete_objects(self, tenant_name: str, object_names: list[str]) -> None:
         bucket = self._bucket_name(tenant_name)
         try:
             for name in object_names:
-                self._client.remove_object(bucket, name)
+                await self._run_sync(self._client.remove_object, bucket, name)
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 批量删除失败: {e}") from e

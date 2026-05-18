@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import date, timedelta
 from io import BytesIO
@@ -82,7 +81,7 @@ class DatasetService:
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
 
-        await asyncio.to_thread(self.minio.ensure_bucket, tenant_name)
+        await self.minio.ensure_bucket(tenant_name)
 
         results: list[dict[str, Any]] = []
         total_size = 0
@@ -93,8 +92,7 @@ class DatasetService:
             content = await file.read()
             size = len(content)
 
-            await asyncio.to_thread(
-                self.minio.upload_stream,
+            await self.minio.upload_stream(
                 tenant_name,
                 object_name,
                 BytesIO(content),
@@ -190,9 +188,9 @@ class DatasetService:
         tenant_name = await self._get_tenant_name(tenant_id)
 
         prefix = f"datasets/{dataset.name}/v{version.version_number}/"
-        objects = await asyncio.to_thread(self.minio.list_objects, tenant_name, prefix)
+        objects = await self.minio.list_objects(tenant_name, prefix)
         if objects:
-            await asyncio.to_thread(self.minio.delete_objects, tenant_name, [o["object_name"] for o in objects])
+            await self.minio.delete_objects(tenant_name, [o["object_name"] for o in objects])
 
         if audit_context:
             await self._log_audit(
@@ -216,9 +214,9 @@ class DatasetService:
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         tenant_name = await self._get_tenant_name(tenant_id)
 
-        objects = await asyncio.to_thread(self.minio.list_objects, tenant_name, f"datasets/{dataset.name}/")
+        objects = await self.minio.list_objects(tenant_name, f"datasets/{dataset.name}/")
         if objects:
-            await asyncio.to_thread(self.minio.delete_objects, tenant_name, [o["object_name"] for o in objects])
+            await self.minio.delete_objects(tenant_name, [o["object_name"] for o in objects])
 
         if audit_context:
             await self._log_audit(
@@ -243,7 +241,7 @@ class DatasetService:
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
         prefix = f"datasets/{dataset.name}/v{version.version_number}/"
-        objects = await asyncio.to_thread(self.minio.list_objects, tenant_name, prefix)
+        objects = await self.minio.list_objects(tenant_name, prefix)
         return [
             {
                 "file_name": obj["object_name"].removeprefix(prefix),
@@ -283,7 +281,7 @@ class DatasetService:
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
         object_name = f"datasets/{dataset.name}/v{version.version_number}/{file_name}"
-        return await asyncio.to_thread(self.minio.presigned_get_url, tenant_name, object_name)
+        return await self.minio.presigned_get_url(tenant_name, object_name)
 
     def _compute_file_type_distribution(self, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ext_counter: dict[str, dict[str, Any]] = {}

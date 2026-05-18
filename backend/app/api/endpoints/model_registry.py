@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 from typing import Annotated, Any
 
@@ -207,7 +206,7 @@ async def _finalize_upload(
     tenant: Tenant,
 ) -> None:
     try:
-        objects = await asyncio.to_thread(minio.list_objects, tenant.name, version.storage_path)
+        objects = await minio.list_objects(tenant.name, version.storage_path)
     except Exception:
         return
 
@@ -255,7 +254,7 @@ async def register_model(
     short_id = uuid.uuid4().hex[:8]
     upload_job_name = f"kubeai-upload-{short_id}"
 
-    bucket = await asyncio.to_thread(minio.ensure_bucket, tenant.name)
+    bucket = await minio.ensure_bucket(tenant.name)
     upload_job = build_upload_job(
         namespace=namespace,
         job_name=upload_job_name,
@@ -457,7 +456,7 @@ async def list_version_files(
 
     tenant = await _get_tenant_or_fail(db, tenant_id)
     prefix = version.storage_path
-    objects = await asyncio.to_thread(minio.list_objects, tenant.name, prefix)
+    objects = await minio.list_objects(tenant.name, prefix)
 
     files: list[ModelVersionFileResponse] = []
     for obj in objects:
@@ -493,7 +492,7 @@ async def get_file_download_url(
 
     tenant = await _get_tenant_or_fail(db, tenant_id)
     object_name = f"{version.storage_path}/{body.file_name}"
-    url = await asyncio.to_thread(minio.presigned_get_url, tenant.name, object_name, download_filename=body.file_name)
+    url = await minio.presigned_get_url(tenant.name, object_name, download_filename=body.file_name)
     return BaseResponse(data=url, message="获取成功")
 
 
