@@ -197,13 +197,25 @@ helm install kserve "${OCI_REGISTRY}/kserve-resources" \
     "${HELM_SETS[@]}" \
     --wait
 
-# Step 3: Verify
+# Step 3: Install ServingRuntimes (required for Standard mode)
+log "Installing KServe ServingRuntimes (official v${KSERVE_VERSION} cluster resources)..."
+kubectl apply --server-side -f "https://github.com/kserve/kserve/releases/download/${KSERVE_VERSION}/kserve-cluster-resources.yaml" 2>&1 || {
+    warn "Some resources may not have been applied (LLMInferenceServiceConfig CRD may be missing). This is expected if LLM features are not needed."
+}
+log "ServingRuntimes installed."
+
+# Step 4: Verify
 log "Verifying installation..."
 CONTROLLER_PODS=$(kubectl get pods -n "$KSERVE_NAMESPACE" -l control-plane=kserve-controller-manager --no-headers 2>/dev/null | wc -l)
 if [[ "$CONTROLLER_PODS" -eq 0 ]]; then
     warn "No KServe controller pods found. Check with: kubectl get pods -n ${KSERVE_NAMESPACE}"
 else
     log "KServe controller is running (${CONTROLLER_PODS} pod(s))."
+fi
+
+RUNTIME_COUNT=$(kubectl get clusterservingruntimes --no-headers 2>/dev/null | wc -l)
+if [[ "$RUNTIME_COUNT" -gt 0 ]]; then
+    log "ServingRuntimes installed (${RUNTIME_COUNT} runtimes)."
 fi
 
 echo ""
