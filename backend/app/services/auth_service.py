@@ -50,7 +50,7 @@ class AuthService:
         user = User(
             username=req.username,
             email=req.email,
-            hashed_password=hash_password(req.password),
+            hashed_password=await hash_password(req.password),
         )
         self.db.add(user)
         await self.db.flush()
@@ -88,7 +88,7 @@ class AuthService:
 
         await self._check_lockout(str(user.id))
 
-        if not verify_password(req.password, user.hashed_password):
+        if not await verify_password(req.password, user.hashed_password):
             if audit_context:
                 audit_svc = AuditService(self.db)
                 await audit_svc.log_action(

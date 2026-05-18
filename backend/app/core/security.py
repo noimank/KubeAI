@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import secrets
 import uuid
@@ -10,12 +11,13 @@ from jose import JWTError, jwt  # type: ignore[import-untyped]
 from app.core.config import settings
 
 
-def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+async def hash_password(plain: str) -> str:
+    hashed = await asyncio.to_thread(bcrypt.hashpw, plain.encode(), bcrypt.gensalt())
+    return hashed.decode()
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+async def verify_password(plain: str, hashed: str) -> bool:
+    return await asyncio.to_thread(bcrypt.checkpw, plain.encode(), hashed.encode())
 
 
 def generate_api_token(prefix: str = "sk") -> str:

@@ -133,7 +133,7 @@ class OAuthService:
         user = User(
             username=username,
             email=email,
-            hashed_password=hash_password(secrets.token_urlsafe(32)),
+            hashed_password=await hash_password(secrets.token_urlsafe(32)),
             auth_provider="oidc",
             external_id=external_id,
         )

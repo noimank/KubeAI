@@ -209,7 +209,7 @@ async def accept_invitation(
         new_user = UserModel(
             username=req.username,
             email=inv_info["email"],
-            hashed_password=hash_password(req.password),
+            hashed_password=await hash_password(req.password),
         )
         db.add(new_user)
         await db.flush()
