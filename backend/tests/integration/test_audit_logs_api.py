@@ -128,9 +128,10 @@ async def test_get_audit_log_not_found(mock_enforce, client, admin_headers):
 @patch("app.services.tenant_service.create_namespace")
 @patch("app.services.tenant_service.create_resource_quota")
 @patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.ensure_s3_credentials_secret")
 @patch("app.services.tenant_service.build_tenant_resource_quota")
 async def test_audit_log_created_on_tenant_create(
-    mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers
+    mock_build, mock_s3, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers
 ):
     mock_build.return_value = MagicMock()
     name = _unique("tenant")

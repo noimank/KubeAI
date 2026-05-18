@@ -59,11 +59,11 @@ def mock_db():
 @pytest.fixture
 def mock_minio():
     m = MagicMock()
-    m.ensure_bucket = MagicMock()
-    m.upload_stream = MagicMock()
-    m.list_objects = MagicMock(return_value=[])
-    m.delete_objects = MagicMock()
-    m.presigned_get_url = MagicMock(return_value="https://minio.example.com/presigned-url")
+    m.ensure_bucket = AsyncMock(return_value="kubeai-default-tenant")
+    m.upload_stream = AsyncMock(return_value="object_name")
+    m.list_objects = AsyncMock(return_value=[])
+    m.delete_objects = AsyncMock()
+    m.presigned_get_url = AsyncMock(return_value="https://minio.example.com/presigned-url")
     return m
 
 
@@ -109,8 +109,7 @@ class TestCreateDataset:
 
 
 class TestUploadFilesToVersion:
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_upload_files(self, mock_to_thread, service, mock_db, mock_minio):
+    async def test_upload_files(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id)
         dataset.versions = [version]
@@ -132,6 +131,8 @@ class TestUploadFilesToVersion:
         assert len(result) == 1
         assert result[0]["file_name"] == "test.csv"
         assert result[0]["size_bytes"] == 11
+        mock_minio.ensure_bucket.assert_awaited_once()
+        mock_minio.upload_stream.assert_awaited_once()
 
     async def test_upload_dataset_not_found(self, service, mock_db):
         mock_db.execute.return_value = _sync_result(None)
@@ -301,16 +302,17 @@ class TestDatasetAggregation:
 
 
 class TestDeleteDataset:
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_delete_dataset_success(self, mock_to_thread, service, mock_db, mock_minio):
+    async def test_delete_dataset_success(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         mock_db.execute.return_value = _sync_result(dataset)
         mock_db.delete = AsyncMock()
 
-        mock_to_thread.side_effect = [[{"object_name": "obj1"}], None]
+        mock_minio.list_objects.return_value = [{"object_name": "obj1"}]
 
         await service.delete_dataset(dataset.id, dataset.tenant_id)
 
+        mock_minio.list_objects.assert_awaited_once()
+        mock_minio.delete_objects.assert_awaited_once()
         mock_db.delete.assert_called_once_with(dataset)
         mock_db.commit.assert_called()
 
@@ -320,12 +322,10 @@ class TestDeleteDataset:
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.delete_dataset(uuid.uuid4(), uuid.uuid4())
 
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_delete_with_audit(self, mock_to_thread, service, mock_db):
+    async def test_delete_with_audit(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         mock_db.execute.return_value = _sync_result(dataset)
         mock_db.delete = AsyncMock()
-        mock_to_thread.return_value = []
 
         with patch("app.services.dataset_service.AuditService") as mock_audit_cls:
             mock_audit = AsyncMock()
@@ -341,20 +341,20 @@ class TestDeleteDataset:
 
 
 class TestDeleteVersion:
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_delete_version_success(self, mock_to_thread, service, mock_db, mock_minio):
+    async def test_delete_version_success(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
         mock_db.delete = AsyncMock()
 
-        mock_to_thread.side_effect = [
-            [{"object_name": f"datasets/{dataset.name}/v{version.version_number}/file.csv"}],
-            None,
+        mock_minio.list_objects.return_value = [
+            {"object_name": f"datasets/{dataset.name}/v{version.version_number}/file.csv"}
         ]
 
         await service.delete_version(dataset.id, version.id, dataset.tenant_id)
 
+        mock_minio.list_objects.assert_awaited_once()
+        mock_minio.delete_objects.assert_awaited_once()
         mock_db.delete.assert_called_once_with(version)
         mock_db.commit.assert_called()
 
@@ -371,25 +371,22 @@ class TestDeleteVersion:
         with pytest.raises(NotFoundException, match="数据集版本不存在"):
             await service.delete_version(dataset.id, uuid.uuid4(), dataset.tenant_id)
 
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_delete_version_no_objects(self, mock_to_thread, service, mock_db, mock_minio):
+    async def test_delete_version_no_objects(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
         mock_db.delete = AsyncMock()
-        mock_to_thread.return_value = []
 
         await service.delete_version(dataset.id, version.id, dataset.tenant_id)
 
+        mock_minio.delete_objects.assert_not_awaited()
         mock_db.delete.assert_called_once_with(version)
 
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_delete_version_with_audit(self, mock_to_thread, service, mock_db):
+    async def test_delete_version_with_audit(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=2)
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
         mock_db.delete = AsyncMock()
-        mock_to_thread.return_value = []
 
         with patch("app.services.dataset_service.AuditService") as mock_audit_cls:
             mock_audit = AsyncMock()
@@ -406,15 +403,14 @@ class TestDeleteVersion:
 
 
 class TestListVersionFiles:
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_list_version_files_success(self, mock_to_thread, service, mock_db, mock_minio):
+    async def test_list_version_files_success(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=2)
         dataset.versions = [version]
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
 
         prefix = f"datasets/{dataset.name}/v2/"
-        mock_to_thread.return_value = [
+        mock_minio.list_objects.return_value = [
             {
                 "object_name": f"{prefix}data.csv",
                 "size": 1024,
@@ -450,13 +446,11 @@ class TestListVersionFiles:
         with pytest.raises(NotFoundException, match="数据集版本不存在"):
             await service.list_version_files(dataset.id, uuid.uuid4(), dataset.tenant_id)
 
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_list_version_files_empty(self, mock_to_thread, service, mock_db):
+    async def test_list_version_files_empty(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
         dataset.versions = [version]
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
-        mock_to_thread.return_value = []
 
         files = await service.list_version_files(dataset.id, version.id, dataset.tenant_id)
 
@@ -464,8 +458,7 @@ class TestListVersionFiles:
 
 
 class TestGetVersionStats:
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_get_version_stats_success(self, mock_to_thread, service, mock_db, mock_minio):
+    async def test_get_version_stats_success(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
         dataset.versions = [version]
@@ -476,7 +469,7 @@ class TestGetVersionStats:
             _sync_result(version),
         ]
         prefix = f"datasets/{dataset.name}/v1/"
-        mock_to_thread.return_value = [
+        mock_minio.list_objects.return_value = [
             {
                 "object_name": f"{prefix}data.csv",
                 "size": 100,
@@ -521,19 +514,16 @@ class TestGetVersionStats:
 
 
 class TestGetFileDownloadUrl:
-    @patch("app.services.dataset_service.asyncio.to_thread", new_callable=AsyncMock)
-    async def test_get_download_url_success(self, mock_to_thread, service, mock_db, mock_minio):
+    async def test_get_download_url_success(self, service, mock_db, mock_minio):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=3)
         dataset.versions = [version]
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
-        mock_to_thread.return_value = "https://minio.example.com/presigned-url"
 
         url = await service.get_file_download_url(dataset.id, version.id, "data.csv", dataset.tenant_id)
 
         assert url == "https://minio.example.com/presigned-url"
-        mock_to_thread.assert_called_once_with(
-            mock_minio.presigned_get_url,
+        mock_minio.presigned_get_url.assert_awaited_once_with(
             "default-tenant",
             f"datasets/{dataset.name}/v3/data.csv",
         )

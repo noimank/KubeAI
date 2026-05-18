@@ -58,8 +58,11 @@ def admin_headers(client):
 @patch("app.services.tenant_service.create_namespace")
 @patch("app.services.tenant_service.create_resource_quota")
 @patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.ensure_s3_credentials_secret")
 @patch("app.services.tenant_service.build_tenant_resource_quota")
-async def test_create_invitation(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+async def test_create_invitation(
+    mock_build, mock_s3, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers
+):
     mock_build.return_value = MagicMock()
     tenant_data = await _create_tenant(client, admin_headers)
 
@@ -82,8 +85,9 @@ async def test_create_invitation(mock_build, mock_quota, mock_np, mock_ns, mock_
 @patch("app.services.tenant_service.create_namespace")
 @patch("app.services.tenant_service.create_resource_quota")
 @patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.ensure_s3_credentials_secret")
 @patch("app.services.tenant_service.build_tenant_resource_quota")
-async def test_list_invitations(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+async def test_list_invitations(mock_build, mock_s3, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
     mock_build.return_value = MagicMock()
     tenant_data = await _create_tenant(client, admin_headers)
 
@@ -108,8 +112,11 @@ async def test_list_invitations(mock_build, mock_quota, mock_np, mock_ns, mock_e
 @patch("app.services.tenant_service.create_namespace")
 @patch("app.services.tenant_service.create_resource_quota")
 @patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.ensure_s3_credentials_secret")
 @patch("app.services.tenant_service.build_tenant_resource_quota")
-async def test_cancel_invitation(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+async def test_cancel_invitation(
+    mock_build, mock_s3, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers
+):
     mock_build.return_value = MagicMock()
     tenant_data = await _create_tenant(client, admin_headers)
 
@@ -133,8 +140,11 @@ async def test_cancel_invitation(mock_build, mock_quota, mock_np, mock_ns, mock_
 @patch("app.services.tenant_service.create_namespace")
 @patch("app.services.tenant_service.create_resource_quota")
 @patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.ensure_s3_credentials_secret")
 @patch("app.services.tenant_service.build_tenant_resource_quota")
-async def test_get_invitation_info(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+async def test_get_invitation_info(
+    mock_build, mock_s3, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers
+):
     mock_build.return_value = MagicMock()
     tenant_data = await _create_tenant(client, admin_headers)
 
@@ -159,9 +169,10 @@ async def test_get_invitation_info(mock_build, mock_quota, mock_np, mock_ns, moc
 @patch("app.services.tenant_service.create_namespace")
 @patch("app.services.tenant_service.create_resource_quota")
 @patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.ensure_s3_credentials_secret")
 @patch("app.services.tenant_service.build_tenant_resource_quota")
 async def test_accept_invitation_new_user(
-    mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers
+    mock_build, mock_s3, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers
 ):
     mock_build.return_value = MagicMock()
     tenant_data = await _create_tenant(client, admin_headers)
@@ -194,8 +205,9 @@ async def test_accept_invitation_new_user(
 @patch("app.services.tenant_service.create_namespace")
 @patch("app.services.tenant_service.create_resource_quota")
 @patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.ensure_s3_credentials_secret")
 @patch("app.services.tenant_service.build_tenant_resource_quota")
-async def test_list_members(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+async def test_list_members(mock_build, mock_s3, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
     mock_build.return_value = MagicMock()
     tenant_data = await _create_tenant(client, admin_headers)
 
@@ -214,8 +226,11 @@ async def test_list_members(mock_build, mock_quota, mock_np, mock_ns, mock_enfor
 @patch("app.services.tenant_service.create_namespace")
 @patch("app.services.tenant_service.create_resource_quota")
 @patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.ensure_s3_credentials_secret")
 @patch("app.services.tenant_service.build_tenant_resource_quota")
-async def test_update_member_role(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+async def test_update_member_role(
+    mock_build, mock_s3, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers
+):
     mock_build.return_value = MagicMock()
     tenant_data = await _create_tenant(client, admin_headers)
 
@@ -259,8 +274,9 @@ async def test_update_member_role(mock_build, mock_quota, mock_np, mock_ns, mock
 @patch("app.services.tenant_service.create_namespace")
 @patch("app.services.tenant_service.create_resource_quota")
 @patch("app.services.tenant_service.create_tenant_network_policy")
+@patch("app.services.tenant_service.ensure_s3_credentials_secret")
 @patch("app.services.tenant_service.build_tenant_resource_quota")
-async def test_remove_member(mock_build, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
+async def test_remove_member(mock_build, mock_s3, mock_quota, mock_np, mock_ns, mock_enforce, client, admin_headers):
     mock_build.return_value = MagicMock()
     tenant_data = await _create_tenant(client, admin_headers)
 

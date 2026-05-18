@@ -47,6 +47,7 @@ def tenant_service(mock_db):
 
 class TestCreateTenant:
     @patch("app.services.tenant_service.create_tenant_network_policy")
+    @patch("app.services.tenant_service.ensure_s3_credentials_secret")
     @patch("app.services.tenant_service.create_resource_quota")
     @patch("app.services.tenant_service.build_tenant_resource_quota")
     @patch("app.services.tenant_service.create_namespace")
@@ -55,6 +56,7 @@ class TestCreateTenant:
         mock_create_ns,
         mock_build_quota,
         mock_create_quota,
+        mock_create_s3,
         mock_create_np,
         tenant_service,
         mock_db,
@@ -86,6 +88,7 @@ class TestCreateTenant:
     @patch("app.services.tenant_service.delete_resource_quota")
     @patch("app.services.tenant_service.delete_namespace")
     @patch("app.services.tenant_service.create_tenant_network_policy")
+    @patch("app.services.tenant_service.ensure_s3_credentials_secret")
     @patch("app.services.tenant_service.create_resource_quota")
     @patch("app.services.tenant_service.build_tenant_resource_quota")
     @patch("app.services.tenant_service.create_namespace")
@@ -94,6 +97,7 @@ class TestCreateTenant:
         mock_create_ns,
         mock_build_quota,
         mock_create_quota,
+        mock_create_s3,
         mock_create_np,
         mock_delete_ns,
         mock_delete_quota,
@@ -115,6 +119,7 @@ class TestCreateTenant:
         mock_delete_ns.assert_called_once()
 
     @patch("app.services.tenant_service.create_tenant_network_policy")
+    @patch("app.services.tenant_service.ensure_s3_credentials_secret")
     @patch("app.services.tenant_service.create_resource_quota")
     @patch("app.services.tenant_service.build_tenant_resource_quota")
     @patch("app.services.tenant_service.create_namespace")
@@ -123,6 +128,7 @@ class TestCreateTenant:
         mock_create_ns,
         mock_build_quota,
         mock_create_quota,
+        mock_create_s3,
         mock_create_np,
         tenant_service,
         mock_db,
