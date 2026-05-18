@@ -51,5 +51,8 @@ class Settings(BaseSettings):
     MLFLOW_TRACKING_URI: str = "http://localhost:5000"
     MLFLOW_ENABLED: bool = False
 
+    LABEL_STUDIO_URL: str = "http://labelstudio.kubeai.local"
+    LABEL_STUDIO_API_TOKEN: str = ""
+
 
 settings = Settings()

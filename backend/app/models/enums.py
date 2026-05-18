@@ -52,6 +52,7 @@ class ResourceType(enum.StrEnum):
     IMAGE = "image"
     TRAINING_JOB = "training_job"
     MODEL = "model"
+    ANNOTATION_PROJECT = "annotation_project"
 
 
 class BuildStatus(enum.StrEnum):
@@ -84,3 +85,17 @@ class InferenceServiceStatus(enum.StrEnum):
     RUNNING = "running"
     FAILED = "failed"
     STOPPED = "stopped"
+
+
+class AnnotationType(enum.StrEnum):
+    IMAGE_CLASSIFICATION = "image_classification"
+    OBJECT_DETECTION = "object_detection"
+    IMAGE_SEGMENTATION = "image_segmentation"
+    TEXT_CLASSIFICATION = "text_classification"
+
+
+class AnnotationProjectStatus(enum.StrEnum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"

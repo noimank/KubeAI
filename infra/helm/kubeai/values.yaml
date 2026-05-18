@@ -51,6 +51,7 @@ backend:
     HARBOR_URL: ""
     HARBOR_USERNAME: ""
     HARBOR_PASSWORD: ""
+    LABEL_STUDIO_API_TOKEN: ""
 
 # -- Frontend configuration
 frontend:
@@ -104,6 +105,8 @@ postgresql:
       scripts:
         01-create-mlflow-db.sql: |
           CREATE DATABASE mlflow;
+        02-create-labelstudio-db.sql: |
+          CREATE DATABASE labelstudio;
 
 # -- Redis
 redis:
@@ -245,3 +248,24 @@ mlflow:
     limits:
       cpu: "1"
       memory: 2Gi
+
+# -- Label Studio (data annotation service)
+# Deploys Label Studio with PostgreSQL backend store.
+# When enabled, LABEL_STUDIO_URL is auto-injected into backend pods.
+labelstudio:
+  enabled: false
+  image:
+    repository: heartexlabs/label-studio
+    tag: "1.23.0"
+  auth:
+    token: ""
+  service:
+    type: ClusterIP
+    nodePort: null
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

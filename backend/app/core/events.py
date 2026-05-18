@@ -7,6 +7,7 @@ from app.core.database import async_session_factory, close_db
 from app.core.redis import close_redis, init_redis
 from app.core.security import hash_password
 from app.integrations.k8s.client import close_k8s_clients
+from app.integrations.labelstudio import LabelStudioClient
 from app.integrations.minio import MinIOClient
 from app.integrations.prometheus.client import PrometheusClient
 from app.models.enums import TenantStatus, UserRole
@@ -17,6 +18,7 @@ logger = structlog.get_logger()
 
 minio_client: MinIOClient | None = None
 prometheus_client: PrometheusClient | None = None
+labelstudio_client: LabelStudioClient | None = None
 
 
 def get_minio_client() -> MinIOClient:
@@ -27,6 +29,12 @@ def get_minio_client() -> MinIOClient:
 
 def get_prometheus_client() -> PrometheusClient | None:
     return prometheus_client
+
+
+def get_labelstudio_client() -> LabelStudioClient:
+    if labelstudio_client is None:
+        raise RuntimeError("LabelStudio 客户端未初始化")
+    return labelstudio_client
 
 
 async def _init_admin_user() -> None:
@@ -90,21 +98,26 @@ async def _ensure_default_tenant_k8s(tenant: Tenant) -> None:
 
 
 async def on_startup() -> None:
-    global minio_client, prometheus_client
+    global minio_client, prometheus_client, labelstudio_client
     await init_redis()
     CasbinEnforcer.initialize(settings.DATABASE_URL)
     await _init_admin_user()
     minio_client = MinIOClient()
     if settings.PROMETHEUS_URL:
         prometheus_client = PrometheusClient()
+    if settings.LABEL_STUDIO_API_TOKEN:
+        labelstudio_client = LabelStudioClient()
     logger.info("application_startup", app="KubeAI")
 
 
 async def on_shutdown() -> None:
-    global prometheus_client
+    global prometheus_client, labelstudio_client
     if prometheus_client:
         await prometheus_client.close()
         prometheus_client = None
+    if labelstudio_client:
+        await labelstudio_client.close()
+        labelstudio_client = None
     await close_k8s_clients()
     await close_db()
     await close_redis()

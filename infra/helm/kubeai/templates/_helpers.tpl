@@ -87,3 +87,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "./mlflow/artifacts" }}
 {{- end }}
 {{- end }}
+
+{{- define "kubeai.labelStudioUrl" -}}
+{{- if .Values.backend.secrets.LABEL_STUDIO_URL }}
+{{- .Values.backend.secrets.LABEL_STUDIO_URL }}
+{{- else if .Values.labelstudio.enabled }}
+{{- printf "http://%s-labelstudio.%s.svc.cluster.local:8080" (include "kubeai.fullname" .) .Release.Namespace }}
+{{- end }}
+{{- end }}

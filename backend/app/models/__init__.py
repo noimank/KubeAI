@@ -1,3 +1,4 @@
+from app.models.annotation import AnnotationProject
 from app.models.audit_log import AuditLog
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.experiment import Experiment
@@ -10,6 +11,7 @@ from app.models.training_job import TrainingJob
 from app.models.user import User
 
 __all__ = [
+    "AnnotationProject",
     "AuditLog",
     "Dataset",
     "DatasetVersion",

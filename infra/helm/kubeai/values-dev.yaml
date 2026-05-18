@@ -24,6 +24,10 @@ postgresql:
     extraEnvVars:
       - name: PGDATA
         value: /bitnami/postgresql/data
+      - name: POSTGRES_DB
+        value: kubeai
+      - name: POSTGRES_USER
+        value: postgres
     extraVolumes:
       - name: run
         emptyDir: {}
@@ -93,6 +97,12 @@ mlflow:
     nodePort: 30500
   persistence:
     size: 5Gi
+
+labelstudio:
+  enabled: true
+  service:
+    type: NodePort
+    nodePort: 30800
 
 ingress:
   enabled: false

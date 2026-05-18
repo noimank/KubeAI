@@ -1,0 +1,78 @@
+{{- if .Values.labelstudio.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubeai.fullname" . }}-labelstudio
+  labels:
+    {{- include "kubeai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: labelstudio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubeai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: labelstudio
+  template:
+    metadata:
+      labels:
+        {{- include "kubeai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: labelstudio
+    spec:
+      containers:
+        - name: labelstudio
+          image: "{{ .Values.labelstudio.image.repository }}:{{ .Values.labelstudio.image.tag }}"
+          env:
+            - name: DJANGO_DB
+              value: "default"
+            - name: POSTGRE_NAME
+              value: "labelstudio"
+            - name: POSTGRE_USER
+              value: "postgres"
+            - name: POSTGRE_PASSWORD
+              value: {{ .Values.postgresql.auth.postgresPassword | quote }}
+            - name: POSTGRE_HOST
+              value: "{{ include "kubeai.fullname" . }}-postgresql.{{ .Release.Namespace }}.svc.cluster.local"
+            - name: POSTGRE_PORT
+              value: "5432"
+            - name: LABEL_STUDIO_HOST
+              value: "0.0.0.0"
+            - name: LABEL_STUDIO_PORT
+              value: "8080"
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.labelstudio.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubeai.fullname" . }}-labelstudio
+  labels:
+    {{- include "kubeai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: labelstudio
+spec:
+  type: {{ .Values.labelstudio.service.type }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      {{- if and (eq .Values.labelstudio.service.type "NodePort") .Values.labelstudio.service.nodePort }}
+      nodePort: {{ .Values.labelstudio.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "kubeai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: labelstudio
+{{- end }}

@@ -24,4 +24,5 @@ data:
   PROMETHEUS_URL: {{ include "kubeai.prometheusUrl" . | default "" | quote }}
   MLFLOW_ENABLED: {{ .Values.mlflow.enabled | quote }}
   MLFLOW_TRACKING_URI: {{ include "kubeai.mlflowTrackingUri" . | default "" | quote }}
+  LABEL_STUDIO_URL: {{ include "kubeai.labelStudioUrl" . | default "" | quote }}
 {{- end }}
