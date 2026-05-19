@@ -1,8 +1,9 @@
 import { useEffect, useMemo } from 'react'
-import { App, Form, Input, Modal, Radio, Select, Space, Typography } from 'antd'
+import { Form, Input, Modal, Radio, Select, Space, Typography } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createAnnotationProject, getAnnotationTemplates } from '@/services/annotations'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
+import { getMessageInstance } from '@/utils/messageHolder'
 import type { AnnotationProjectCreateRequest } from '@/types/annotation'
 
 interface CreateProjectModalProps {
@@ -12,7 +13,6 @@ interface CreateProjectModalProps {
 
 export default function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
   const [form] = Form.useForm<AnnotationProjectCreateRequest>()
-  const { message } = App.useApp()
   const queryClient = useQueryClient()
   const selectedDatasetId = Form.useWatch('datasetId', form)
   const selectedTemplate = Form.useWatch('annotationType', form)
@@ -38,7 +38,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   const createMutation = useMutation({
     mutationFn: createAnnotationProject,
     onSuccess: () => {
-      message.success('标注项目创建成功')
+      getMessageInstance()?.success('标注项目创建成功')
       queryClient.invalidateQueries({ queryKey: ['annotationProjects'] })
       handleClose()
     },

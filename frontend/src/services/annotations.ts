@@ -5,6 +5,7 @@ import type {
   AnnotationProject,
   AnnotationProjectCreateRequest,
   AnnotationProjectDetail,
+  AnnotationSubmitRequest,
   AnnotationTask,
   AnnotationTaskAssignRequest,
   AnnotationTaskSummary,
@@ -89,5 +90,33 @@ export async function getMyAnnotationTasks(params: {
 
 export async function getMyAnnotationTaskSummary(): Promise<AnnotationTaskSummary[]> {
   const res = await api.get<BaseResponse<AnnotationTaskSummary[]>>('/annotations/my-tasks/summary')
+  return res.data.data!
+}
+
+export async function startAnnotation(taskId: string): Promise<AnnotationTask> {
+  const res = await api.post<BaseResponse<AnnotationTask>>(`/annotations/tasks/${taskId}/start`)
+  return res.data.data!
+}
+
+export async function submitAnnotation(
+  taskId: string,
+  data: AnnotationSubmitRequest,
+): Promise<AnnotationTask> {
+  const res = await api.post<BaseResponse<AnnotationTask>>(
+    `/annotations/tasks/${taskId}/submit`,
+    data,
+  )
+  return res.data.data!
+}
+
+export async function getNextAnnotationTask(projectId: string): Promise<AnnotationTask | null> {
+  const res = await api.get<BaseResponse<AnnotationTask | null>>(
+    `/annotations/projects/${projectId}/next-task`,
+  )
+  return res.data.data ?? null
+}
+
+export async function getAnnotationTaskDetail(taskId: string): Promise<AnnotationTask> {
+  const res = await api.get<BaseResponse<AnnotationTask>>(`/annotations/tasks/${taskId}`)
   return res.data.data!
 }

@@ -1,5 +1,5 @@
-import { Card, Col, Row, Statistic, Table, Tag, Empty } from 'antd'
-import { Link } from 'react-router-dom'
+import { Card, Col, Row, Statistic, Table, Tag, Empty, Button } from 'antd'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getMyAnnotationTasks, getMyAnnotationTaskSummary } from '@/services/annotations'
 import type { AnnotationTaskSummary } from '@/types/annotation'
@@ -18,6 +18,7 @@ interface MyTaskListProps {
 }
 
 export default function MyTaskList({ page, pageSize, onPageChange }: MyTaskListProps) {
+  const navigate = useNavigate()
   const { data: summaryData } = useQuery({
     queryKey: ['myAnnotationTaskSummary'],
     queryFn: getMyAnnotationTaskSummary,
@@ -107,6 +108,20 @@ export default function MyTaskList({ page, pageSize, onPageChange }: MyTaskListP
             title: '分配时间',
             dataIndex: 'updatedAt',
             width: 180,
+          },
+          {
+            title: '操作',
+            width: 120,
+            render: (_: unknown, record) =>
+              record.status === 'assigned' || record.status === 'in_progress' ? (
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => navigate(`/annotations/projects/${record.projectId}/workspace`)}
+                >
+                  开始标注
+                </Button>
+              ) : null,
           },
         ]}
       />

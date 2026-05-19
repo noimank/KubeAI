@@ -79,3 +79,14 @@ export interface AnnotationTaskSummary {
   assignedTasks: number
   completedTasks: number
 }
+
+export interface AnnotationResultItem {
+  from_name: string
+  to_name: string
+  type: string
+  value: Record<string, unknown>
+}
+
+export interface AnnotationSubmitRequest {
+  result: AnnotationResultItem[]
+}

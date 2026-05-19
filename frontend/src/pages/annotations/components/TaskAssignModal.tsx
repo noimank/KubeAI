@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
-import { App, Form, Modal, Select, InputNumber, Space, Typography } from 'antd'
+import { Form, Modal, Select, InputNumber, Space, Typography } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
 import { listMembers } from '@/services/tenants'
 import { assignAnnotationTasks, batchAssignAnnotationTasks } from '@/services/annotations'
+import { getMessageInstance } from '@/utils/messageHolder'
 
 const { Text } = Typography
 
@@ -25,7 +26,6 @@ export default function TaskAssignModal({
   unassignedCount = 0,
 }: TaskAssignModalProps) {
   const [form] = Form.useForm()
-  const { message } = App.useApp()
   const queryClient = useQueryClient()
   const tenantId = useAuthStore((s) => s.user?.tenantId)
 
@@ -41,7 +41,7 @@ export default function TaskAssignModal({
     mutationFn: (values: { userId: string }) =>
       assignAnnotationTasks(projectId, { taskIds: selectedTaskIds, userId: values.userId }),
     onSuccess: (res) => {
-      message.success(res.message || '分配成功')
+      getMessageInstance()?.success(res.message || '分配成功')
       queryClient.invalidateQueries({ queryKey: ['annotationProjectTasks', projectId] })
       handleClose()
     },
@@ -51,7 +51,7 @@ export default function TaskAssignModal({
     mutationFn: (values: { userIds: string[]; tasksPerUser: number }) =>
       batchAssignAnnotationTasks(projectId, values),
     onSuccess: (res) => {
-      message.success(res.message || '均匀分配成功')
+      getMessageInstance()?.success(res.message || '均匀分配成功')
       queryClient.invalidateQueries({ queryKey: ['annotationProjectTasks', projectId] })
       handleClose()
     },

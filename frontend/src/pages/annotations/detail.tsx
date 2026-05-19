@@ -97,6 +97,23 @@ export default function AnnotationDetailPage() {
       width: 120,
       render: (name: string | undefined) => name || '-',
     },
+    {
+      title: '操作',
+      width: 80,
+      render: (_: unknown, record) => {
+        if (!canManage) return null
+        return (
+          <Button
+            type="link"
+            size="small"
+            disabled={record.status === 'unassigned'}
+            onClick={() => navigate(`/annotations/projects/${record.projectId}/workspace`)}
+          >
+            预览
+          </Button>
+        )
+      },
+    },
   ]
 
   if (!project) return null

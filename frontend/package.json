@@ -21,8 +21,10 @@
     "antd": "^5.24.0",
     "axios": "^1.9.0",
     "dayjs": "^1.11.0",
+    "konva": "^10.3.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
+    "react-konva": "^18.2.16",
     "react-router": "^7.5.0",
     "react-router-dom": "^7.5.0",
     "zustand": "^5.0.0"
