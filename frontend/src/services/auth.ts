@@ -1,7 +1,12 @@
 import { api } from './api'
 import type { BaseResponse } from '@/types/api'
-import type { RegisterRequest, TokenPayload, User } from '@/types/auth'
+import type { AuthConfig, RegisterRequest, TokenPayload, User } from '@/types/auth'
 import type { AcceptInvitationRequest, InvitationInfo } from '@/types/tenant'
+
+export async function getAuthConfig(): Promise<BaseResponse<AuthConfig>> {
+  const res = await api.get<BaseResponse<AuthConfig>>('/auth/config')
+  return res.data
+}
 
 export async function register(data: RegisterRequest): Promise<BaseResponse<TokenPayload>> {
   const res = await api.post<BaseResponse<TokenPayload>>('/auth/register', data)

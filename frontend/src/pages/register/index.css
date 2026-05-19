@@ -1,0 +1,422 @@
+.register-page {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+  color: #f7fbff;
+  background:
+    linear-gradient(
+      120deg,
+      rgba(8, 12, 22, 0.94),
+      rgba(12, 32, 36, 0.9) 48%,
+      rgba(20, 22, 36, 0.94)
+    ),
+    linear-gradient(45deg, #0b111d, #13291f 45%, #201926);
+}
+
+.register-background {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.register-background::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background-image:
+    linear-gradient(rgba(125, 211, 252, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.08) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.76), rgba(0, 0, 0, 0.28));
+}
+
+.register-background::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background:
+    linear-gradient(
+      135deg,
+      transparent 0 16%,
+      rgba(34, 197, 94, 0.1) 16% 16.18%,
+      transparent 16.18% 42%
+    ),
+    linear-gradient(58deg, transparent 0 56%, rgba(22, 119, 255, 0.12) 56% 56.2%, transparent 56.2%);
+}
+
+.register-scanline {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent, rgba(125, 211, 252, 0.1), transparent);
+  animation: register-scan 9s linear infinite;
+  opacity: 0.5;
+}
+
+.register-circuit {
+  position: absolute;
+  width: min(48vw, 620px);
+  height: min(48vw, 620px);
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  transform: rotate(45deg);
+}
+
+.register-circuit::before,
+.register-circuit::after {
+  position: absolute;
+  content: '';
+  border: 1px solid rgba(45, 212, 191, 0.17);
+}
+
+.register-circuit::before {
+  inset: 14%;
+}
+
+.register-circuit::after {
+  inset: 30%;
+  border-color: rgba(59, 130, 246, 0.16);
+}
+
+.register-circuit-left {
+  left: -22%;
+  bottom: -36%;
+}
+
+.register-circuit-right {
+  top: -30%;
+  right: -18%;
+}
+
+.register-shell {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(400px, 480px);
+  gap: clamp(32px, 6vw, 96px);
+  align-items: center;
+  width: min(1240px, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: clamp(32px, 5vw, 72px);
+}
+
+.register-brand-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  min-width: 0;
+}
+
+.register-product-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.register-product-icon {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+.register-logo-mark {
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(45, 212, 191, 0.18);
+}
+
+.register-hero-copy {
+  max-width: 640px;
+}
+
+.register-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  color: #9ae6b4;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.register-eyebrow-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  box-shadow: 0 8px 20px rgba(45, 212, 191, 0.18);
+}
+
+.register-hero-copy h1 {
+  max-width: 680px;
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(40px, 5.4vw, 68px);
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.register-hero-copy p {
+  max-width: 560px;
+  margin: 22px 0 0;
+  color: rgba(231, 242, 255, 0.78);
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+.register-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-width: 560px;
+}
+
+.register-highlight {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: rgba(239, 249, 255, 0.82);
+  background: rgba(8, 17, 31, 0.56);
+  line-height: 1;
+  backdrop-filter: blur(14px);
+}
+
+.register-highlight-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+
+.register-form-panel {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.register-card {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.38),
+    0 1px 0 rgba(255, 255, 255, 0.4) inset;
+  backdrop-filter: blur(20px);
+}
+
+.register-card .ant-card-body {
+  padding: 34px;
+}
+
+.register-card-header {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.register-card-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(15, 118, 110, 0.2);
+}
+
+.register-card-header h2 {
+  margin: 0;
+  color: rgba(0, 0, 0, 0.88);
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.register-card-header p {
+  margin: 6px 0 0;
+  color: rgba(0, 0, 0, 0.56);
+  line-height: 1.6;
+}
+
+.register-trust-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+.register-trust-row span {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 8px;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: 6px;
+  color: #0f766e;
+  background: rgba(20, 184, 166, 0.08);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.register-trust-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+
+.register-form .ant-form-item-label > label {
+  color: rgba(0, 0, 0, 0.72);
+  font-weight: 600;
+}
+
+.register-form .ant-input-affix-wrapper {
+  border-radius: 8px;
+}
+
+.register-form .ant-input-affix-wrapper-lg {
+  min-height: 44px;
+}
+
+.register-submit-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  border-radius: 8px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #1677ff, #0f766e);
+  box-shadow: 0 12px 30px rgba(22, 119, 255, 0.24);
+}
+
+.register-submit-button .ant-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.register-submit-button:not(:disabled):hover {
+  background: linear-gradient(135deg, #4096ff, #0d9488);
+}
+
+.register-button-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+
+.register-config-loading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  color: rgba(0, 0, 0, 0.56);
+}
+
+.register-disabled-state {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.register-disabled-state .ant-alert {
+  border-radius: 8px;
+}
+
+.register-disabled-state .ant-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.register-login-link {
+  margin-top: 18px;
+  color: rgba(0, 0, 0, 0.56);
+  text-align: center;
+}
+
+.register-login-link a {
+  margin-left: 4px;
+  font-weight: 600;
+}
+
+[data-theme='dark'] .register-card {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(20, 20, 20, 0.92);
+}
+
+[data-theme='dark'] .register-card-header h2 {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+[data-theme='dark'] .register-card-header p,
+[data-theme='dark'] .register-config-loading,
+[data-theme='dark'] .register-login-link {
+  color: rgba(255, 255, 255, 0.56);
+}
+
+[data-theme='dark'] .register-form .ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+@keyframes register-scan {
+  0% {
+    transform: translateY(-100%);
+  }
+
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+@media (max-width: 1080px) {
+  .register-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .register-form-panel {
+    justify-content: flex-start;
+  }
+
+  .register-card {
+    max-width: 560px;
+  }
+}
+
+@media (max-width: 760px) {
+  .register-page {
+    overflow: auto;
+  }
+
+  .register-shell {
+    min-height: auto;
+    padding: 28px 18px;
+  }
+
+  .register-brand-panel {
+    gap: 20px;
+  }
+
+  .register-hero-copy h1 {
+    font-size: 38px;
+  }
+
+  .register-hero-copy p {
+    font-size: 15px;
+  }
+
+  .register-card .ant-card-body {
+    padding: 24px;
+  }
+}

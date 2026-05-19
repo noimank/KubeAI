@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Space } from 'antd'
+import { Button, Divider, Space } from 'antd'
 import { getOAuthProviders } from '@/services/oauth'
 import type { OAuthProvider } from '@/services/oauth'
 
@@ -21,12 +21,21 @@ export default function OAuthButtons() {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      {providers.map((provider) => (
-        <Button key={provider.name} block size="large" onClick={() => handleClick(provider)}>
-          {provider.displayName}
-        </Button>
-      ))}
-    </Space>
+    <div className="login-oauth">
+      <Divider>企业身份登录</Divider>
+      <Space direction="vertical" style={{ width: '100%' }}>
+        {providers.map((provider) => (
+          <Button
+            key={provider.name}
+            block
+            size="large"
+            icon={<img className="login-button-icon" src="/favicon.svg" alt="" />}
+            onClick={() => handleClick(provider)}
+          >
+            {provider.displayName}
+          </Button>
+        ))}
+      </Space>
+    </div>
   )
 }

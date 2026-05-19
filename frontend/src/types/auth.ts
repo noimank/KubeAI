@@ -15,6 +15,10 @@ export interface TokenPayload {
   tokenType: string
 }
 
+export interface AuthConfig {
+  allowUserRegistration: boolean
+}
+
 export interface RegisterRequest {
   username: string
   email: string
