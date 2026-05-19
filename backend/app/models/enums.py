@@ -101,6 +101,13 @@ class AnnotationProjectStatus(enum.StrEnum):
     ARCHIVED = "archived"
 
 
+class AnnotationCallbackStatus(enum.StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class AnnotationTaskStatus(enum.StrEnum):
     UNASSIGNED = "unassigned"
     ASSIGNED = "assigned"

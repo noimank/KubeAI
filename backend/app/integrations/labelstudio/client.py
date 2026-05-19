@@ -1,9 +1,10 @@
 import logging
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from label_studio_sdk import AsyncLabelStudio
 from label_studio_sdk.types.annotation import Annotation
+from label_studio_sdk.types.import_api_request import ImportApiRequest
 
 from app.core.config import settings
 from app.core.exceptions import ExternalServiceException
@@ -45,10 +46,11 @@ class LabelStudioClient:
 
     async def import_tasks(self, project_id: int, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         try:
+            import_requests = [ImportApiRequest(**task) for task in tasks]
             await self._sdk.projects.import_tasks(
                 id=project_id,
-                request=tasks,
-                return_task_ids=True,  # type: ignore[arg-type]
+                request=import_requests,
+                return_task_ids=True,
             )
             logger.info("labelstudio_import_tasks project=%s count=%s", project_id, len(tasks))
 
@@ -83,7 +85,7 @@ class LabelStudioClient:
         try:
             annotation = await self._sdk.annotations.create(id=task_id, result=result)
             logger.info("labelstudio_annotation_created task=%s id=%s", task_id, annotation.id)
-            return annotation
+            return cast("Annotation", annotation)
         except ExternalServiceException:
             raise
         except Exception as e:
@@ -91,7 +93,8 @@ class LabelStudioClient:
 
     async def list_annotations(self, task_id: int) -> list[Annotation]:
         try:
-            return await self._sdk.annotations.list(id=task_id)
+            annotations = await self._sdk.annotations.list(id=task_id)
+            return cast("list[Annotation]", annotations)
         except ExternalServiceException:
             raise
         except Exception as e:
@@ -105,6 +108,30 @@ class LabelStudioClient:
             raise
         except Exception as e:
             raise self._wrap_error("delete_annotation", e) from e
+
+    async def export_project_annotations(self, project_id: int) -> list[dict[str, Any]]:
+        try:
+            base_url = settings.LABEL_STUDIO_URL.rstrip("/")
+            resp = await self._httpx.get(
+                f"{base_url}/api/projects/{project_id}/export",
+                params={"exportType": "JSON"},
+                headers={"Authorization": f"Token {settings.LABEL_STUDIO_API_TOKEN}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not isinstance(data, list):
+                raise ExternalServiceException("LabelStudio 导出结果格式无效")
+            annotations: list[dict[str, Any]] = []
+            for item in data:
+                if not isinstance(item, dict):
+                    raise ExternalServiceException("LabelStudio 导出结果格式无效")
+                annotations.append(item)
+            logger.info("labelstudio_export_annotations project=%s count=%s", project_id, len(data))
+            return annotations
+        except ExternalServiceException:
+            raise
+        except Exception as e:
+            raise self._wrap_error("export_project_annotations", e) from e
 
     async def close(self) -> None:
         await self._httpx.aclose()

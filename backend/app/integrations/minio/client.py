@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import timedelta
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from minio import Minio
 from minio.error import S3Error
@@ -14,6 +14,11 @@ from app.core.exceptions import ExternalServiceException
 from app.integrations.base import sanitize_k8s_name
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+T = TypeVar("T")
 
 
 class MinIOClient:
@@ -34,7 +39,7 @@ class MinIOClient:
     def _bucket_name(self, tenant_name: str) -> str:
         return f"{self._prefix}{sanitize_k8s_name(tenant_name)}"
 
-    async def _run_sync(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
+    async def _run_sync(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         return await asyncio.to_thread(partial(fn, *args, **kwargs))
 
     async def health_check(self) -> bool:
@@ -174,3 +179,31 @@ class MinIOClient:
                 await self._run_sync(self._client.remove_object, bucket, name)
         except S3Error as e:
             raise ExternalServiceException(f"MinIO 批量删除失败: {e}") from e
+
+    async def copy_object(self, src_tenant: str, src_object: str, dst_tenant: str, dst_object: str) -> None:
+        from minio.commonconfig import CopySource
+
+        src_bucket = self._bucket_name(src_tenant)
+        dst_bucket = self._bucket_name(dst_tenant)
+        try:
+            await self._run_sync(
+                self._client.copy_object,
+                dst_bucket,
+                dst_object,
+                CopySource(src_bucket, src_object),
+            )
+        except S3Error as e:
+            raise ExternalServiceException(f"MinIO 对象复制失败: {e}") from e
+
+    async def get_object_content(self, tenant_name: str, object_name: str) -> bytes:
+        bucket = self._bucket_name(tenant_name)
+        try:
+            response = await self._run_sync(self._client.get_object, bucket, object_name)
+            try:
+                content: bytes = response.read()
+                return content
+            finally:
+                response.close()
+                response.release_conn()
+        except S3Error as e:
+            raise ExternalServiceException(f"MinIO 读取对象失败: {e}") from e

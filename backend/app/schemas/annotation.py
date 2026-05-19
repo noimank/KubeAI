@@ -33,11 +33,20 @@ class AnnotationProjectResponse(BaseModel):
     dataset_name: str | None = None
     dataset_version_number: int | None = None
     progress_percent: float = 0.0
+    callback_status: str | None = None
+    callback_error: str | None = None
+    callback_progress: int | None = None
+    callback_version_id: uuid.UUID | None = None
+    callback_at: datetime | None = None
 
 
 class AnnotationProjectDetailResponse(AnnotationProjectResponse):
     label_config: str
     labeling_template_description: str | None = None
+
+
+class CallbackRetryResponse(BaseModel):
+    callback_status: str
 
 
 class AnnotationTemplateResponse(BaseModel):

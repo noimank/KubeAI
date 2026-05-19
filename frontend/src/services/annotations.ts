@@ -120,3 +120,10 @@ export async function getAnnotationTaskDetail(taskId: string): Promise<Annotatio
   const res = await api.get<BaseResponse<AnnotationTask>>(`/annotations/tasks/${taskId}`)
   return res.data.data!
 }
+
+export async function retryCallback(projectId: string): Promise<BaseResponse<null>> {
+  const res = await api.post<BaseResponse<null>>(
+    `/annotations/projects/${projectId}/retry-callback`,
+  )
+  return res.data
+}

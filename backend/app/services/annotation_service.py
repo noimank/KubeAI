@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime, timezone
+from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import case, func, select
@@ -457,6 +460,19 @@ class AnnotationService:
             )
 
         await self.db.flush()
+
+        # Auto-trigger callback when all tasks completed
+        should_callback = (
+            project.total_tasks > 0
+            and project.completed_tasks >= project.total_tasks
+            and project.callback_status == "pending"
+        )
+        if should_callback:
+            try:
+                await self._trigger_callback(project, tenant_id)
+            except Exception as e:
+                logger.error("标注回流自动触发失败 project=%s: %s", project.id, e)
+
         task = await self._reload_task_for_response(task.id, tenant_id)
         await self.db.commit()
         return task
@@ -496,6 +512,127 @@ class AnnotationService:
     ) -> AnnotationTask:
         task = await self._get_task_with_project(task_id, tenant_id)
         return await self._refresh_presigned_url(task)
+
+    async def retry_callback(
+        self, project_id: uuid.UUID, tenant_id: uuid.UUID, user_id: uuid.UUID
+    ) -> AnnotationProject:
+        result = await self.db.execute(
+            select(AnnotationProject)
+            .options(selectinload(AnnotationProject.dataset), selectinload(AnnotationProject.dataset_version))
+            .where(AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise NotFoundException("标注项目不存在")
+        if project.callback_status != "failed":
+            raise ForbiddenException("只能重试失败的回流任务")
+
+        project.callback_status = "pending"
+        project.callback_error = None
+        project.callback_progress = 0
+        await self.db.flush()
+
+        await self._trigger_callback(project, tenant_id)
+        return project
+
+    async def _trigger_callback(self, project: AnnotationProject, tenant_id: uuid.UUID) -> None:
+        if project.status != "active":
+            raise ForbiddenException("项目状态不是活跃, 无法触发回流")
+        if project.total_tasks <= 0 or project.completed_tasks < project.total_tasks:
+            raise ForbiddenException("标注任务尚未全部完成")
+
+        project.callback_status = "running"
+        project.callback_progress = 0
+        await self.db.flush()
+
+        try:
+            # 1. Export annotations from LabelStudio
+            if project.label_studio_project_id is None:
+                raise ExternalServiceException("LabelStudio 项目 ID 不存在")
+            annotations = await self.ls_client.export_project_annotations(project.label_studio_project_id)
+            project.callback_progress = 10
+            await self.db.flush()
+
+            # 2. Get source dataset/version info
+            dataset = project.dataset
+            source_version = project.dataset_version
+            tenant_name = await self._get_tenant_name(tenant_id)
+
+            # 3. Create new dataset version
+            from app.services.dataset_service import DatasetService
+
+            ds_service = DatasetService(self.db, self.minio)
+            description = f"v{source_version.version_number}-annotated"
+            new_version = await ds_service.create_version(
+                tenant_id=tenant_id,
+                dataset_id=dataset.id,
+                user_id=project.created_by,
+                description=description,
+            )
+            project.callback_progress = 20
+            await self.db.flush()
+
+            # 4. Copy original files from source version to new version
+            src_prefix = f"datasets/{dataset.name}/v{source_version.version_number}/"
+            dst_prefix = f"datasets/{dataset.name}/v{new_version.version_number}/"
+
+            objects = await self.minio.list_objects(tenant_name, src_prefix)
+            total_objects = len(objects)
+            for i, obj in enumerate(objects):
+                src_name = obj["object_name"]
+                file_name = src_name.removeprefix(src_prefix)
+                if not file_name:
+                    continue
+                await self.minio.copy_object(
+                    src_tenant=tenant_name,
+                    src_object=src_name,
+                    dst_tenant=tenant_name,
+                    dst_object=f"{dst_prefix}{file_name}",
+                )
+                progress = 20 + int((i + 1) / max(total_objects, 1) * 70)
+                project.callback_progress = min(progress, 90)
+                await self.db.flush()
+
+            # 5. Write annotations.json
+            export_data = {
+                "project_name": project.name,
+                "annotation_type": project.annotation_type,
+                "source_dataset_id": str(dataset.id),
+                "source_version_id": str(source_version.id),
+                "exported_at": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
+                "total_tasks": project.total_tasks,
+                "annotations": annotations,
+            }
+            annotations_bytes = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
+            await self.minio.upload_stream(
+                tenant_name,
+                f"{dst_prefix}annotations.json",
+                BytesIO(annotations_bytes),
+                len(annotations_bytes),
+                "application/json",
+            )
+
+            # 6. Update new version file count and size
+            new_objects = await self.minio.list_objects(tenant_name, dst_prefix)
+            new_version.file_count = len(new_objects)
+            new_version.total_size_bytes = sum(o.get("size", 0) for o in new_objects)
+
+            # 7. Mark callback succeeded
+            project.callback_status = "succeeded"
+            project.callback_progress = 100
+            project.callback_version_id = new_version.id
+            project.callback_at = datetime.now(timezone.utc)  # noqa: UP017
+            project.status = "completed"
+            await self.db.flush()
+            await self.db.commit()
+
+        except Exception as e:
+            project.callback_status = "failed"
+            project.callback_error = str(e)
+            logger.error("标注回流失败 project=%s: %s", project.id, e, exc_info=True)
+            await self.db.flush()
+            await self.db.commit()
+            raise
 
     async def _get_task_with_project(self, task_id: uuid.UUID, tenant_id: uuid.UUID) -> AnnotationTask:
         result = await self.db.execute(

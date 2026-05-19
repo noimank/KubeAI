@@ -1,15 +1,25 @@
 import { useState, useCallback } from 'react'
-import { Button, Select, Space, Table, Tag } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { Button, Card, Progress, Select, Space, Table, Tag, Alert, Typography } from 'antd'
+import { ArrowLeftOutlined, RedoOutlined } from '@ant-design/icons'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
 import { getAnnotationProjectDetail } from '@/services/annotations'
-import { getAnnotationProjectTasks } from '@/services/annotations'
+import { getAnnotationProjectTasks, retryCallback } from '@/services/annotations'
 import ProjectInfo from './components/ProjectInfo'
 import TaskAssignModal from './components/TaskAssignModal'
-import type { AnnotationTask } from '@/types/annotation'
+import type { AnnotationTask, AnnotationCallbackStatus } from '@/types/annotation'
 import type { ColumnsType } from 'antd/es/table'
+
+const { Text } = Typography
+
+const CALLBACK_STATUS_MAP: Record<AnnotationCallbackStatus, { label: string; color: string }> = {
+  pending: { label: '等待回流', color: 'processing' },
+  running: { label: '回流中', color: 'processing' },
+  succeeded: { label: '回流成功', color: 'success' },
+  failed: { label: '回流失败', color: 'error' },
+}
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   unassigned: { label: '未分配', color: 'default' },
@@ -35,6 +45,16 @@ export default function AnnotationDetailPage() {
     queryKey: ['annotationProject', id],
     queryFn: () => getAnnotationProjectDetail(id!),
     enabled: !!id,
+  })
+
+  const queryClient = useQueryClient()
+
+  const retryMutation = useMutation({
+    mutationFn: () => retryCallback(id!),
+    onSuccess: () => {
+      getMessageInstance()?.success('回流重试已触发')
+      queryClient.invalidateQueries({ queryKey: ['annotationProject', id] })
+    },
   })
 
   const { data: tasksData, isLoading: tasksLoading } = useQuery({
@@ -128,6 +148,18 @@ export default function AnnotationDetailPage() {
 
       <ProjectInfo project={project} />
 
+      {project.callbackStatus && project.callbackStatus !== 'pending' && (
+        <CallbackStatusCard
+          status={project.callbackStatus}
+          error={project.callbackError}
+          progress={project.callbackProgress}
+          versionId={project.callbackVersionId}
+          datasetId={project.datasetId}
+          onRetry={() => retryMutation.mutate()}
+          retrying={retryMutation.isPending}
+        />
+      )}
+
       <div
         style={{
           marginBottom: 12,
@@ -208,5 +240,65 @@ export default function AnnotationDetailPage() {
         unassignedCount={unassignedCount}
       />
     </div>
+  )
+}
+
+function CallbackStatusCard({
+  status,
+  error,
+  progress,
+  versionId,
+  datasetId,
+  onRetry,
+  retrying,
+}: {
+  status: AnnotationCallbackStatus
+  error?: string
+  progress?: number
+  versionId?: string
+  datasetId: string
+  onRetry: () => void
+  retrying: boolean
+}) {
+  const info = CALLBACK_STATUS_MAP[status] || { label: status, color: 'default' }
+
+  return (
+    <Card style={{ marginBottom: 16 }} size="small">
+      <Space direction="vertical" style={{ width: '100%' }}>
+        <Space>
+          <Text strong>回流状态：</Text>
+          <Tag color={info.color}>{info.label}</Tag>
+          {status === 'running' && progress != null && (
+            <Progress percent={progress} size="small" style={{ width: 200 }} />
+          )}
+        </Space>
+        {status === 'succeeded' && versionId && (
+          <Space>
+            <Text type="secondary">回流版本：</Text>
+            <Link to={`/datasets/${datasetId}`}>查看数据集</Link>
+          </Space>
+        )}
+        {status === 'failed' && error && (
+          <Alert
+            type="error"
+            message="回流失败"
+            description={error}
+            showIcon
+            style={{ marginTop: 4 }}
+          />
+        )}
+        {status === 'failed' && (
+          <Button
+            icon={<RedoOutlined />}
+            onClick={onRetry}
+            loading={retrying}
+            size="small"
+            style={{ marginTop: 4 }}
+          >
+            重试回流
+          </Button>
+        )}
+      </Space>
+    </Card>
   )
 }

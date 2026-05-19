@@ -19,6 +19,7 @@ from app.schemas.annotation import (
     AnnotationTaskResponse,
     AnnotationTaskSummaryResponse,
     AnnotationTemplateResponse,
+    CallbackRetryResponse,
 )
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.services.annotation_service import AnnotationService
@@ -75,6 +76,11 @@ def _build_project_response(project: Any) -> AnnotationProjectResponse:
         dataset_name=dataset.name if dataset else None,
         dataset_version_number=version.version_number if version else None,
         progress_percent=progress,
+        callback_status=project.callback_status,
+        callback_error=project.callback_error,
+        callback_progress=project.callback_progress,
+        callback_version_id=project.callback_version_id,
+        callback_at=project.callback_at,
     )
 
 
@@ -374,3 +380,24 @@ async def get_annotation_task_detail(
         tenant_id=tenant_id,
     )
     return BaseResponse(data=_build_task_response(task, task.project, task.assignee), message="获取成功")
+
+
+@router.post("/projects/{project_id}/retry-callback", response_model=BaseResponse[CallbackRetryResponse])
+async def retry_callback(
+    project_id: uuid.UUID,
+    db: DbDep,
+    ls: LabelStudioDep,
+    minio: MinioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
+) -> BaseResponse[CallbackRetryResponse]:
+    tenant_id = _require_tenant_id(user)
+    service = AnnotationService(db, ls, minio)
+    project = await service.retry_callback(
+        project_id=project_id,
+        tenant_id=tenant_id,
+        user_id=user.id,
+    )
+    return BaseResponse(
+        data=CallbackRetryResponse(callback_status=project.callback_status),
+        message="回流重试已触发",
+    )
