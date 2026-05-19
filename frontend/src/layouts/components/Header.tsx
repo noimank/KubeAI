@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { App, Space, Avatar, Badge, Dropdown, Tooltip } from 'antd'
+import type { CSSProperties, ReactNode } from 'react'
 import {
   SearchOutlined,
   BellOutlined,
@@ -13,6 +14,46 @@ import type { MenuProps } from 'antd'
 
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
+
+const actionGroupStyle: CSSProperties = {
+  height: '100%',
+  display: 'inline-flex',
+  alignItems: 'center',
+}
+
+const actionButtonStyle: CSSProperties = {
+  width: 32,
+  height: 32,
+  padding: 0,
+  border: 0,
+  background: 'transparent',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 6,
+  color: 'inherit',
+  cursor: 'pointer',
+  fontSize: 16,
+  lineHeight: 1,
+}
+
+function HeaderAction({
+  title,
+  children,
+  onClick,
+}: {
+  title: string
+  children: ReactNode
+  onClick?: () => void
+}) {
+  return (
+    <Tooltip title={title}>
+      <button type="button" aria-label={title} onClick={onClick} style={actionButtonStyle}>
+        {children}
+      </button>
+    </Tooltip>
+  )
+}
 
 export function Header() {
   const navigate = useNavigate()
@@ -37,21 +78,25 @@ export function Header() {
   ]
 
   return (
-    <Space size="middle" style={{ cursor: 'pointer' }}>
-      <Tooltip title={themeMode === 'light' ? '切换深色主题' : '切换浅色主题'}>
-        <span
-          onClick={toggleTheme}
-          style={{ fontSize: 16, display: 'inline-flex', alignItems: 'center' }}
-        >
-          {themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />}
-        </span>
-      </Tooltip>
-      <SearchOutlined style={{ fontSize: 16 }} />
-      <Badge count={0} showZero={false}>
-        <BellOutlined style={{ fontSize: 16 }} />
-      </Badge>
+    <Space size={8} style={actionGroupStyle}>
+      <HeaderAction
+        title={themeMode === 'light' ? '切换深色主题' : '切换浅色主题'}
+        onClick={toggleTheme}
+      >
+        {themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />}
+      </HeaderAction>
+      <HeaderAction title="搜索">
+        <SearchOutlined />
+      </HeaderAction>
+      <HeaderAction title="通知">
+        <Badge count={0} showZero={false} styles={{ root: { display: 'inline-flex' } }}>
+          <BellOutlined />
+        </Badge>
+      </HeaderAction>
       <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} placement="bottomRight">
-        <Avatar icon={<UserOutlined />} style={{ cursor: 'pointer' }} />
+        <button type="button" aria-label="用户菜单" style={actionButtonStyle}>
+          <Avatar size={28} icon={<UserOutlined />} />
+        </button>
       </Dropdown>
     </Space>
   )
