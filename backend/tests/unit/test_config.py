@@ -12,3 +12,4 @@ def test_settings_defaults():
     assert s.DB_POOL_SIZE == 20
     assert s.DB_MAX_OVERFLOW == 10
     assert s.REDIS_MAX_CONNECTIONS == 20
+    assert s.ALLOW_USER_REGISTRATION is True

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.exceptions import ConflictException, UnauthorizedException
+from app.core.exceptions import ConflictException, ForbiddenException, UnauthorizedException
 from app.schemas.auth import LoginRequest, RegisterRequest
 from app.services.auth_service import AuthService
 
@@ -83,6 +83,23 @@ class TestRegister:
                     confirm_password="Passw0rd",
                 )
             )
+
+    async def test_register_disabled(self, auth_service, mock_db):
+        with (
+            patch("app.services.auth_service.settings") as mock_settings,
+            pytest.raises(ForbiddenException, match="不允许用户自行注册"),
+        ):
+            mock_settings.ALLOW_USER_REGISTRATION = False
+            await auth_service.register(
+                RegisterRequest(
+                    username="newuser",
+                    email="new@example.com",
+                    password="Passw0rd",
+                    confirm_password="Passw0rd",
+                )
+            )
+
+        mock_db.execute.assert_not_called()
 
 
 class TestLogin:

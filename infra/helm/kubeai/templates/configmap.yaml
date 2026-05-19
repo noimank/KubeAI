@@ -16,6 +16,7 @@ data:
   ACCESS_TOKEN_EXPIRE_MINUTES: {{ .Values.backend.env.ACCESS_TOKEN_EXPIRE_MINUTES | quote }}
   REFRESH_TOKEN_EXPIRE_DAYS: {{ .Values.backend.env.REFRESH_TOKEN_EXPIRE_DAYS | quote }}
   IDLE_TIMEOUT_MINUTES: {{ .Values.backend.env.IDLE_TIMEOUT_MINUTES | quote }}
+  ALLOW_USER_REGISTRATION: {{ .Values.backend.env.ALLOW_USER_REGISTRATION | quote }}
   OIDC_ENABLED: {{ .Values.backend.env.OIDC_ENABLED | quote }}
   MINIO_SECURE: {{ .Values.backend.env.MINIO_SECURE | quote }}
   MINIO_BUCKET_PREFIX: {{ .Values.backend.env.MINIO_BUCKET_PREFIX | quote }}

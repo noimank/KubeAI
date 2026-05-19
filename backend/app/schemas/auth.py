@@ -53,6 +53,10 @@ class UserResponse(BaseModel):
     tenant_id: str | None = None
 
 
+class AuthConfigResponse(BaseModel):
+    allow_user_registration: bool
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

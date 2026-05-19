@@ -12,6 +12,7 @@ from app.core.redis import get_redis
 from app.core.security import decode_token, hash_password
 from app.models.enums import AuditAction, ResourceType
 from app.schemas.auth import (
+    AuthConfigResponse,
     LoginRequest,
     LogoutRequest,
     RefreshRequest,
@@ -40,6 +41,14 @@ def _audit_ctx(request: Request) -> dict[str, Any]:
         "user_agent": request.headers.get("user-agent"),
         "request_id": getattr(request.state, "request_id", None),
     }
+
+
+@router.get("/config", response_model=BaseResponse[AuthConfigResponse])
+async def auth_config() -> BaseResponse[AuthConfigResponse]:
+    return BaseResponse(
+        data=AuthConfigResponse(allow_user_registration=settings.ALLOW_USER_REGISTRATION),
+        message="获取成功",
+    )
 
 
 @router.post("/register", response_model=BaseResponse[TokenResponse])

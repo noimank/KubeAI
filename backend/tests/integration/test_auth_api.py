@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
@@ -37,6 +38,26 @@ async def test_register_success(client):
     assert body["data"]["access_token"] is not None
     assert body["data"]["refresh_token"] is not None
     assert body["data"]["token_type"] == "bearer"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_auth_config_default(client):
+    response = await client.get("/api/auth/config")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["allow_user_registration"] is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_auth_config_registration_disabled(client):
+    with patch("app.api.endpoints.auth.settings") as mock_settings:
+        mock_settings.ALLOW_USER_REGISTRATION = False
+        response = await client.get("/api/auth/config")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["allow_user_registration"] is False
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -87,6 +108,25 @@ async def test_register_invalid_password(client):
         },
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_register_disabled(client):
+    with patch("app.services.auth_service.settings") as mock_settings:
+        mock_settings.ALLOW_USER_REGISTRATION = False
+        response = await client.post(
+            "/api/auth/register",
+            json={
+                "username": _unique("disabled"),
+                "email": f"{_unique('disabled')}@example.com",
+                "password": "Passw0rd",
+                "confirm_password": "Passw0rd",
+            },
+        )
+
+    assert response.status_code == 403
+    assert response.json()["success"] is False
+    assert "不允许用户自行注册" in response.json()["message"]
 
 
 @pytest.mark.asyncio(loop_scope="session")

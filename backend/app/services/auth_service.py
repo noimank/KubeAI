@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.exceptions import ConflictException, ForbiddenException, UnauthorizedException
 from app.core.security import (
     create_access_token,
@@ -39,6 +40,9 @@ class AuthService:
         self.blacklist = TokenBlacklistService(redis)
 
     async def register(self, req: RegisterRequest, audit_context: dict[str, Any] | None = None) -> TokenResponse:
+        if not settings.ALLOW_USER_REGISTRATION:
+            raise ForbiddenException("当前不允许用户自行注册")
+
         existing = await self.db.execute(select(User).where(User.username == req.username))
         if existing.scalar_one_or_none() is not None:
             raise ConflictException("用户名已存在")
