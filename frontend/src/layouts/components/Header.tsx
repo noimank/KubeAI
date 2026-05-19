@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { App, Space, Avatar, Badge, Dropdown, Tooltip } from 'antd'
+import { Space, Avatar, Badge, Dropdown, Tooltip } from 'antd'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   SearchOutlined,
@@ -14,6 +14,7 @@ import type { MenuProps } from 'antd'
 
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
+import { getMessageInstance } from '@/utils/messageHolder'
 
 const actionGroupStyle: CSSProperties = {
   height: '100%',
@@ -57,7 +58,6 @@ function HeaderAction({
 
 export function Header() {
   const navigate = useNavigate()
-  const { message } = App.useApp()
   const logout = useAuthStore((state) => state.logout)
   const themeMode = useThemeStore((s) => s.themeMode)
   const toggleTheme = useThemeStore((s) => s.toggleTheme)
@@ -65,7 +65,7 @@ export function Header() {
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === 'logout') {
       logout()
-      message.success('已退出登录')
+      getMessageInstance()?.success('已退出登录')
       navigate('/login')
     }
   }

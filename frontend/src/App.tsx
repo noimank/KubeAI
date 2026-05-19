@@ -33,6 +33,7 @@ const ImagesPage = lazy(() => import('./pages/images'))
 const ImageDetailPage = lazy(() => import('./pages/images/detail'))
 const AnnotationsPage = lazy(() => import('./pages/annotations'))
 const AnnotationDetailPage = lazy(() => import('./pages/annotations/detail'))
+const AnnotationWorkspacePage = lazy(() => import('./pages/annotations/workspace'))
 const MonitoringPage = lazy(() => import('./pages/monitoring'))
 const ForbiddenPage = lazy(() => import('./pages/403'))
 const InvitePage = lazy(() => import('./pages/invite'))
@@ -62,7 +63,7 @@ function LoadingFallback() {
 
 function ContextHolder() {
   const { message, modal } = AntApp.useApp()
-  useMemo(() => {
+  useEffect(() => {
     setMessageInstance(message)
     setModalInstance(modal)
   }, [message, modal])
@@ -256,6 +257,10 @@ export default function App() {
                     >
                       <Route index element={<AnnotationsPage />} />
                       <Route path=":id" element={<AnnotationDetailPage />} />
+                      <Route
+                        path="projects/:projectId/workspace"
+                        element={<AnnotationWorkspacePage />}
+                      />
                     </Route>
                     <Route
                       path="monitoring"

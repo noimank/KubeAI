@@ -18,7 +18,6 @@ import {
   Spin,
   Table,
   Tag,
-  message,
 } from 'antd'
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -37,6 +36,7 @@ import {
   removeMember,
 } from '@/services/tenants'
 import { getAuditLogs } from '@/services/audit'
+import { getMessageInstance } from '@/utils/messageHolder'
 import type { Tenant, TenantUpdateRequest, QuotaUsage, TenantMember } from '@/types/tenant'
 import type { AuditLog, AuditAction, ResourceType } from '@/types/audit'
 
@@ -236,7 +236,7 @@ export default function TenantDetailPage() {
     if (!tenant) return
     try {
       await updateTenant(tenant.id, values)
-      message.success('租户更新成功')
+      getMessageInstance()?.success('租户更新成功')
       setEditDrawerOpen(false)
       fetchData()
     } catch {
@@ -249,7 +249,7 @@ export default function TenantDetailPage() {
     const targetStatus = tenant.status === 'active' ? 'disabled' : 'active'
     try {
       await toggleTenantStatus(tenant.id, targetStatus)
-      message.success(targetStatus === 'disabled' ? '租户已禁用' : '租户已恢复')
+      getMessageInstance()?.success(targetStatus === 'disabled' ? '租户已禁用' : '租户已恢复')
       fetchData()
     } catch {
       // interceptor handles error toast
@@ -260,7 +260,7 @@ export default function TenantDetailPage() {
     if (!id) return
     try {
       await updateMemberRole(id, userId, { role: newRole })
-      message.success('角色更新成功')
+      getMessageInstance()?.success('角色更新成功')
       setEditingMemberId(null)
       fetchMembers()
     } catch {
@@ -272,7 +272,7 @@ export default function TenantDetailPage() {
     if (!id) return
     try {
       await removeMember(id, userId)
-      message.success('成员已移除')
+      getMessageInstance()?.success('成员已移除')
       fetchMembers()
       fetchData()
     } catch {

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Button, Empty, Input, Popconfirm, Segmented, Space, Table, Tag, message } from 'antd'
+import { Button, Empty, Input, Popconfirm, Segmented, Space, Table, Tag } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -120,7 +120,7 @@ export default function TrainingJobsPage() {
   const refreshMutation = useMutation({
     mutationFn: (id: string) => getTrainingJob(id),
     onSuccess: () => {
-      message.success('状态已刷新')
+      getMessageInstance()?.success('状态已刷新')
       queryClient.invalidateQueries({ queryKey: ['trainingJobs'] })
     },
   })

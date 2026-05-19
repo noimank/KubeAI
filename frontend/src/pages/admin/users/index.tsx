@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   Button,
   DatePicker,
@@ -12,7 +12,6 @@ import {
   Space,
   Table,
   Tag,
-  message,
 } from 'antd'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -20,6 +19,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { Dayjs } from 'dayjs'
 import { getUsers, getUser, updateUser, toggleUserStatus, deleteUser } from '@/services/users'
 import { getTenants } from '@/services/tenants'
+import { getMessageInstance } from '@/utils/messageHolder'
 import type { UserDetail, UserRole } from '@/types/user'
 import type { Tenant } from '@/types/tenant'
 
@@ -142,7 +142,7 @@ export default function UsersPage() {
 
   const loadTenants = async () => {
     try {
-      const res = await getTenants(1, 200)
+      const res = await getTenants(1, 100)
       setTenants(res.data?.items ?? [])
     } catch {
       // ignore
@@ -161,19 +161,24 @@ export default function UsersPage() {
 
   const openEdit = (record: UserDetail) => {
     setEditingUser(record)
-    form.setFieldsValue({
-      role: record.role,
-      tenantId: record.tenantId ?? undefined,
-    })
     setEditModalOpen(true)
     loadTenants()
   }
+
+  useEffect(() => {
+    if (!editModalOpen || !editingUser) return
+
+    form.setFieldsValue({
+      role: editingUser.role,
+      tenantId: editingUser.tenantId ?? undefined,
+    })
+  }, [editModalOpen, editingUser, form])
 
   const handleEdit = async (values: { role: UserRole; tenantId?: string }) => {
     if (!editingUser) return
     try {
       await updateUser(editingUser.id, values)
-      message.success('用户更新成功')
+      getMessageInstance()?.success('用户更新成功')
       setEditModalOpen(false)
       setEditingUser(null)
       refetch()
@@ -185,7 +190,7 @@ export default function UsersPage() {
   const handleToggleStatus = async (record: UserDetail) => {
     try {
       await toggleUserStatus(record.id, { isActive: !record.isActive })
-      message.success(record.isActive ? '用户已禁用' : '用户已启用')
+      getMessageInstance()?.success(record.isActive ? '用户已禁用' : '用户已启用')
       refetch()
     } catch {
       // interceptor handles error
@@ -195,7 +200,7 @@ export default function UsersPage() {
   const handleDelete = async (record: UserDetail) => {
     try {
       await deleteUser(record.id)
-      message.success('用户删除成功')
+      getMessageInstance()?.success('用户删除成功')
       refetch()
     } catch {
       // interceptor handles error

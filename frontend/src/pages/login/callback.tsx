@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Spin, App } from 'antd'
+import { Spin } from 'antd'
 import { oauthCallback } from '@/services/oauth'
 import { getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
+import { getMessageInstance } from '@/utils/messageHolder'
 
 export default function OAuthCallbackPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { message } = App.useApp()
   const authLogin = useAuthStore((s) => s.login)
   const setTokens = useAuthStore((s) => s.setTokens)
   const called = useRef(false)
@@ -21,7 +21,7 @@ export default function OAuthCallbackPage() {
     const state = searchParams.get('state')
 
     if (!code || !state) {
-      message.error('无效的 OAuth 回调参数')
+      getMessageInstance()?.error('无效的 OAuth 回调参数')
       navigate('/login', { replace: true })
       return
     }
@@ -35,17 +35,17 @@ export default function OAuthCallbackPage() {
             authLogin(userRes.data, res.data.accessToken, res.data.refreshToken)
             navigate('/dashboard', { replace: true })
           } else {
-            message.error('获取用户信息失败')
+            getMessageInstance()?.error('获取用户信息失败')
             navigate('/login', { replace: true })
           }
         }
       })
       .catch((err: unknown) => {
         const error = err as { response?: { data?: { message?: string } } }
-        message.error(error.response?.data?.message || 'OAuth 登录失败')
+        getMessageInstance()?.error(error.response?.data?.message || 'OAuth 登录失败')
         navigate('/login', { replace: true })
       })
-  }, [searchParams, navigate, message, authLogin, setTokens])
+  }, [searchParams, navigate, authLogin, setTokens])
 
   return (
     <div

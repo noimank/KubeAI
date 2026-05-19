@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate, Link, Navigate, useSearchParams } from 'react-router-dom'
 import { ProForm, ProFormText } from '@ant-design/pro-components'
-import { App, Card, Form, Button } from 'antd'
+import { Card, Form, Button } from 'antd'
 import { UserOutlined, MailOutlined, LockOutlined } from '@ant-design/icons'
 import { register, getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
+import { getMessageInstance } from '@/utils/messageHolder'
 import type { RegisterRequest } from '@/types/auth'
 
 function validatePassword(_: unknown, value: string) {
@@ -24,7 +25,6 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { message } = App.useApp()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const setTokens = useAuthStore((s) => s.setTokens)
   const authLogin = useAuthStore((s) => s.login)
@@ -44,10 +44,10 @@ export default function RegisterPage() {
         if (userRes.success && userRes.data) {
           authLogin(userRes.data, res.data.accessToken, res.data.refreshToken)
         } else {
-          message.error('获取用户信息失败')
+          getMessageInstance()?.error('获取用户信息失败')
           return
         }
-        message.success('注册成功')
+        getMessageInstance()?.success('注册成功')
         const redirect = searchParams.get('redirect') || '/dashboard'
         navigate(redirect, { replace: true })
       }
@@ -56,9 +56,9 @@ export default function RegisterPage() {
       const status = error.response?.status
       const msg = error.response?.data?.message
       if (status === 409) {
-        message.error(msg || '用户名或邮箱已存在')
+        getMessageInstance()?.error(msg || '用户名或邮箱已存在')
       } else {
-        message.error(msg || '注册失败, 请稍后重试')
+        getMessageInstance()?.error(msg || '注册失败, 请稍后重试')
       }
     } finally {
       setLoading(false)

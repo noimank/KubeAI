@@ -1,17 +1,17 @@
 import { useState } from 'react'
 import { useNavigate, Link, Navigate, useSearchParams } from 'react-router-dom'
 import { ProForm, ProFormText } from '@ant-design/pro-components'
-import { App, Card, Button, Divider } from 'antd'
+import { Card, Button, Divider } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { login, getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
+import { getMessageInstance } from '@/utils/messageHolder'
 import OAuthButtons from './components/OAuthButtons'
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { message } = App.useApp()
   const { isAuthenticated, login: authLogin } = useAuthStore()
   const setTokens = useAuthStore((s) => s.setTokens)
 
@@ -29,7 +29,7 @@ export default function LoginPage() {
         if (userRes.success && userRes.data) {
           authLogin(userRes.data, res.data.accessToken, res.data.refreshToken)
         } else {
-          message.error('获取用户信息失败')
+          getMessageInstance()?.error('获取用户信息失败')
           return
         }
         const redirect = searchParams.get('redirect') || '/dashboard'
@@ -39,9 +39,9 @@ export default function LoginPage() {
       const error = err as { response?: { status?: number; data?: { message?: string } } }
       const msg = error.response?.data?.message
       if (msg?.includes('锁定')) {
-        message.error({ content: msg, duration: 5 })
+        getMessageInstance()?.error({ content: msg, duration: 5 })
       } else {
-        message.error({ content: msg || '用户名或密码错误', duration: 5 })
+        getMessageInstance()?.error({ content: msg || '用户名或密码错误', duration: 5 })
       }
     } finally {
       setLoading(false)

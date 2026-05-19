@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Button, DatePicker, Form, Input, Modal, Popconfirm, Space, Table, message } from 'antd'
+import { Button, DatePicker, Form, Input, Modal, Popconfirm, Space, Table } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -152,7 +152,7 @@ export default function DatasetsPage() {
     if (!trimmed) return
     if (trimmed.length > 200) return
     if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(trimmed)) {
-      message.warning('数据集名称仅支持小写字母、数字和中划线，且以字母或数字开头')
+      getMessageInstance()?.warning('数据集名称仅支持小写字母、数字和中划线，且以字母或数字开头')
       return
     }
     createMutation.mutate({
