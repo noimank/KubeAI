@@ -24,6 +24,7 @@ dependencies = [
     "httpx>=0.28.1",
     "minio>=7.2.20",
     "python-multipart>=0.0.27",
+    "label-studio-sdk>=2.0.0",
 ]
 
 [dependency-groups]

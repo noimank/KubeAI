@@ -21,6 +21,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    op.execute("ALTER TYPE resourcetype ADD VALUE IF NOT EXISTS 'annotation_project'")
     op.create_table(
         "annotation_projects",
         sa.Column("id", sa.Uuid(), nullable=False),

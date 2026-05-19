@@ -44,3 +44,38 @@ export interface AnnotationProjectCreateRequest {
   datasetVersionId: string
   annotationType: AnnotationType
 }
+
+export type AnnotationTaskStatus = 'unassigned' | 'assigned' | 'in_progress' | 'completed'
+
+export interface AnnotationTask {
+  id: string
+  projectId: string
+  labelStudioTaskId: number
+  data: Record<string, unknown>
+  assignedTo?: string
+  assignedToName?: string
+  status: AnnotationTaskStatus
+  projectName?: string
+  annotationType?: AnnotationType
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AnnotationTaskAssignRequest {
+  taskIds: string[]
+  userId: string
+}
+
+export interface AnnotationBatchAssignRequest {
+  userIds: string[]
+  tasksPerUser: number
+}
+
+export interface AnnotationTaskSummary {
+  projectId: string
+  projectName: string
+  annotationType: AnnotationType
+  totalTasks: number
+  assignedTasks: number
+  completedTasks: number
+}

@@ -6,12 +6,14 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import ExternalServiceException, NotFoundException
+from app.core.exceptions import ExternalServiceException, ForbiddenException, NotFoundException
 from app.integrations.labelstudio.templates import LABELING_TEMPLATES
 from app.models.annotation import AnnotationProject
+from app.models.annotation_task import AnnotationTask
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.enums import AuditAction, ResourceType
 from app.models.tenant import Tenant
+from app.models.user import User
 from app.services.audit_service import AuditService
 
 if TYPE_CHECKING:
@@ -21,6 +23,7 @@ if TYPE_CHECKING:
 
     from app.integrations.labelstudio.client import LabelStudioClient
     from app.integrations.minio.client import MinIOClient
+    from app.schemas.annotation import AnnotationBatchAssignRequest, AnnotationTaskAssignRequest
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +65,9 @@ class AnnotationService:
 
         # Create project in LabelStudio
         try:
-            ls_project = await self.ls_client.create_project(name, description or "", label_config)
-            ls_project_id = ls_project["id"]
+            ls_project_id = await self.ls_client.create_project(name, description or "", label_config)
+        except ExternalServiceException:
+            raise
         except Exception as e:
             raise ExternalServiceException(f"创建 LabelStudio 项目失败: {e}") from e
 
@@ -85,12 +89,6 @@ class AnnotationService:
                 url = await self.minio.presigned_get_url(tenant_name, object_name)
                 tasks.append({"data": {"image": url}})
 
-        if tasks:
-            try:
-                await self.ls_client.import_tasks(ls_project_id, tasks)
-            except Exception as e:
-                logger.warning("导入 LabelStudio tasks 失败: %s", e)
-
         # Create DB record
         project = AnnotationProject(
             name=name,
@@ -109,6 +107,28 @@ class AnnotationService:
         self.db.add(project)
         await self.db.flush()
         await self.db.refresh(project)
+
+        # Import tasks to LabelStudio and create AnnotationTask records
+        if tasks:
+            try:
+                ls_tasks = await self.ls_client.import_tasks(ls_project_id, tasks)
+                for ls_task in ls_tasks:
+                    self.db.add(
+                        AnnotationTask(
+                            project_id=project.id,
+                            label_studio_task_id=ls_task["id"],
+                            data=ls_task["data"],
+                            assigned_to=None,
+                            status="unassigned",
+                            tenant_id=tenant_id,
+                        )
+                    )
+                project.total_tasks = len(ls_tasks)
+                await self.db.flush()
+            except ExternalServiceException:
+                logger.warning("导入 LabelStudio tasks 失败, 项目已创建但 tasks 未导入")
+            except Exception as e:
+                logger.warning("导入 LabelStudio tasks 失败: %s", e)
 
         if audit_context:
             await self._log_audit(
@@ -206,6 +226,195 @@ class AnnotationService:
             await self.db.flush()
         except Exception as e:
             logger.warning("同步 LabelStudio 统计失败: %s", e)
+
+    async def list_project_tasks(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        page: int = 1,
+        page_size: int = 20,
+        status: str | None = None,
+        assigned_to: uuid.UUID | None = None,
+    ) -> tuple[list[AnnotationTask], int]:
+        await self._validate_project_membership(project_id, tenant_id)
+
+        query = select(AnnotationTask).where(
+            AnnotationTask.project_id == project_id,
+            AnnotationTask.tenant_id == tenant_id,
+        )
+        if status:
+            query = query.where(AnnotationTask.status == status)
+        if assigned_to:
+            query = query.where(AnnotationTask.assigned_to == assigned_to)
+
+        total_q = select(func.count()).select_from(query.subquery())
+        total = (await self.db.execute(total_q)).scalar_one()
+
+        result = await self.db.execute(
+            query.order_by(AnnotationTask.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        )
+        return list(result.scalars().all()), total
+
+    async def assign_tasks(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        request: AnnotationTaskAssignRequest,
+        audit_context: dict[str, Any] | None = None,
+    ) -> int:
+        await self._validate_project_membership(project_id, tenant_id)
+        await self._validate_tenant_membership(request.user_id, tenant_id)
+
+        result = await self.db.execute(
+            select(AnnotationTask).where(
+                AnnotationTask.id.in_(request.task_ids),
+                AnnotationTask.project_id == project_id,
+                AnnotationTask.tenant_id == tenant_id,
+                AnnotationTask.status.in_(["unassigned", "assigned"]),
+            )
+        )
+        tasks = list(result.scalars().all())
+
+        if len(tasks) != len(request.task_ids):
+            found_ids = {t.id for t in tasks}
+            missing = set(request.task_ids) - found_ids
+            raise NotFoundException(f"以下任务不存在或不可分配: {missing}")
+
+        for task in tasks:
+            task.assigned_to = request.user_id
+            task.status = "assigned"
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.UPDATE,
+                resource_type=ResourceType.ANNOTATION_PROJECT,
+                resource_id=str(project_id),
+                detail={
+                    "action": "assign_tasks",
+                    "task_count": len(tasks),
+                    "assigned_to": str(request.user_id),
+                },
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        await self.db.commit()
+        return len(tasks)
+
+    async def batch_assign(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        request: AnnotationBatchAssignRequest,
+        audit_context: dict[str, Any] | None = None,
+    ) -> int:
+        await self._validate_project_membership(project_id, tenant_id)
+        for uid in request.user_ids:
+            await self._validate_tenant_membership(uid, tenant_id)
+
+        result = await self.db.execute(
+            select(AnnotationTask)
+            .where(
+                AnnotationTask.project_id == project_id,
+                AnnotationTask.tenant_id == tenant_id,
+                AnnotationTask.status == "unassigned",
+            )
+            .order_by(AnnotationTask.created_at)
+        )
+        unassigned_tasks = list(result.scalars().all())
+
+        total_to_assign = min(len(unassigned_tasks), request.tasks_per_user * len(request.user_ids))
+        for i in range(total_to_assign):
+            user = request.user_ids[i % len(request.user_ids)]
+            unassigned_tasks[i].assigned_to = user
+            unassigned_tasks[i].status = "assigned"
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.UPDATE,
+                resource_type=ResourceType.ANNOTATION_PROJECT,
+                resource_id=str(project_id),
+                detail={
+                    "action": "batch_assign",
+                    "assigned_count": total_to_assign,
+                    "user_count": len(request.user_ids),
+                    "tasks_per_user": request.tasks_per_user,
+                },
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        await self.db.commit()
+        return total_to_assign
+
+    async def list_my_tasks(
+        self,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[AnnotationTask], int]:
+        query = (
+            select(AnnotationTask)
+            .where(
+                AnnotationTask.tenant_id == tenant_id,
+                AnnotationTask.assigned_to == user_id,
+            )
+            .order_by(AnnotationTask.created_at.desc())
+        )
+
+        total_q = select(func.count()).select_from(query.subquery())
+        total = (await self.db.execute(total_q)).scalar_one()
+
+        result = await self.db.execute(query.offset((page - 1) * page_size).limit(page_size))
+        return list(result.scalars().all()), total
+
+    async def get_my_task_summary(self, tenant_id: uuid.UUID, user_id: uuid.UUID) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(
+                AnnotationTask.project_id,
+                AnnotationProject.name.label("project_name"),
+                AnnotationProject.annotation_type,
+                func.count().label("total_tasks"),
+                func.count().filter(AnnotationTask.status == "assigned").label("assigned_tasks"),
+                func.count().filter(AnnotationTask.status == "completed").label("completed_tasks"),
+            )
+            .join(AnnotationProject, AnnotationTask.project_id == AnnotationProject.id)
+            .where(
+                AnnotationTask.tenant_id == tenant_id,
+                AnnotationTask.assigned_to == user_id,
+            )
+            .group_by(AnnotationTask.project_id, AnnotationProject.name, AnnotationProject.annotation_type)
+        )
+        rows = result.all()
+        return [
+            {
+                "project_id": row.project_id,
+                "project_name": row.project_name,
+                "annotation_type": row.annotation_type,
+                "total_tasks": row.total_tasks,
+                "assigned_tasks": row.assigned_tasks,
+                "completed_tasks": row.completed_tasks,
+            }
+            for row in rows
+        ]
+
+    async def _validate_project_membership(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> AnnotationProject:
+        result = await self.db.execute(
+            select(AnnotationProject).where(
+                AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id
+            )
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise NotFoundException("标注项目不存在")
+        return project
+
+    async def _validate_tenant_membership(self, user_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+        result = await self.db.execute(select(User.tenant_id).where(User.id == user_id))
+        user_tenant_id = result.scalar_one_or_none()
+        if user_tenant_id != tenant_id:
+            raise ForbiddenException("用户不属于当前租户")
 
     async def _get_dataset_or_fail(self, dataset_id: uuid.UUID, tenant_id: uuid.UUID) -> Dataset:
         result = await self.db.execute(select(Dataset).where(Dataset.id == dataset_id, Dataset.tenant_id == tenant_id))

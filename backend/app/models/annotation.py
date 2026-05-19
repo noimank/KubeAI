@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TenantMixin, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.annotation_task import AnnotationTask
     from app.models.dataset import Dataset, DatasetVersion
 
 
@@ -31,6 +32,7 @@ class AnnotationProject(Base, TimestampMixin, TenantMixin):
 
     dataset: Mapped[Dataset] = relationship(lazy="selectin")
     dataset_version: Mapped[DatasetVersion] = relationship(lazy="selectin")
+    tasks: Mapped[list[AnnotationTask]] = relationship(back_populates="project", lazy="noload")
 
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("id", uuid.uuid4())

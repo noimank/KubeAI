@@ -77,7 +77,7 @@ export default function CreateTrainingJobPage() {
   })
 
   const datasets = datasetsData?.items ?? []
-  const versions = datasetDetail?.data?.versions ?? []
+  const versions = datasetDetail?.versions ?? []
   const images = imagesData ?? []
 
   const { data: experimentDetail } = useQuery({

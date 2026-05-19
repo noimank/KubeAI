@@ -31,9 +31,9 @@ export async function getDatasets(params: {
   return res.data.data!
 }
 
-export async function getDatasetDetail(id: string): Promise<BaseResponse<DatasetDetail>> {
+export async function getDatasetDetail(id: string): Promise<DatasetDetail> {
   const res = await api.get<BaseResponse<DatasetDetail>>(`/datasets/${id}`)
-  return res.data
+  return res.data.data!
 }
 
 export async function deleteDataset(id: string): Promise<BaseResponse<null>> {

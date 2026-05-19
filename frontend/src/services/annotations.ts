@@ -1,9 +1,13 @@
 import { api } from './api'
 import type { BaseResponse, PageData } from '@/types/api'
 import type {
+  AnnotationBatchAssignRequest,
   AnnotationProject,
   AnnotationProjectCreateRequest,
   AnnotationProjectDetail,
+  AnnotationTask,
+  AnnotationTaskAssignRequest,
+  AnnotationTaskSummary,
   AnnotationTemplate,
 } from '@/types/annotation'
 
@@ -39,4 +43,51 @@ export async function getAnnotationProjectDetail(id: string): Promise<Annotation
 export async function deleteAnnotationProject(id: string): Promise<BaseResponse<null>> {
   const res = await api.delete<BaseResponse<null>>(`/annotations/projects/${id}`)
   return res.data
+}
+
+export async function getAnnotationProjectTasks(
+  projectId: string,
+  params: { current: number; pageSize: number; status?: string; assignedTo?: string },
+): Promise<PageData<AnnotationTask>> {
+  const { current, pageSize, ...rest } = params
+  const res = await api.get<BaseResponse<PageData<AnnotationTask>>>(
+    `/annotations/projects/${projectId}/tasks`,
+    { params: { page: current, pageSize, ...rest } },
+  )
+  return res.data.data!
+}
+
+export async function assignAnnotationTasks(
+  projectId: string,
+  data: AnnotationTaskAssignRequest,
+): Promise<BaseResponse<null>> {
+  const res = await api.post<BaseResponse<null>>(`/annotations/projects/${projectId}/assign`, data)
+  return res.data
+}
+
+export async function batchAssignAnnotationTasks(
+  projectId: string,
+  data: AnnotationBatchAssignRequest,
+): Promise<BaseResponse<null>> {
+  const res = await api.post<BaseResponse<null>>(
+    `/annotations/projects/${projectId}/batch-assign`,
+    data,
+  )
+  return res.data
+}
+
+export async function getMyAnnotationTasks(params: {
+  current: number
+  pageSize: number
+}): Promise<PageData<AnnotationTask>> {
+  const { current, pageSize } = params
+  const res = await api.get<BaseResponse<PageData<AnnotationTask>>>('/annotations/my-tasks', {
+    params: { page: current, pageSize },
+  })
+  return res.data.data!
+}
+
+export async function getMyAnnotationTaskSummary(): Promise<AnnotationTaskSummary[]> {
+  const res = await api.get<BaseResponse<AnnotationTaskSummary[]>>('/annotations/my-tasks/summary')
+  return res.data.data!
 }

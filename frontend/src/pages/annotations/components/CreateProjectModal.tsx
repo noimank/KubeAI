@@ -1,10 +1,9 @@
-import { useState } from 'react'
-import { Form, Input, Modal, Radio, Select, Space, Typography, message } from 'antd'
+import { useEffect, useMemo } from 'react'
+import { App, Form, Input, Modal, Radio, Select, Space, Typography } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getAnnotationTemplates } from '@/services/annotations'
-import { createAnnotationProject } from '@/services/annotations'
+import { createAnnotationProject, getAnnotationTemplates } from '@/services/annotations'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
-import type { AnnotationType } from '@/types/annotation'
+import type { AnnotationProjectCreateRequest } from '@/types/annotation'
 
 interface CreateProjectModalProps {
   open: boolean
@@ -12,35 +11,32 @@ interface CreateProjectModalProps {
 }
 
 export default function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
-  const [form] = Form.useForm()
+  const [form] = Form.useForm<AnnotationProjectCreateRequest>()
+  const { message } = App.useApp()
   const queryClient = useQueryClient()
-  const [selectedDatasetId, setSelectedDatasetId] = useState<string>()
-  const [selectedTemplate, setSelectedTemplate] = useState<string>()
+  const selectedDatasetId = Form.useWatch('datasetId', form)
+  const selectedTemplate = Form.useWatch('annotationType', form)
 
   const { data: templates } = useQuery({
     queryKey: ['annotationTemplates'],
     queryFn: getAnnotationTemplates,
+    enabled: open,
   })
 
   const { data: datasetsData } = useQuery({
     queryKey: ['datasets', 1, 100],
     queryFn: () => getDatasets({ current: 1, pageSize: 100 }),
+    enabled: open,
   })
 
-  const { data: datasetDetail } = useQuery({
+  const { data: datasetDetail, isFetching: isDatasetDetailFetching } = useQuery({
     queryKey: ['datasetDetail', selectedDatasetId],
     queryFn: () => getDatasetDetail(selectedDatasetId!),
-    enabled: !!selectedDatasetId,
+    enabled: open && !!selectedDatasetId,
   })
 
   const createMutation = useMutation({
-    mutationFn: (values: {
-      name: string
-      description?: string
-      datasetId: string
-      datasetVersionId: string
-      annotationType: AnnotationType
-    }) => createAnnotationProject(values),
+    mutationFn: createAnnotationProject,
     onSuccess: () => {
       message.success('标注项目创建成功')
       queryClient.invalidateQueries({ queryKey: ['annotationProjects'] })
@@ -50,24 +46,46 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
 
   const handleClose = () => {
     form.resetFields()
-    setSelectedDatasetId(undefined)
-    setSelectedTemplate(undefined)
     onClose()
   }
 
-  const handleDatasetChange = (datasetId: string) => {
-    setSelectedDatasetId(datasetId)
-    form.setFieldValue('datasetVersionId', undefined)
-  }
+  useEffect(() => {
+    if (!open) return
+    if (form.getFieldValue('datasetVersionId')) {
+      form.resetFields(['datasetVersionId'])
+    }
+  }, [selectedDatasetId, form, open])
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
-      createMutation.mutate(values)
+      createMutation.mutate({
+        ...values,
+        name: values.name.trim(),
+        description: values.description?.trim() || undefined,
+      })
     } catch {
       // validation error
     }
   }
+
+  const datasetOptions = useMemo(
+    () =>
+      datasetsData?.items?.map((ds) => ({
+        value: ds.id,
+        label: ds.displayName || ds.name,
+      })) ?? [],
+    [datasetsData?.items],
+  )
+
+  const versionOptions = useMemo(
+    () =>
+      datasetDetail?.versions?.map((v) => ({
+        value: v.id,
+        label: `v${v.versionNumber}${v.description ? ` - ${v.description}` : ''}`,
+      })) ?? [],
+    [datasetDetail?.versions],
+  )
 
   const selectedTemplateInfo = templates?.find((t) => t.key === selectedTemplate)
 
@@ -87,7 +105,10 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
         <Form.Item
           label="项目名称"
           name="name"
-          rules={[{ required: true, message: '请输入项目名称' }]}
+          rules={[
+            { required: true, message: '请输入项目名称' },
+            { whitespace: true, message: '项目名称不能为空' },
+          ]}
         >
           <Input placeholder="请输入标注项目名称" maxLength={200} showCount />
         </Form.Item>
@@ -112,11 +133,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               placeholder="选择数据集"
               showSearch
               optionFilterProp="label"
-              onChange={handleDatasetChange}
-              options={datasetsData?.items?.map((ds) => ({
-                value: ds.id,
-                label: ds.displayName || ds.name,
-              }))}
+              options={datasetOptions}
             />
           </Form.Item>
 
@@ -127,12 +144,11 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             style={{ marginBottom: 0 }}
           >
             <Select
-              placeholder="选择版本"
+              placeholder={selectedDatasetId ? '选择版本' : '请先选择数据集'}
               disabled={!selectedDatasetId}
-              options={datasetDetail?.data?.versions?.map((v) => ({
-                value: v.id,
-                label: `v${v.versionNumber}${v.description ? ` - ${v.description}` : ''}`,
-              }))}
+              loading={isDatasetDetailFetching}
+              notFoundContent={selectedDatasetId ? '暂无版本' : null}
+              options={versionOptions}
             />
           </Form.Item>
         </Space>
@@ -143,10 +159,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           rules={[{ required: true, message: '请选择标注模板' }]}
           style={{ marginTop: 16 }}
         >
-          <Radio.Group
-            onChange={(e) => setSelectedTemplate(e.target.value)}
-            style={{ width: '100%' }}
-          >
+          <Radio.Group style={{ width: '100%' }}>
             <Space wrap>
               {templates?.map((t) => (
                 <Radio key={t.key} value={t.key}>

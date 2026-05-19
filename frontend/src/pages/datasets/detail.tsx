@@ -138,7 +138,7 @@ export default function DatasetDetailPage() {
     enabled: !!id,
   })
 
-  const dataset = detailRes?.data
+  const dataset = detailRes
 
   const versions: DatasetVersion[] = useMemo(() => dataset?.versions || [], [dataset])
 

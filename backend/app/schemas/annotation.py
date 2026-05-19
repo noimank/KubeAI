@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -43,3 +44,36 @@ class AnnotationTemplateResponse(BaseModel):
     key: str
     label: str
     description: str
+
+
+class AnnotationTaskResponse(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    label_studio_task_id: int
+    data: dict[str, Any]
+    assigned_to: uuid.UUID | None = None
+    assigned_to_name: str | None = None
+    status: str
+    project_name: str | None = None
+    annotation_type: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AnnotationTaskAssignRequest(BaseModel):
+    task_ids: list[uuid.UUID] = Field(min_length=1)
+    user_id: uuid.UUID
+
+
+class AnnotationBatchAssignRequest(BaseModel):
+    user_ids: list[uuid.UUID] = Field(min_length=1)
+    tasks_per_user: int = Field(ge=1)
+
+
+class AnnotationTaskSummaryResponse(BaseModel):
+    project_id: uuid.UUID
+    project_name: str
+    annotation_type: str
+    total_tasks: int
+    assigned_tasks: int
+    completed_tasks: int

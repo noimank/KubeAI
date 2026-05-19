@@ -42,6 +42,7 @@ export default function MainLayout() {
   return (
     <ProLayout
       title="KubeAI"
+      logo="/favicon.svg"
       layout="mix"
       navTheme="realDark"
       contentStyle={{ padding: 24 }}
@@ -58,8 +59,17 @@ export default function MainLayout() {
           {dom}
         </div>
       )}
-      headerTitleRender={(_logo, title) => <a onClick={() => navigate('/dashboard')}>{title}</a>}
-      headerContentRender={() => <Header />}
+      headerTitleRender={(logo, title) => (
+        <a
+          onClick={() => navigate('/dashboard')}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+        >
+          {logo}
+          {title}
+        </a>
+      )}
+      headerContentRender={false}
+      actionsRender={() => <Header />}
       location={{ pathname: location.pathname }}
       breadcrumbRender={(routers = []) => [{ path: '/', breadcrumbName: '首页' }, ...routers]}
       token={{

@@ -99,3 +99,10 @@ class AnnotationProjectStatus(enum.StrEnum):
     ACTIVE = "active"
     COMPLETED = "completed"
     ARCHIVED = "archived"
+
+
+class AnnotationTaskStatus(enum.StrEnum):
+    UNASSIGNED = "unassigned"
+    ASSIGNED = "assigned"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
