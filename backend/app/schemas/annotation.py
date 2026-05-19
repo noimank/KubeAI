@@ -70,6 +70,10 @@ class AnnotationBatchAssignRequest(BaseModel):
     tasks_per_user: int = Field(ge=1)
 
 
+class AnnotationSubmitRequest(BaseModel):
+    result: list[dict[str, Any]]
+
+
 class AnnotationTaskSummaryResponse(BaseModel):
     project_id: uuid.UUID
     project_name: str

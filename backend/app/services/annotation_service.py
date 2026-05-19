@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import ExternalServiceException, ForbiddenException, NotFoundException
@@ -87,7 +87,7 @@ class AnnotationService:
             for obj in objects:
                 object_name = obj["object_name"]
                 url = await self.minio.presigned_get_url(tenant_name, object_name)
-                tasks.append({"data": {"image": url}})
+                tasks.append({"data": {"image": url, "object_name": object_name}})
 
         # Create DB record
         project = AnnotationProject(
@@ -238,9 +238,13 @@ class AnnotationService:
     ) -> tuple[list[AnnotationTask], int]:
         await self._validate_project_membership(project_id, tenant_id)
 
-        query = select(AnnotationTask).where(
-            AnnotationTask.project_id == project_id,
-            AnnotationTask.tenant_id == tenant_id,
+        query = (
+            select(AnnotationTask)
+            .options(selectinload(AnnotationTask.project), selectinload(AnnotationTask.assignee))
+            .where(
+                AnnotationTask.project_id == project_id,
+                AnnotationTask.tenant_id == tenant_id,
+            )
         )
         if status:
             query = query.where(AnnotationTask.status == status)
@@ -356,6 +360,7 @@ class AnnotationService:
     ) -> tuple[list[AnnotationTask], int]:
         query = (
             select(AnnotationTask)
+            .options(selectinload(AnnotationTask.project), selectinload(AnnotationTask.assignee))
             .where(
                 AnnotationTask.tenant_id == tenant_id,
                 AnnotationTask.assigned_to == user_id,
@@ -398,6 +403,161 @@ class AnnotationService:
             }
             for row in rows
         ]
+
+    async def start_annotation(
+        self,
+        task_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> AnnotationTask:
+        task = await self._get_task_with_project(task_id, tenant_id)
+        if task.assigned_to != user_id:
+            raise ForbiddenException("只能标注分配给自己的任务")
+        if task.status == "in_progress":
+            return await self._refresh_presigned_url(task)
+        if task.status != "assigned":
+            raise ForbiddenException("任务状态不是「已分配」，无法开始标注")  # noqa: RUF001
+        task.status = "in_progress"
+        task = await self._refresh_presigned_url(task)
+        await self.db.flush()
+        task = await self._reload_task_for_response(task.id, tenant_id)
+        await self.db.commit()
+        return task
+
+    async def submit_annotation(
+        self,
+        task_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        result: list[dict[str, Any]],
+        audit_context: dict[str, Any] | None = None,
+    ) -> AnnotationTask:
+        task = await self._get_task_with_project(task_id, tenant_id)
+        if task.assigned_to != user_id:
+            raise ForbiddenException("只能提交分配给自己的任务")
+        if task.status != "in_progress":
+            raise ForbiddenException("任务状态不是「进行中」，无法提交")  # noqa: RUF001
+
+        if task.label_studio_task_id:
+            await self.ls_client.create_annotation(task.label_studio_task_id, result)
+
+        task.status = "completed"
+
+        project = task.project
+        project.completed_tasks = (project.completed_tasks or 0) + 1
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.UPDATE,
+                resource_type=ResourceType.ANNOTATION_PROJECT,
+                resource_id=str(task.project_id),
+                detail={"action": "submit_annotation", "task_id": str(task_id)},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        await self.db.flush()
+        task = await self._reload_task_for_response(task.id, tenant_id)
+        await self.db.commit()
+        return task
+
+    async def get_next_task(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> AnnotationTask | None:
+        await self._validate_project_membership(project_id, tenant_id)
+        result = await self.db.execute(
+            select(AnnotationTask)
+            .options(
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset),
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset_version),
+                selectinload(AnnotationTask.assignee),
+            )
+            .where(
+                AnnotationTask.project_id == project_id,
+                AnnotationTask.tenant_id == tenant_id,
+                AnnotationTask.assigned_to == user_id,
+                AnnotationTask.status.in_(["in_progress", "assigned"]),
+            )
+            .order_by(case((AnnotationTask.status == "in_progress", 0), else_=1), AnnotationTask.created_at)
+            .limit(1)
+        )
+        task = result.scalar_one_or_none()
+        if task is None:
+            return None
+        return await self._refresh_presigned_url(task)
+
+    async def get_task_detail(
+        self,
+        task_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> AnnotationTask:
+        task = await self._get_task_with_project(task_id, tenant_id)
+        return await self._refresh_presigned_url(task)
+
+    async def _get_task_with_project(self, task_id: uuid.UUID, tenant_id: uuid.UUID) -> AnnotationTask:
+        result = await self.db.execute(
+            select(AnnotationTask)
+            .options(
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset),
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset_version),
+                selectinload(AnnotationTask.project),
+                selectinload(AnnotationTask.assignee),
+            )
+            .where(AnnotationTask.id == task_id, AnnotationTask.tenant_id == tenant_id)
+        )
+        task = result.scalar_one_or_none()
+        if not task:
+            raise NotFoundException("标注任务不存在")
+        return task
+
+    async def _reload_task_for_response(self, task_id: uuid.UUID, tenant_id: uuid.UUID) -> AnnotationTask:
+        result = await self.db.execute(
+            select(AnnotationTask)
+            .options(
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset),
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset_version),
+                selectinload(AnnotationTask.assignee),
+            )
+            .where(AnnotationTask.id == task_id, AnnotationTask.tenant_id == tenant_id)
+            .execution_options(populate_existing=True)
+        )
+        task = result.scalar_one_or_none()
+        if not task:
+            raise NotFoundException("标注任务不存在")
+        return task
+
+    async def _refresh_presigned_url(self, task: AnnotationTask) -> AnnotationTask:
+        project = task.project
+        if not project or not project.dataset or not project.dataset_version:
+            return task
+
+        tenant_name = await self._get_tenant_name(task.tenant_id)
+        prefix = f"datasets/{project.dataset.name}/v{project.dataset_version.version_number}/"
+        annotation_type = project.annotation_type
+
+        data = dict(task.data)
+
+        if annotation_type == "text_classification":
+            file_name = data.get("file_name", "")
+            if file_name:
+                text_object = f"{prefix}{file_name}"
+                data["text"] = await self.minio.presigned_get_url(tenant_name, text_object)
+        elif annotation_type in ("image_classification", "object_detection", "image_segmentation"):
+            image_object: str | None = data.get("object_name")
+            if not image_object:
+                image_url = data.get("image", "")
+                if image_url and "?" in image_url:
+                    path_part = image_url.split("?")[0]
+                    image_object = path_part.split("/", 4)[-1] if path_part.count("/") >= 4 else ""
+            if image_object:
+                data["object_name"] = image_object
+                data["image"] = await self.minio.presigned_get_url(tenant_name, image_object)
+
+        task.data = data
+        return task
 
     async def _validate_project_membership(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> AnnotationProject:
         result = await self.db.execute(

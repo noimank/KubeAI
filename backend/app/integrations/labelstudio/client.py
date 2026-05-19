@@ -3,6 +3,7 @@ from typing import Any
 
 import httpx
 from label_studio_sdk import AsyncLabelStudio
+from label_studio_sdk.types.annotation import Annotation
 
 from app.core.config import settings
 from app.core.exceptions import ExternalServiceException
@@ -77,6 +78,33 @@ class LabelStudioClient:
             logger.info("labelstudio_project_deleted id=%s", project_id)
         except Exception as e:
             logger.warning("labelstudio_delete_project_failed id=%s: %s", project_id, e)
+
+    async def create_annotation(self, task_id: int, result: list[dict[str, Any]]) -> Annotation:
+        try:
+            annotation = await self._sdk.annotations.create(id=task_id, result=result)
+            logger.info("labelstudio_annotation_created task=%s id=%s", task_id, annotation.id)
+            return annotation
+        except ExternalServiceException:
+            raise
+        except Exception as e:
+            raise self._wrap_error("create_annotation", e) from e
+
+    async def list_annotations(self, task_id: int) -> list[Annotation]:
+        try:
+            return await self._sdk.annotations.list(id=task_id)
+        except ExternalServiceException:
+            raise
+        except Exception as e:
+            raise self._wrap_error("list_annotations", e) from e
+
+    async def delete_annotation(self, annotation_id: int) -> None:
+        try:
+            await self._sdk.annotations.delete(id=annotation_id)
+            logger.info("labelstudio_annotation_deleted id=%s", annotation_id)
+        except ExternalServiceException:
+            raise
+        except Exception as e:
+            raise self._wrap_error("delete_annotation", e) from e
 
     async def close(self) -> None:
         await self._httpx.aclose()

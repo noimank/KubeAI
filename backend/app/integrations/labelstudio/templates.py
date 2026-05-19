@@ -1,3 +1,5 @@
+from typing import Any
+
 LABELING_TEMPLATES: dict[str, dict[str, str]] = {
     "image_classification": {
         "key": "image_classification",
@@ -50,3 +52,34 @@ LABELING_TEMPLATES: dict[str, dict[str, str]] = {
 </View>""",
     },
 }
+
+
+def get_annotation_result_template(annotation_type: str) -> dict[str, Any]:
+    """Return a LabelStudio result template for the given annotation type."""
+    templates: dict[str, dict[str, Any]] = {
+        "image_classification": {
+            "from_name": "choice",
+            "to_name": "image",
+            "type": "choices",
+            "value_key": "choices",
+        },
+        "text_classification": {
+            "from_name": "sentiment",
+            "to_name": "text",
+            "type": "choices",
+            "value_key": "choices",
+        },
+        "object_detection": {
+            "from_name": "label",
+            "to_name": "image",
+            "type": "rectanglelabels",
+            "value_keys": ["x", "y", "width", "height", "rectanglelabels"],
+        },
+        "image_segmentation": {
+            "from_name": "label",
+            "to_name": "image",
+            "type": "polygonlabels",
+            "value_keys": ["points", "polygonlabels"],
+        },
+    }
+    return templates.get(annotation_type, {})
