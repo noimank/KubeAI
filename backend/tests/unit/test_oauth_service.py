@@ -126,6 +126,8 @@ class TestFindOrCreateUser:
             if call_count[0] == 1:
                 return _sync_result(None)
             if call_count[0] == 2:
+                return _sync_result(None)
+            if call_count[0] == 3:
                 conflicting = User(username="testuser", email="other@example.com", hashed_password="hashed")
                 return _sync_result(conflicting)
             return _sync_result(None)
@@ -138,19 +140,19 @@ class TestFindOrCreateUser:
 
         assert user.username == "testuser_1"
 
-    async def test_uses_fallback_email_when_taken(self, oauth_service, mock_db):
+    async def test_binds_existing_user_when_email_exists(self, oauth_service, mock_db):
         from app.models.user import User
 
+        existing = User(username="localuser", email="taken@example.com", hashed_password="hashed")
+        existing.auth_provider = "local"
+        existing.external_id = None
         call_count = [0]
 
         def mock_execute(query):
             call_count[0] += 1
             if call_count[0] == 1:
                 return _sync_result(None)
-            if call_count[0] == 2:
-                return _sync_result(None)
-            conflicting = User(username="someother", email="taken@example.com", hashed_password="hashed")
-            return _sync_result(conflicting)
+            return _sync_result(existing)
 
         mock_db.execute = AsyncMock(side_effect=mock_execute)
         mock_db.flush = AsyncMock()
@@ -158,7 +160,11 @@ class TestFindOrCreateUser:
         with patch("app.services.oauth_service.hash_password", new=AsyncMock(return_value="hashed")):
             user = await oauth_service._find_or_create_user("ext-789", "newuser", "taken@example.com")
 
-        assert user.email == "newuser@oauth.local"
+        assert user is existing
+        assert user.auth_provider == "oidc"
+        assert user.external_id == "ext-789"
+        assert user.username == "newuser"
+        assert user.email == "taken@example.com"
 
     async def test_uses_external_id_as_username_fallback(self, oauth_service, mock_db):
         mock_db.execute = AsyncMock(return_value=_sync_result(None))

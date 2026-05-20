@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, cast
 import httpx
 import structlog
 from authlib.integrations.httpx_client import AsyncOAuth2Client  # type: ignore[import-untyped]
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.core.exceptions import ExternalServiceException, UnauthorizedException
@@ -96,39 +96,40 @@ class OAuthService:
                 raise ExternalServiceException("无法获取用户信息")
             userinfo = userinfo_resp.json()
 
-        external_id = str(userinfo.get("sub"))
-        email = userinfo.get("email", "")
-        preferred_username = userinfo.get("preferred_username") or (email.split("@")[0] if email else external_id)
+        sub = userinfo.get("sub")
+        if not sub:
+            raise UnauthorizedException("OIDC 用户信息缺少 sub")
+
+        external_id = str(sub)
+        email = str(userinfo.get("email") or "")
+        preferred_username = str(userinfo.get("preferred_username") or (email.split("@")[0] if email else external_id))
 
         user = await self._find_or_create_user(external_id, preferred_username, email)
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
     async def _find_or_create_user(self, external_id: str, username: str, email: str) -> User:
+        username = self._normalize_username(username or external_id)
+        email = email.strip()
+
         result = await self.db.execute(
             select(User).where(User.auth_provider == "oidc", User.external_id == external_id)
         )
         user = result.scalar_one_or_none()
         if user:
+            await self._sync_oauth_profile(user, username, email)
             return user
 
-        if not username:
-            username = external_id
-        if not email:
-            email = f"{username}@oauth.local"
-
-        base_username = username
-        counter = 1
-        while True:
-            existing = await self.db.execute(select(User).where(User.username == username))
-            if existing.scalar_one_or_none() is None:
-                break
-            username = f"{base_username}_{counter}"
-            counter += 1
-
         if email:
-            existing = await self.db.execute(select(User).where(User.email == email))
-            if existing.scalar_one_or_none() is not None:
-                email = f"{username}@oauth.local"
+            existing_email = await self._find_user_by_email(email)
+            if existing_email:
+                existing_email.auth_provider = "oidc"
+                existing_email.external_id = external_id
+                await self._sync_oauth_profile(existing_email, username, email)
+                logger.info("oauth_user_bound", user_id=str(existing_email.id), username=existing_email.username)
+                return existing_email
+
+        username = await self._make_unique_username(username)
+        email = await self._make_unique_email(email, username)
 
         user = User(
             username=username,
@@ -142,6 +143,56 @@ class OAuthService:
 
         logger.info("oauth_user_created", user_id=str(user.id), username=username)
         return user
+
+    def _normalize_username(self, username: str) -> str:
+        username = username.strip()
+        if not username:
+            return "oidc_user"
+        return username[:50]
+
+    def _username_with_suffix(self, base_username: str, counter: int) -> str:
+        suffix = f"_{counter}"
+        return f"{base_username[: 50 - len(suffix)]}{suffix}"
+
+    async def _make_unique_username(self, username: str, current_user: User | None = None) -> str:
+        base_username = self._normalize_username(username)
+        candidate = base_username
+        counter = 1
+        while True:
+            existing = await self.db.execute(select(User).where(User.username == candidate))
+            existing_user = existing.scalar_one_or_none()
+            if existing_user is None or (current_user is not None and existing_user.id == current_user.id):
+                return candidate
+            candidate = self._username_with_suffix(base_username, counter)
+            counter += 1
+
+    async def _find_user_by_email(self, email: str) -> User | None:
+        if not email:
+            return None
+        result = await self.db.execute(select(User).where(func.lower(User.email) == email.lower()))
+        return result.scalar_one_or_none()
+
+    async def _make_unique_email(self, email: str, username: str, current_user: User | None = None) -> str:
+        candidate = (email.strip() or f"{username}@oauth.local")[:255]
+        counter = 1
+        while True:
+            existing_user = await self._find_user_by_email(candidate)
+            if existing_user is None or (current_user is not None and existing_user.id == current_user.id):
+                return candidate
+            suffix = f"_{counter}"
+            local_part = username[: 255 - len("@oauth.local") - len(suffix)]
+            candidate = f"{local_part}{suffix}@oauth.local"
+            counter += 1
+
+    async def _sync_oauth_profile(self, user: User, username: str, email: str) -> None:
+        if username and user.username != username:
+            user.username = await self._make_unique_username(username, current_user=user)
+
+        if email and user.email != email:
+            email = email[:255]
+            existing_user = await self._find_user_by_email(email)
+            if existing_user is None or existing_user.id == user.id:
+                user.email = email
 
     def _generate_tokens(self, user_id: str, tenant_id: str | None = None) -> TokenResponse:
         payload: dict[str, str] = {"sub": user_id}
