@@ -74,6 +74,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
 
 # (parent_role, child_role)
 SEED_ROLE_INHERITANCE: list[tuple[str, str]] = [
+    ("engineer", "annotator"),
     ("mlops", "engineer"),
     ("admin", "mlops"),
 ]
