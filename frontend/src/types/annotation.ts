@@ -1,8 +1,4 @@
-export type AnnotationType =
-  | 'image_classification'
-  | 'object_detection'
-  | 'image_segmentation'
-  | 'text_classification'
+export type AnnotationType = string
 
 export type AnnotationProjectStatus = 'draft' | 'active' | 'completed' | 'archived'
 
@@ -39,9 +35,10 @@ export interface AnnotationProjectDetail extends AnnotationProject {
 }
 
 export interface AnnotationTemplate {
-  key: AnnotationType
+  key: string
   label: string
   description: string
+  config: string
 }
 
 export interface AnnotationProjectCreateRequest {
@@ -49,7 +46,7 @@ export interface AnnotationProjectCreateRequest {
   description?: string
   datasetId: string
   datasetVersionId: string
-  annotationType: AnnotationType
+  labelConfig: string
 }
 
 export type AnnotationTaskStatus = 'unassigned' | 'assigned' | 'in_progress' | 'completed'
@@ -71,6 +68,10 @@ export interface AnnotationTask {
 export interface AnnotationTaskAssignRequest {
   taskIds: string[]
   userId: string
+}
+
+export interface AnnotationTaskUnassignRequest {
+  taskIds: string[]
 }
 
 export interface AnnotationBatchAssignRequest {

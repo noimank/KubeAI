@@ -112,6 +112,7 @@ export default function AnnotationsPage() {
                   onPageChange={handlePageChange}
                   onDelete={handleDelete}
                   canManage={canManage}
+                  onCreateClick={() => setCreateModalOpen(true)}
                 />
               </>
             ),

@@ -6,6 +6,7 @@ import type Konva from 'konva'
 import type { AnnotationTask, AnnotationProjectDetail } from '@/types/annotation'
 import type { AnnotationResultItem } from '@/types/annotation'
 import { getMessageInstance } from '@/utils/messageHolder'
+import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
 
 interface Polygon {
   id: string
@@ -18,6 +19,8 @@ interface ImageSegmentationAnnotatorProps {
   task: AnnotationTask
   project: AnnotationProjectDetail
   labels: string[]
+  objectConfig?: LabelStudioObjectConfig
+  controlConfig?: LabelStudioControlConfig
   onSubmit: (result: AnnotationResultItem[]) => void
   submitting: boolean
 }
@@ -27,10 +30,13 @@ type ToolMode = 'select' | 'draw'
 export default function ImageSegmentationAnnotator({
   task,
   labels,
+  objectConfig,
+  controlConfig,
   onSubmit,
   submitting,
 }: ImageSegmentationAnnotatorProps) {
-  const imageUrl = task.data?.image as string | undefined
+  const imageField = objectConfig?.field || 'image'
+  const imageUrl = task.data?.[imageField] as string | undefined
   const [image, setImage] = useState<HTMLImageElement | null>(null)
   const [polygons, setPolygons] = useState<Polygon[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -143,8 +149,8 @@ export default function ImageSegmentationAnnotator({
         ])
       }
       return {
-        from_name: 'label',
-        to_name: 'image',
+        from_name: controlConfig?.name || 'label',
+        to_name: controlConfig?.toName || objectConfig?.name || 'image',
         type: 'polygonlabels',
         value: { points, polygonlabels: [poly.label] },
       }

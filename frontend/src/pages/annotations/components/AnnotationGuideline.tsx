@@ -7,6 +7,11 @@ const TYPE_LABELS: Record<string, string> = {
   object_detection: '目标检测',
   image_segmentation: '图像分割',
   text_classification: '文本分类',
+  choices: '分类选择',
+  rectanglelabels: '矩形框',
+  polygonlabels: '多边形',
+  textarea: '文本填写',
+  rating: '评分',
 }
 
 interface AnnotationGuidelineProps {

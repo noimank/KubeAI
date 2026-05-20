@@ -9,6 +9,7 @@ import type {
   AnnotationTask,
   AnnotationTaskAssignRequest,
   AnnotationTaskSummary,
+  AnnotationTaskUnassignRequest,
   AnnotationTemplate,
 } from '@/types/annotation'
 
@@ -63,6 +64,17 @@ export async function assignAnnotationTasks(
   data: AnnotationTaskAssignRequest,
 ): Promise<BaseResponse<null>> {
   const res = await api.post<BaseResponse<null>>(`/annotations/projects/${projectId}/assign`, data)
+  return res.data
+}
+
+export async function unassignAnnotationTasks(
+  projectId: string,
+  data: AnnotationTaskUnassignRequest,
+): Promise<BaseResponse<null>> {
+  const res = await api.post<BaseResponse<null>>(
+    `/annotations/projects/${projectId}/unassign`,
+    data,
+  )
   return res.data
 }
 
@@ -124,6 +136,15 @@ export async function getAnnotationTaskDetail(taskId: string): Promise<Annotatio
 export async function retryCallback(projectId: string): Promise<BaseResponse<null>> {
   const res = await api.post<BaseResponse<null>>(
     `/annotations/projects/${projectId}/retry-callback`,
+  )
+  return res.data
+}
+
+export async function syncAnnotationProjectTasks(
+  projectId: string,
+): Promise<BaseResponse<{ syncedCount: number }>> {
+  const res = await api.post<BaseResponse<{ syncedCount: number }>>(
+    `/annotations/projects/${projectId}/sync-tasks`,
   )
   return res.data
 }

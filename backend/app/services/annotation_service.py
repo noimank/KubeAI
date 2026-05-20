@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -9,8 +10,13 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import ExternalServiceException, ForbiddenException, NotFoundException
-from app.integrations.labelstudio.templates import LABELING_TEMPLATES
+from app.core.exceptions import BadRequestException, ExternalServiceException, ForbiddenException, NotFoundException
+from app.integrations.labelstudio.templates import (
+    TEXT_OBJECT_TAGS,
+    URL_OBJECT_TAGS,
+    get_primary_data_object,
+    parse_label_config,
+)
 from app.models.annotation import AnnotationProject
 from app.models.annotation_task import AnnotationTask
 from app.models.dataset import Dataset, DatasetVersion
@@ -26,9 +32,16 @@ if TYPE_CHECKING:
 
     from app.integrations.labelstudio.client import LabelStudioClient
     from app.integrations.minio.client import MinIOClient
-    from app.schemas.annotation import AnnotationBatchAssignRequest, AnnotationTaskAssignRequest
+    from app.schemas.annotation import (
+        AnnotationBatchAssignRequest,
+        AnnotationTaskAssignRequest,
+        AnnotationTaskUnassignRequest,
+    )
 
 logger = logging.getLogger(__name__)
+
+_MINIO_CONCURRENCY = 20
+_LS_BATCH_SIZE = 250
 
 
 class AnnotationService:
@@ -52,19 +65,25 @@ class AnnotationService:
         description: str | None,
         dataset_id: uuid.UUID,
         dataset_version_id: uuid.UUID,
-        annotation_type: str,
+        label_config: str,
         audit_context: dict[str, Any] | None = None,
     ) -> AnnotationProject:
         # Validate dataset and version
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(dataset_version_id, dataset_id)
 
-        # Get template
-        template = LABELING_TEMPLATES.get(annotation_type)
-        if not template:
-            raise NotFoundException(f"标注模板不存在: {annotation_type}")
+        config_info = parse_label_config(label_config)
+        annotation_type = config_info.annotation_type
 
-        label_config = template["config"]
+        # Enumerate MinIO objects
+        tenant_name = await self._get_tenant_name(tenant_id)
+        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
+        objects = await self.minio.list_objects(tenant_name, prefix)
+        if not objects:
+            raise BadRequestException("数据集版本没有可标注文件")
+
+        # Prepare task data with concurrent MinIO operations
+        tasks = await self._prepare_task_data(objects, prefix, config_info, tenant_name)
 
         # Create project in LabelStudio
         try:
@@ -73,24 +92,6 @@ class AnnotationService:
             raise
         except Exception as e:
             raise ExternalServiceException(f"创建 LabelStudio 项目失败: {e}") from e
-
-        # Import tasks from dataset version files
-        tenant_name = await self._get_tenant_name(tenant_id)
-        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
-        objects = await self.minio.list_objects(tenant_name, prefix)
-
-        tasks: list[dict[str, Any]] = []
-        if annotation_type == "text_classification":
-            for obj in objects:
-                object_name = obj["object_name"]
-                file_name = object_name.removeprefix(prefix)
-                url = await self.minio.presigned_get_url(tenant_name, object_name)
-                tasks.append({"data": {"text": url, "file_name": file_name}})
-        else:
-            for obj in objects:
-                object_name = obj["object_name"]
-                url = await self.minio.presigned_get_url(tenant_name, object_name)
-                tasks.append({"data": {"image": url, "object_name": object_name}})
 
         # Create DB record
         project = AnnotationProject(
@@ -111,27 +112,30 @@ class AnnotationService:
         await self.db.flush()
         await self.db.refresh(project)
 
-        # Import tasks to LabelStudio and create AnnotationTask records
+        # Import tasks to LabelStudio and create DB records
         if tasks:
             try:
-                ls_tasks = await self.ls_client.import_tasks(ls_project_id, tasks)
-                for ls_task in ls_tasks:
-                    self.db.add(
+                ls_tasks = await self._import_tasks_batched(ls_project_id, tasks)
+                self.db.add_all(
+                    [
                         AnnotationTask(
                             project_id=project.id,
                             label_studio_task_id=ls_task["id"],
                             data=ls_task["data"],
+                            kubeai_object_name=ls_task["data"]["kubeai_object_name"],
                             assigned_to=None,
                             status="unassigned",
                             tenant_id=tenant_id,
                         )
-                    )
+                        for ls_task in ls_tasks
+                    ]
+                )
                 project.total_tasks = len(ls_tasks)
                 await self.db.flush()
-            except ExternalServiceException:
-                logger.warning("导入 LabelStudio tasks 失败, 项目已创建但 tasks 未导入")
             except Exception as e:
-                logger.warning("导入 LabelStudio tasks 失败: %s", e)
+                logger.warning("导入 LabelStudio tasks 失败, 准备清理项目: %s", e)
+                await self.ls_client.delete_project(ls_project_id)
+                raise ExternalServiceException(f"导入 LabelStudio tasks 失败: {e}") from e
 
         if audit_context:
             await self._log_audit(
@@ -145,6 +149,121 @@ class AnnotationService:
 
         await self.db.commit()
         return project
+
+    async def sync_project_tasks(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        audit_context: dict[str, Any] | None = None,
+    ) -> int:
+        """Sync new files from the dataset version into the annotation project."""
+        result = await self.db.execute(
+            select(AnnotationProject)
+            .options(selectinload(AnnotationProject.dataset), selectinload(AnnotationProject.dataset_version))
+            .where(AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise NotFoundException("标注项目不存在")
+
+        ls_project_id = project.label_studio_project_id
+        if ls_project_id is None:
+            raise ExternalServiceException("LabelStudio 项目 ID 不存在")
+
+        dataset = project.dataset
+        version = project.dataset_version
+        tenant_name = await self._get_tenant_name(tenant_id)
+        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
+
+        # List current MinIO objects
+        objects = await self.minio.list_objects(tenant_name, prefix)
+        if not objects:
+            return 0
+
+        # Get existing object names for deduplication
+        existing_result = await self.db.execute(
+            select(AnnotationTask.kubeai_object_name).where(AnnotationTask.project_id == project_id)
+        )
+        existing_names = set(existing_result.scalars().all())
+
+        # Filter to only new objects
+        new_objects = [obj for obj in objects if obj["object_name"] not in existing_names]
+        if not new_objects:
+            return 0
+
+        # Prepare and import new tasks
+        config_info = parse_label_config(project.label_config)
+        tasks = await self._prepare_task_data(new_objects, prefix, config_info, tenant_name)
+        ls_tasks = await self._import_tasks_batched(ls_project_id, tasks)
+
+        self.db.add_all(
+            [
+                AnnotationTask(
+                    project_id=project.id,
+                    label_studio_task_id=ls_task["id"],
+                    data=ls_task["data"],
+                    kubeai_object_name=ls_task["data"]["kubeai_object_name"],
+                    assigned_to=None,
+                    status="unassigned",
+                    tenant_id=tenant_id,
+                )
+                for ls_task in ls_tasks
+            ]
+        )
+        project.total_tasks = (project.total_tasks or 0) + len(ls_tasks)
+        await self.db.flush()
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.UPDATE,
+                resource_type=ResourceType.ANNOTATION_PROJECT,
+                resource_id=str(project.id),
+                detail={"action": "sync_tasks", "new_task_count": len(ls_tasks)},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        await self.db.commit()
+        return len(ls_tasks)
+
+    async def _prepare_task_data(
+        self,
+        objects: list[dict[str, Any]],
+        prefix: str,
+        config_info: Any,
+        tenant_name: str,
+    ) -> list[dict[str, Any]]:
+        """Build task data dicts with concurrent MinIO operations."""
+        data_object = get_primary_data_object(config_info)
+        semaphore = asyncio.Semaphore(_MINIO_CONCURRENCY)
+
+        async def _build_one(obj: dict[str, Any]) -> dict[str, Any]:
+            object_name = obj["object_name"]
+            file_name = object_name.removeprefix(prefix)
+            data: dict[str, Any] = {
+                "kubeai_object_name": object_name,
+                "kubeai_file_name": file_name,
+                "kubeai_content_type": obj.get("content_type", "application/octet-stream"),
+            }
+            async with semaphore:
+                if data_object.tag in URL_OBJECT_TAGS:
+                    data[data_object.field] = await self.minio.presigned_get_url(tenant_name, object_name)
+                elif data_object.tag in TEXT_OBJECT_TAGS:
+                    content = await self.minio.get_object_content(tenant_name, object_name)
+                    data[data_object.field] = content.decode("utf-8", errors="replace")
+            return {"data": data}
+
+        results = await asyncio.gather(*[_build_one(obj) for obj in objects])
+        return list(results)
+
+    async def _import_tasks_batched(self, ls_project_id: int, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Import tasks to LabelStudio in batches and return all LS task records."""
+        all_ls_tasks: list[dict[str, Any]] = []
+        for i in range(0, len(tasks), _LS_BATCH_SIZE):
+            batch = tasks[i : i + _LS_BATCH_SIZE]
+            ls_tasks = await self.ls_client.import_tasks(ls_project_id, batch)
+            all_ls_tasks.extend(ls_tasks)
+        return all_ls_tasks
 
     async def list_projects(
         self,
@@ -301,6 +420,47 @@ class AnnotationService:
                     "task_count": len(tasks),
                     "assigned_to": str(request.user_id),
                 },
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        await self.db.commit()
+        return len(tasks)
+
+    async def unassign_tasks(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        request: AnnotationTaskUnassignRequest,
+        audit_context: dict[str, Any] | None = None,
+    ) -> int:
+        await self._validate_project_membership(project_id, tenant_id)
+
+        result = await self.db.execute(
+            select(AnnotationTask).where(
+                AnnotationTask.id.in_(request.task_ids),
+                AnnotationTask.project_id == project_id,
+                AnnotationTask.tenant_id == tenant_id,
+                AnnotationTask.status == "assigned",
+            )
+        )
+        tasks = list(result.scalars().all())
+
+        if len(tasks) != len(request.task_ids):
+            found_ids = {t.id for t in tasks}
+            missing = set(request.task_ids) - found_ids
+            raise ForbiddenException(f"以下任务不存在或当前状态不可取消分配: {missing}")
+
+        for task in tasks:
+            task.assigned_to = None
+            task.status = "unassigned"
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.UPDATE,
+                resource_type=ResourceType.ANNOTATION_PROJECT,
+                resource_id=str(project_id),
+                detail={"action": "unassign_tasks", "task_count": len(tasks)},
                 tenant_id=tenant_id,
                 **audit_context,
             )
@@ -672,26 +832,14 @@ class AnnotationService:
             return task
 
         tenant_name = await self._get_tenant_name(task.tenant_id)
-        prefix = f"datasets/{project.dataset.name}/v{project.dataset_version.version_number}/"
-        annotation_type = project.annotation_type
-
+        config_info = parse_label_config(project.label_config)
         data = dict(task.data)
+        object_name = data.get("kubeai_object_name")
 
-        if annotation_type == "text_classification":
-            file_name = data.get("file_name", "")
-            if file_name:
-                text_object = f"{prefix}{file_name}"
-                data["text"] = await self.minio.presigned_get_url(tenant_name, text_object)
-        elif annotation_type in ("image_classification", "object_detection", "image_segmentation"):
-            image_object: str | None = data.get("object_name")
-            if not image_object:
-                image_url = data.get("image", "")
-                if image_url and "?" in image_url:
-                    path_part = image_url.split("?")[0]
-                    image_object = path_part.split("/", 4)[-1] if path_part.count("/") >= 4 else ""
-            if image_object:
-                data["object_name"] = image_object
-                data["image"] = await self.minio.presigned_get_url(tenant_name, image_object)
+        if object_name:
+            for data_object in config_info.objects:
+                if data_object.tag in URL_OBJECT_TAGS:
+                    data[data_object.field] = await self.minio.presigned_get_url(tenant_name, object_name)
 
         task.data = data
         return task

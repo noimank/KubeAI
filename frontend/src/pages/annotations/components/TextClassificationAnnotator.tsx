@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react'
 import { Card, Radio, Space, Spin, Typography } from 'antd'
 import type { AnnotationTask, AnnotationProjectDetail } from '@/types/annotation'
 import type { AnnotationResultItem } from '@/types/annotation'
+import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
 
 interface TextClassificationAnnotatorProps {
   task: AnnotationTask
   project: AnnotationProjectDetail
   labels: string[]
+  objectConfig?: LabelStudioObjectConfig
+  controlConfig?: LabelStudioControlConfig
   onSubmit: (result: AnnotationResultItem[]) => void
   submitting: boolean
 }
@@ -14,12 +17,15 @@ interface TextClassificationAnnotatorProps {
 export default function TextClassificationAnnotator({
   task,
   labels,
+  objectConfig,
+  controlConfig,
   onSubmit,
   submitting,
 }: TextClassificationAnnotatorProps) {
   const [selected, setSelected] = useState<string | null>(null)
-  const textUrl = task.data?.text as string | undefined
-  const fileName = task.data?.file_name as string | undefined
+  const textField = objectConfig?.field || 'text'
+  const textValue = task.data?.[textField] as string | undefined
+  const fileName = (task.data?.kubeaiFileName as string | undefined) || '文本内容'
   const [textContent, setTextContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -29,10 +35,14 @@ export default function TextClassificationAnnotator({
   }, [task.id])
 
   useEffect(() => {
-    if (!textUrl) return
+    if (!textValue) return
+    if (!/^https?:\/\//.test(textValue)) {
+      setTextContent(textValue)
+      return
+    }
     let cancelled = false
     setLoading(true)
-    fetch(textUrl)
+    fetch(textValue)
       .then((r) => r.text())
       .then((t) => {
         if (!cancelled) setTextContent(t)
@@ -46,14 +56,14 @@ export default function TextClassificationAnnotator({
     return () => {
       cancelled = true
     }
-  }, [textUrl])
+  }, [textValue])
 
   const handleSelect = (label: string) => {
     setSelected(label)
     const result: AnnotationResultItem[] = [
       {
-        from_name: 'sentiment',
-        to_name: 'text',
+        from_name: controlConfig?.name || 'sentiment',
+        to_name: controlConfig?.toName || objectConfig?.name || 'text',
         type: 'choices',
         value: { choices: [label] },
       },

@@ -4,15 +4,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import AnnotationType
-
 
 class AnnotationProjectCreateRequest(BaseModel):
     name: str = Field(max_length=200)
     description: str | None = None
     dataset_id: uuid.UUID
     dataset_version_id: uuid.UUID
-    annotation_type: AnnotationType
+    label_config: str = Field(min_length=1)
 
 
 class AnnotationProjectResponse(BaseModel):
@@ -49,10 +47,15 @@ class CallbackRetryResponse(BaseModel):
     callback_status: str
 
 
+class SyncTasksResponse(BaseModel):
+    synced_count: int
+
+
 class AnnotationTemplateResponse(BaseModel):
     key: str
     label: str
     description: str
+    config: str
 
 
 class AnnotationTaskResponse(BaseModel):
@@ -77,6 +80,10 @@ class AnnotationTaskAssignRequest(BaseModel):
 class AnnotationBatchAssignRequest(BaseModel):
     user_ids: list[uuid.UUID] = Field(min_length=1)
     tasks_per_user: int = Field(ge=1)
+
+
+class AnnotationTaskUnassignRequest(BaseModel):
+    task_ids: list[uuid.UUID] = Field(min_length=1)
 
 
 class AnnotationSubmitRequest(BaseModel):

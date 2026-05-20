@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react'
 import { Image, Radio, Space, Spin } from 'antd'
 import type { AnnotationTask, AnnotationProjectDetail } from '@/types/annotation'
 import type { AnnotationResultItem } from '@/types/annotation'
+import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
 
 interface ImageClassificationAnnotatorProps {
   task: AnnotationTask
   project: AnnotationProjectDetail
   labels: string[]
+  objectConfig?: LabelStudioObjectConfig
+  controlConfig?: LabelStudioControlConfig
   onSubmit: (result: AnnotationResultItem[]) => void
   submitting: boolean
 }
@@ -14,11 +17,14 @@ interface ImageClassificationAnnotatorProps {
 export default function ImageClassificationAnnotator({
   task,
   labels,
+  objectConfig,
+  controlConfig,
   onSubmit,
   submitting,
 }: ImageClassificationAnnotatorProps) {
   const [selected, setSelected] = useState<string | null>(null)
-  const imageUrl = task.data?.image as string | undefined
+  const imageField = objectConfig?.field || 'image'
+  const imageUrl = task.data?.[imageField] as string | undefined
 
   useEffect(() => {
     setSelected(null)
@@ -28,8 +34,8 @@ export default function ImageClassificationAnnotator({
     setSelected(label)
     const result: AnnotationResultItem[] = [
       {
-        from_name: 'choice',
-        to_name: 'image',
+        from_name: controlConfig?.name || 'choice',
+        to_name: controlConfig?.toName || objectConfig?.name || 'image',
         type: 'choices',
         value: { choices: [label] },
       },

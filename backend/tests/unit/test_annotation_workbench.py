@@ -22,7 +22,13 @@ def _make_project(
     project = AnnotationProject(
         name="test-project",
         annotation_type=annotation_type,
-        label_config="<View></View>",
+        label_config="""<View>
+  <Image name="image" value="$image"/>
+  <Choices name="choice" toName="image">
+    <Choice value="cat"/>
+    <Choice value="dog"/>
+  </Choices>
+</View>""",
         total_tasks=10,
         completed_tasks=0,
         status="active",

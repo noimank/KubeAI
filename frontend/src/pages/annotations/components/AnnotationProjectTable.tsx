@@ -1,4 +1,4 @@
-import { Button, Popconfirm, Progress, Space, Table, Tag } from 'antd'
+import { Button, Empty, Popconfirm, Progress, Space, Table, Tag } from 'antd'
 import { Link } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import type { AnnotationProject, AnnotationCallbackStatus } from '@/types/annotation'
@@ -8,6 +8,11 @@ const ANNOTATION_TYPE_MAP: Record<string, { label: string; color: string }> = {
   object_detection: { label: '目标检测', color: 'green' },
   image_segmentation: { label: '图像分割', color: 'purple' },
   text_classification: { label: '文本分类', color: 'orange' },
+  choices: { label: '分类选择', color: 'blue' },
+  rectanglelabels: { label: '矩形框', color: 'green' },
+  polygonlabels: { label: '多边形', color: 'purple' },
+  textarea: { label: '文本填写', color: 'orange' },
+  rating: { label: '评分', color: 'gold' },
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -33,6 +38,7 @@ interface AnnotationProjectTableProps {
   onPageChange: (page: number, pageSize: number) => void
   onDelete: (id: string) => void
   canManage: boolean
+  onCreateClick?: () => void
 }
 
 export default function AnnotationProjectTable({
@@ -44,6 +50,7 @@ export default function AnnotationProjectTable({
   onPageChange,
   onDelete,
   canManage,
+  onCreateClick,
 }: AnnotationProjectTableProps) {
   const columns: ColumnsType<AnnotationProject> = [
     {
@@ -56,12 +63,16 @@ export default function AnnotationProjectTable({
     },
     {
       title: '数据集',
-      width: 200,
-      render: (_, record) => {
-        if (!record.datasetName) return '-'
-        const version = record.datasetVersionNumber ? ` v${record.datasetVersionNumber}` : ''
-        return `${record.datasetName}${version}`
-      },
+      dataIndex: 'datasetName',
+      width: 180,
+      ellipsis: true,
+      render: (datasetName: string | undefined) => datasetName || '-',
+    },
+    {
+      title: '版本',
+      dataIndex: 'datasetVersionNumber',
+      width: 90,
+      render: (version: number | undefined) => (version ? `v${version}` : '-'),
     },
     {
       title: '标注类型',
@@ -144,6 +155,23 @@ export default function AnnotationProjectTable({
       columns={columns}
       dataSource={data}
       loading={loading}
+      locale={{
+        emptyText: (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              <Space direction="vertical" align="center">
+                <span>还没有标注项目</span>
+                {canManage && onCreateClick && (
+                  <Button type="primary" onClick={onCreateClick}>
+                    选择数据集创建标注任务
+                  </Button>
+                )}
+              </Space>
+            }
+          />
+        ),
+      }}
       pagination={{
         current: page,
         pageSize,

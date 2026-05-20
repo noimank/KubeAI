@@ -15,27 +15,35 @@ import type {
   AnnotationProjectDetail,
   AnnotationResultItem,
 } from '@/types/annotation'
-import { parseLabelsFromConfig } from './utils/parseLabelConfig'
+import { parseLabelConfig } from './utils/parseLabelConfig'
 import AnnotationGuideline from './components/AnnotationGuideline'
 import TaskNavigator from './components/TaskNavigator'
-import ImageClassificationAnnotator from './components/ImageClassificationAnnotator'
-import TextClassificationAnnotator from './components/TextClassificationAnnotator'
 import ObjectDetectionAnnotator from './components/ObjectDetectionAnnotator'
 import ImageSegmentationAnnotator from './components/ImageSegmentationAnnotator'
-
-const ANNOTATOR_MAP: Record<string, ComponentType<AnnotatorProps>> = {
-  image_classification: ImageClassificationAnnotator,
-  text_classification: TextClassificationAnnotator,
-  object_detection: ObjectDetectionAnnotator,
-  image_segmentation: ImageSegmentationAnnotator,
-}
+import TextAreaAnnotator from './components/TextAreaAnnotator'
+import ChoicesAnnotator from './components/ChoicesAnnotator'
+import type { LabelStudioControlConfig, LabelStudioObjectConfig } from './utils/parseLabelConfig'
 
 interface AnnotatorProps {
   task: AnnotationTask
   project: AnnotationProjectDetail
   labels: string[]
+  objectConfig?: LabelStudioObjectConfig
+  controlConfig?: LabelStudioControlConfig
   onSubmit: (result: AnnotationResultItem[]) => void
   submitting: boolean
+}
+
+function getAnnotatorComponent(
+  control: LabelStudioControlConfig | undefined,
+  object: LabelStudioObjectConfig | undefined,
+): ComponentType<AnnotatorProps> | null {
+  if (!control || !object) return null
+  if (control.type === 'choices') return ChoicesAnnotator
+  if (control.type === 'rectanglelabels' && object.tag === 'Image') return ObjectDetectionAnnotator
+  if (control.type === 'polygonlabels' && object.tag === 'Image') return ImageSegmentationAnnotator
+  if (control.type === 'textarea') return TextAreaAnnotator
+  return null
 }
 
 export default function AnnotationWorkspacePage() {
@@ -55,7 +63,12 @@ export default function AnnotationWorkspacePage() {
     enabled: !!projectId,
   })
 
-  const labels = project ? parseLabelsFromConfig(project.labelConfig) : []
+  const parsedConfig = project ? parseLabelConfig(project.labelConfig) : null
+  const primaryControl = parsedConfig?.controls[0]
+  const primaryObject = parsedConfig?.objects.find(
+    (object) => object.name === primaryControl?.toName,
+  )
+  const labels = parsedConfig?.labels ?? []
 
   const loadNextTask = useCallback(async () => {
     if (!projectId) return
@@ -150,7 +163,7 @@ export default function AnnotationWorkspacePage() {
     )
   }
 
-  const AnnotatorComponent = ANNOTATOR_MAP[project.annotationType]
+  const AnnotatorComponent = getAnnotatorComponent(primaryControl, primaryObject)
   const totalTasks = project.totalTasks || 0
   const completedTasks = project.completedTasks || 0
 
@@ -192,8 +205,17 @@ export default function AnnotationWorkspacePage() {
               task={currentTask}
               project={project}
               labels={labels}
+              objectConfig={primaryObject}
+              controlConfig={primaryControl}
               onSubmit={handleSubmit}
               submitting={submitMutation.isPending}
+            />
+          )}
+          {currentTask && !AnnotatorComponent && (
+            <Result
+              status="warning"
+              title="当前标注配置暂未支持"
+              subTitle="该 Label Studio XML 控件还没有对应的 KubeAI 自研标注组件。"
             />
           )}
           {!currentTask && taskLoading && (

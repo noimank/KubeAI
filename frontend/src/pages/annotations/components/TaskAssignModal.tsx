@@ -15,6 +15,7 @@ interface TaskAssignModalProps {
   mode: 'assign' | 'batch'
   selectedTaskIds?: string[]
   unassignedCount?: number
+  title?: string
 }
 
 export default function TaskAssignModal({
@@ -24,6 +25,7 @@ export default function TaskAssignModal({
   mode,
   selectedTaskIds = [],
   unassignedCount = 0,
+  title,
 }: TaskAssignModalProps) {
   const [form] = Form.useForm()
   const queryClient = useQueryClient()
@@ -35,7 +37,7 @@ export default function TaskAssignModal({
     enabled: !!tenantId && open,
   })
 
-  const annotators = (membersData?.data ?? []).filter((m) => m.role === 'annotator')
+  const members = membersData?.data ?? []
 
   const assignMutation = useMutation({
     mutationFn: (values: { userId: string }) =>
@@ -82,7 +84,7 @@ export default function TaskAssignModal({
   if (mode === 'assign') {
     return (
       <Modal
-        title="分配任务"
+        title={title || '分配任务'}
         open={open}
         onCancel={handleClose}
         onOk={handleSubmit}
@@ -94,11 +96,11 @@ export default function TaskAssignModal({
           <Form.Item
             name="userId"
             label="分配给"
-            rules={[{ required: true, message: '请选择标注员' }]}
+            rules={[{ required: true, message: '请选择成员' }]}
           >
             <Select
-              placeholder="选择标注员"
-              options={annotators.map((m) => ({ label: m.username, value: m.id }))}
+              placeholder="选择成员"
+              options={members.map((m) => ({ label: `${m.username} (${m.role})`, value: m.id }))}
               showSearch
               optionFilterProp="label"
             />
@@ -121,15 +123,11 @@ export default function TaskAssignModal({
         <Text>可分配任务数: {unassignedCount}</Text>
       </Space>
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item
-          name="userIds"
-          label="标注员"
-          rules={[{ required: true, message: '请选择标注员' }]}
-        >
+        <Form.Item name="userIds" label="成员" rules={[{ required: true, message: '请选择成员' }]}>
           <Select
             mode="multiple"
-            placeholder="选择标注员"
-            options={annotators.map((m) => ({ label: m.username, value: m.id }))}
+            placeholder="选择成员"
+            options={members.map((m) => ({ label: `${m.username} (${m.role})`, value: m.id }))}
             showSearch
             optionFilterProp="label"
           />

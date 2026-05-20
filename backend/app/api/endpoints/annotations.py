@@ -18,8 +18,10 @@ from app.schemas.annotation import (
     AnnotationTaskAssignRequest,
     AnnotationTaskResponse,
     AnnotationTaskSummaryResponse,
+    AnnotationTaskUnassignRequest,
     AnnotationTemplateResponse,
     CallbackRetryResponse,
+    SyncTasksResponse,
 )
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.services.annotation_service import AnnotationService
@@ -89,7 +91,7 @@ async def get_templates(
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
 ) -> BaseResponse[list[AnnotationTemplateResponse]]:
     templates = [
-        AnnotationTemplateResponse(key=t["key"], label=t["label"], description=t["description"])
+        AnnotationTemplateResponse(key=t["key"], label=t["label"], description=t["description"], config=t["config"])
         for t in LABELING_TEMPLATES.values()
     ]
     return BaseResponse(data=templates, message="获取成功")
@@ -113,15 +115,14 @@ async def create_project(
         description=req.description,
         dataset_id=req.dataset_id,
         dataset_version_id=req.dataset_version_id,
-        annotation_type=req.annotation_type.value,
+        label_config=req.label_config,
         audit_context=_audit_ctx(request, user),
     )
     base = _build_project_response(project)
-    template = LABELING_TEMPLATES.get(project.annotation_type)
     detail = AnnotationProjectDetailResponse(
         **base.model_dump(),
         label_config=project.label_config,
-        labeling_template_description=template["description"] if template else None,
+        labeling_template_description=None,
     )
     return BaseResponse(data=detail, message="标注项目创建成功")
 
@@ -156,11 +157,10 @@ async def get_project(
     service = AnnotationService(db, ls, minio)
     project = await service.get_project(project_id=project_id, tenant_id=tenant_id)
     base = _build_project_response(project)
-    template = LABELING_TEMPLATES.get(project.annotation_type)
     detail = AnnotationProjectDetailResponse(
         **base.model_dump(),
         label_config=project.label_config,
-        labeling_template_description=template["description"] if template else None,
+        labeling_template_description=None,
     )
     return BaseResponse(data=detail, message="获取成功")
 
@@ -246,6 +246,27 @@ async def assign_tasks(
         audit_context=_audit_ctx(request, user),
     )
     return BaseResponse(message=f"成功分配 {count} 个任务")
+
+
+@router.post("/projects/{project_id}/unassign", response_model=BaseResponse[None])
+async def unassign_tasks(
+    project_id: uuid.UUID,
+    req: AnnotationTaskUnassignRequest,
+    db: DbDep,
+    ls: LabelStudioDep,
+    minio: MinioDep,
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
+) -> BaseResponse[None]:
+    tenant_id = _require_tenant_id(user)
+    service = AnnotationService(db, ls, minio)
+    count = await service.unassign_tasks(
+        project_id=project_id,
+        tenant_id=tenant_id,
+        request=req,
+        audit_context=_audit_ctx(request, user),
+    )
+    return BaseResponse(message=f"成功取消分配 {count} 个任务")
 
 
 @router.post("/projects/{project_id}/batch-assign", response_model=BaseResponse[None])
@@ -400,4 +421,26 @@ async def retry_callback(
     return BaseResponse(
         data=CallbackRetryResponse(callback_status=project.callback_status),
         message="回流重试已触发",
+    )
+
+
+@router.post("/projects/{project_id}/sync-tasks", response_model=BaseResponse[SyncTasksResponse])
+async def sync_project_tasks(
+    project_id: uuid.UUID,
+    db: DbDep,
+    ls: LabelStudioDep,
+    minio: MinioDep,
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
+) -> BaseResponse[SyncTasksResponse]:
+    tenant_id = _require_tenant_id(user)
+    service = AnnotationService(db, ls, minio)
+    count = await service.sync_project_tasks(
+        project_id=project_id,
+        tenant_id=tenant_id,
+        audit_context=_audit_ctx(request, user),
+    )
+    return BaseResponse(
+        data=SyncTasksResponse(synced_count=count),
+        message=f"同步完成, 新增 {count} 个任务",
     )

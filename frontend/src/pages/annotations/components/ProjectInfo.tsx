@@ -8,6 +8,11 @@ const ANNOTATION_TYPE_MAP: Record<string, { label: string; color: string }> = {
   object_detection: { label: '目标检测', color: 'green' },
   image_segmentation: { label: '图像分割', color: 'purple' },
   text_classification: { label: '文本分类', color: 'orange' },
+  choices: { label: '分类选择', color: 'blue' },
+  rectanglelabels: { label: '矩形框', color: 'green' },
+  polygonlabels: { label: '多边形', color: 'purple' },
+  textarea: { label: '文本填写', color: 'orange' },
+  rating: { label: '评分', color: 'gold' },
 }
 
 interface ProjectInfoProps {
