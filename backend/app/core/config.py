@@ -55,5 +55,9 @@ class Settings(BaseSettings):
     LABEL_STUDIO_URL: str = "http://labelstudio.kubeai.local"
     LABEL_STUDIO_API_TOKEN: str = ""
 
+    JUPYTERHUB_API_URL: str = "http://jupyterhub-hub:8081/hub/api"
+    JUPYTERHUB_API_TOKEN: str = ""
+    JUPYTERHUB_BASE_URL: str = ""
+
 
 settings = Settings()

@@ -113,3 +113,11 @@ class AnnotationTaskStatus(enum.StrEnum):
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class DevEnvironmentStatus(enum.StrEnum):
+    PENDING = "pending"
+    CREATING = "creating"
+    RUNNING = "running"
+    STOPPED = "stopped"
+    FAILED = "failed"

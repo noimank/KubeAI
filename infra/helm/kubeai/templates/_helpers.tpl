@@ -95,3 +95,21 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "http://%s-labelstudio.%s.svc.cluster.local:8080" (include "kubeai.fullname" .) .Release.Namespace }}
 {{- end }}
 {{- end }}
+
+{{- define "kubeai.jupyterhubApiUrl" -}}
+{{- if .Values.backend.secrets.JUPYTERHUB_API_URL }}
+{{- .Values.backend.secrets.JUPYTERHUB_API_URL }}
+{{- else if .Values.jupyterhub.enabled }}
+{{- printf "http://%s-hub.%s.svc.cluster.local:8081/hub/api" (include "kubeai.fullname" .) .Release.Namespace }}
+{{- end }}
+{{- end }}
+
+{{- define "kubeai.jupyterhubBaseUrl" -}}
+{{- if .Values.backend.secrets.JUPYTERHUB_BASE_URL }}
+{{- .Values.backend.secrets.JUPYTERHUB_BASE_URL }}
+{{- else if and .Values.jupyterhub.enabled .Values.jupyterhub.ingress.enabled }}
+{{- printf "https://%s" (index .Values.jupyterhub.ingress.hosts 0) }}
+{{- else if .Values.jupyterhub.enabled }}
+{{- printf "http://%s-proxy.%s.svc.cluster.local:80" (include "kubeai.fullname" .) .Release.Namespace }}
+{{- end }}
+{{- end }}

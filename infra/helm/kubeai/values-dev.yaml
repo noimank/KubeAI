@@ -114,3 +114,51 @@ kserve:
   namespace: kserve
   version: "v0.17.0"
   deploymentMode: Standard
+
+jupyterhub:
+  enabled: true
+  hub:
+    services:
+      kubeai:
+        name: "kubeai"
+        apiToken: "kubeai-dev-jupyterhub-token"
+    loadRoles:
+      kubeai:
+        services:
+          - kubeai
+        scopes:
+          - admin:users
+          - admin:servers
+          - users
+          - read:roles
+          - read:groups
+    config:
+      JupyterHub:
+        authenticator_class: "null"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  proxy:
+    service:
+      type: NodePort
+      nodePorts:
+        http: 30801
+    chp:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 64Mi
+  singleuser:
+    image:
+      name: jupyter/datascience-notebook
+      tag: "latest"
+    storage:
+      type: none
+    profileList: []

@@ -53,4 +53,8 @@ dependencies:
   #   repository: https://kedacore.github.io/charts
   #   condition: keda.enabled
   # Label Studio: deployed as custom template (templates/labelstudio.yaml)
-  # JupyterHub: to be added post-MVP
+
+  - name: jupyterhub
+    version: "4.3.x"
+    repository: https://jupyterhub.github.io/helm-chart/
+    condition: jupyterhub.enabled

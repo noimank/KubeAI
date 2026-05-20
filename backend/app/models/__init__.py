@@ -2,6 +2,7 @@ from app.models.annotation import AnnotationProject
 from app.models.annotation_task import AnnotationTask
 from app.models.audit_log import AuditLog
 from app.models.dataset import Dataset, DatasetVersion
+from app.models.dev_environment import DevEnvironment
 from app.models.experiment import Experiment
 from app.models.image import Image
 from app.models.inference_service import InferenceService
@@ -17,6 +18,7 @@ __all__ = [
     "AuditLog",
     "Dataset",
     "DatasetVersion",
+    "DevEnvironment",
     "Experiment",
     "Image",
     "InferenceService",

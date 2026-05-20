@@ -5,6 +5,7 @@ from app.api.endpoints.audit_logs import router as audit_logs_router
 from app.api.endpoints.auth import router as auth_router
 from app.api.endpoints.credentials import router as credentials_router
 from app.api.endpoints.datasets import router as datasets_router
+from app.api.endpoints.dev_environments import router as dev_environments_router
 from app.api.endpoints.experiments import router as experiments_router
 from app.api.endpoints.images import router as images_router
 from app.api.endpoints.inference_proxy import router as inference_proxy_router
@@ -29,6 +30,7 @@ api_router.include_router(auth_router)
 api_router.include_router(annotations_router)
 api_router.include_router(credentials_router)
 api_router.include_router(datasets_router)
+api_router.include_router(dev_environments_router)
 api_router.include_router(experiments_router)
 api_router.include_router(images_router)
 api_router.include_router(inference_services_router)

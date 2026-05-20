@@ -90,3 +90,46 @@ mlflow:
 # Install before deploying KubeAI: infra/scripts/install-kserve.sh
 kserve:
   enabled: true
+
+jupyterhub:
+  enabled: true
+  hub:
+    config:
+      JupyterHub:
+        authenticator_class: "null"
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+  proxy:
+    service:
+      type: LoadBalancer
+    chp:
+      resources:
+        requests:
+          cpu: 200m
+          memory: 128Mi
+        limits:
+          cpu: "1"
+          memory: 256Mi
+  singleuser:
+    image:
+      name: jupyter/datascience-notebook
+      tag: "latest"
+    storage:
+      type: none
+    profileList: []
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - jupyterhub.kubeai.example.com
+    tls:
+      - hosts:
+          - jupyterhub.kubeai.example.com
+        secretName: jupyterhub-tls

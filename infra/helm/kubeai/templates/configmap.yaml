@@ -26,4 +26,6 @@ data:
   MLFLOW_ENABLED: {{ .Values.mlflow.enabled | quote }}
   MLFLOW_TRACKING_URI: {{ include "kubeai.mlflowTrackingUri" . | default "" | quote }}
   LABEL_STUDIO_URL: {{ include "kubeai.labelStudioUrl" . | default "" | quote }}
+  JUPYTERHUB_API_URL: {{ include "kubeai.jupyterhubApiUrl" . | default "" | quote }}
+  JUPYTERHUB_BASE_URL: {{ include "kubeai.jupyterhubBaseUrl" . | default "" | quote }}
 {{- end }}
