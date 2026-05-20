@@ -60,6 +60,7 @@ async def create_environment(
         memory=req.memory,
         description=req.description,
         env_vars=req.env_vars,
+        datasets=req.datasets,
     )
     return BaseResponse(data=_to_response(env), message="开发环境创建成功")
 

@@ -48,6 +48,8 @@ class JupyterHubClient:
         memory: str = "4Gi",
         gpu_count: int = 0,
         pvc_name: str | None = None,
+        extra_volumes: list[dict[str, Any]] | None = None,
+        extra_volume_mounts: list[dict[str, Any]] | None = None,
         env_vars: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {}
@@ -72,6 +74,11 @@ class JupyterHubClient:
         if pvc_name:
             volumes.append({"name": "workspace", "persistentVolumeClaim": {"claimName": pvc_name}})
             volume_mounts.append({"name": "workspace", "mountPath": "/home/jovyan/work"})
+
+        if extra_volumes:
+            volumes.extend(extra_volumes)
+        if extra_volume_mounts:
+            volume_mounts.extend(extra_volume_mounts)
 
         if volumes:
             k8s["volumes"] = volumes

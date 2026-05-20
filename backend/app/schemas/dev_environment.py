@@ -4,6 +4,19 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class DatasetMountRequest(BaseModel):
+    dataset_id: uuid.UUID
+    version_id: uuid.UUID | None = None
+
+
+class DatasetMountInfo(BaseModel):
+    dataset_id: uuid.UUID
+    dataset_name: str
+    version_id: uuid.UUID
+    version_number: int
+    mount_path: str
+
+
 class DevEnvironmentCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     image: str = Field(..., min_length=1, max_length=500)
@@ -12,6 +25,7 @@ class DevEnvironmentCreateRequest(BaseModel):
     memory: str = Field(default="4Gi")
     description: str | None = None
     env_vars: dict[str, str] | None = None
+    datasets: list[DatasetMountRequest] | None = None
 
 
 class DevEnvironmentResponse(BaseModel):
@@ -33,6 +47,7 @@ class DevEnvironmentResponse(BaseModel):
     env_vars: dict[str, str] | None = None
     error_message: str | None = None
     last_active_at: str | None = None
+    mounted_datasets: list[DatasetMountInfo] | None = None
     created_at: datetime
     updated_at: datetime
 

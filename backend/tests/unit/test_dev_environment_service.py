@@ -4,10 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.exceptions import ConflictException, QuotaExceededException
+from app.core.exceptions import ConflictException, NotFoundException, QuotaExceededException
 from app.models.dev_environment import DevEnvironment
 from app.models.enums import DevEnvironmentStatus
 from app.models.tenant import Tenant
+from app.schemas.dev_environment import DatasetMountRequest
 from app.services.dev_environment_service import DevEnvironmentService
 
 _NOW = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
@@ -315,3 +316,320 @@ class TestSyncEnvironmentStatus:
         await service._sync_environment_status(env, "kubeai-default")
 
         assert env.status == DevEnvironmentStatus.STOPPED
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    async def test_sync_running_updates_last_active_at(self, mock_jh_client, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.CREATING, last_active_at=None)
+        jh_mock = AsyncMock()
+        jh_mock.get_user.return_value = {
+            "name": env.jupyterhub_user,
+            "servers": {"": {"ready": True, "url": "http://jupyter/user/test/"}},
+        }
+        jh_mock.map_server_status = MagicMock(return_value=DevEnvironmentStatus.RUNNING)
+        mock_jh_client.return_value = jh_mock
+
+        await service._sync_environment_status(env, "kubeai-default")
+
+        assert env.last_active_at is not None
+        assert env.status == DevEnvironmentStatus.RUNNING
+
+
+def _make_dataset(**overrides):
+    from app.models.dataset import Dataset
+
+    defaults = {"name": "test-dataset", "created_by": uuid.uuid4()}
+    defaults.update(overrides)
+    ds = Dataset(**defaults)
+    ds.id = uuid.uuid4()
+    ds.created_at = _NOW
+    ds.updated_at = _NOW
+    return ds
+
+
+def _make_version(**overrides):
+    from app.models.dataset import DatasetVersion
+
+    defaults = {
+        "dataset_id": uuid.uuid4(),
+        "version_number": 1,
+        "storage_path": "/data/test",
+        "total_size_bytes": 1024 * 1024 * 100,
+        "created_by": uuid.uuid4(),
+    }
+    defaults.update(overrides)
+    v = DatasetVersion(**defaults)
+    v.id = uuid.uuid4()
+    v.created_at = _NOW
+    v.updated_at = _NOW
+    return v
+
+
+class TestCreateEnvironmentWithDatasets:
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    @patch("app.services.dev_environment_service.create_pvc")
+    @patch("app.services.dev_environment_service.pvc_exists", return_value=True)
+    async def test_create_with_single_dataset(self, mock_pvc_exists, mock_create_pvc, mock_jh_client, service, mock_db):
+        tenant = _make_tenant()
+        dataset = _make_dataset(tenant_id=tenant.id)
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+
+        jh_mock = AsyncMock()
+        jh_mock.ensure_user = AsyncMock()
+        jh_mock.start_server = AsyncMock()
+        mock_jh_client.return_value = jh_mock
+
+        # Mock DB queries: tenant, dataset, version
+        mock_db.execute.side_effect = [
+            _sync_result(tenant),  # _get_tenant_or_fail
+            _sync_result(dataset),  # _resolve_dataset_mount dataset
+            _sync_result(version),  # _resolve_dataset_mount version
+        ]
+
+        datasets = [DatasetMountRequest(dataset_id=dataset.id, version_id=version.id)]
+        env = await service.create_environment(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            username="testuser",
+            name="notebook-with-ds",
+            image="jupyter/pytorch:latest",
+            datasets=datasets,
+        )
+
+        assert env.mounted_datasets is not None
+        assert len(env.mounted_datasets) == 1
+        assert env.mounted_datasets[0]["dataset_name"] == "test-dataset"
+        assert env.mounted_datasets[0]["mount_path"] == "/data/datasets/test-dataset/v1"
+        jh_mock.start_server.assert_called_once()
+        call_kwargs = jh_mock.start_server.call_args[1]
+        assert call_kwargs["extra_volumes"] is not None
+        assert call_kwargs["extra_volume_mounts"] is not None
+        assert call_kwargs["extra_volume_mounts"][0]["readOnly"] is True
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    @patch("app.services.dev_environment_service.create_pvc")
+    @patch("app.services.dev_environment_service.pvc_exists", return_value=True)
+    async def test_create_with_multiple_datasets(
+        self, mock_pvc_exists, mock_create_pvc, mock_jh_client, service, mock_db
+    ):
+        tenant = _make_tenant()
+        ds1 = _make_dataset(name="dataset-a", tenant_id=tenant.id)
+        v1 = _make_version(dataset_id=ds1.id, version_number=1)
+        ds2 = _make_dataset(name="dataset-b", tenant_id=tenant.id)
+        v2 = _make_version(dataset_id=ds2.id, version_number=3)
+
+        jh_mock = AsyncMock()
+        jh_mock.ensure_user = AsyncMock()
+        jh_mock.start_server = AsyncMock()
+        mock_jh_client.return_value = jh_mock
+
+        mock_db.execute.side_effect = [
+            _sync_result(tenant),
+            _sync_result(ds1),
+            _sync_result(v1),
+            _sync_result(ds2),
+            _sync_result(v2),
+        ]
+
+        datasets = [
+            DatasetMountRequest(dataset_id=ds1.id, version_id=v1.id),
+            DatasetMountRequest(dataset_id=ds2.id, version_id=v2.id),
+        ]
+        env = await service.create_environment(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            username="testuser",
+            name="multi-ds",
+            image="jupyter/pytorch:latest",
+            datasets=datasets,
+        )
+
+        assert env.mounted_datasets is not None
+        assert len(env.mounted_datasets) == 2
+        names = {md["dataset_name"] for md in env.mounted_datasets}
+        assert names == {"dataset-a", "dataset-b"}
+        call_kwargs = jh_mock.start_server.call_args[1]
+        assert len(call_kwargs["extra_volumes"]) == 2
+        assert len(call_kwargs["extra_volume_mounts"]) == 2
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    @patch("app.services.dev_environment_service.create_pvc")
+    async def test_create_without_datasets_backward_compat(self, mock_create_pvc, mock_jh_client, service, mock_db):
+        tenant = _make_tenant()
+        jh_mock = AsyncMock()
+        jh_mock.ensure_user = AsyncMock()
+        jh_mock.start_server = AsyncMock()
+        mock_jh_client.return_value = jh_mock
+        mock_db.execute.return_value = _sync_result(tenant)
+
+        env = await service.create_environment(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            username="testuser",
+            name="no-datasets",
+            image="jupyter/pytorch:latest",
+        )
+
+        assert env.mounted_datasets is None
+        call_kwargs = jh_mock.start_server.call_args[1]
+        assert call_kwargs["extra_volumes"] is None
+        assert call_kwargs["extra_volume_mounts"] is None
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    @patch("app.services.dev_environment_service.create_pvc")
+    @patch("app.services.dev_environment_service.pvc_exists", return_value=True)
+    async def test_create_uses_latest_version_when_no_version_id(
+        self, mock_pvc_exists, mock_create_pvc, mock_jh_client, service, mock_db
+    ):
+        tenant = _make_tenant()
+        dataset = _make_dataset(tenant_id=tenant.id)
+        version = _make_version(dataset_id=dataset.id, version_number=5)
+
+        jh_mock = AsyncMock()
+        jh_mock.ensure_user = AsyncMock()
+        jh_mock.start_server = AsyncMock()
+        mock_jh_client.return_value = jh_mock
+
+        mock_db.execute.side_effect = [
+            _sync_result(tenant),
+            _sync_result(dataset),
+            _sync_result(version),
+        ]
+
+        datasets = [DatasetMountRequest(dataset_id=dataset.id)]
+        env = await service.create_environment(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            username="testuser",
+            name="latest-ver",
+            image="jupyter/pytorch:latest",
+            datasets=datasets,
+        )
+
+        assert env.mounted_datasets[0]["version_number"] == 5
+        assert env.mounted_datasets[0]["mount_path"] == "/data/datasets/test-dataset/v5"
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    @patch("app.services.dev_environment_service.create_pvc")
+    async def test_create_nonexistent_dataset_raises(self, mock_create_pvc, mock_jh_client, service, mock_db):
+        tenant = _make_tenant()
+        mock_db.execute.side_effect = [
+            _sync_result(tenant),
+            _sync_result(None),  # dataset not found
+        ]
+
+        datasets = [DatasetMountRequest(dataset_id=uuid.uuid4())]
+        with pytest.raises(NotFoundException, match="数据集不存在"):
+            await service.create_environment(
+                tenant_id=tenant.id,
+                user_id=uuid.uuid4(),
+                username="testuser",
+                name="bad-ds",
+                image="jupyter/pytorch:latest",
+                datasets=datasets,
+            )
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    @patch("app.services.dev_environment_service.create_pvc")
+    async def test_create_nonexistent_version_raises(self, mock_create_pvc, mock_jh_client, service, mock_db):
+        tenant = _make_tenant()
+        dataset = _make_dataset(tenant_id=tenant.id)
+        mock_db.execute.side_effect = [
+            _sync_result(tenant),
+            _sync_result(dataset),
+            _sync_result(None),  # version not found
+        ]
+
+        datasets = [DatasetMountRequest(dataset_id=dataset.id, version_id=uuid.uuid4())]
+        with pytest.raises(NotFoundException, match="数据集版本不存在"):
+            await service.create_environment(
+                tenant_id=tenant.id,
+                user_id=uuid.uuid4(),
+                username="testuser",
+                name="bad-ver",
+                image="jupyter/pytorch:latest",
+                datasets=datasets,
+            )
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    @patch("app.services.dev_environment_service.create_pvc")
+    @patch("app.services.dev_environment_service.pvc_exists", return_value=False)
+    async def test_create_creates_pvc_when_not_exists(
+        self, mock_pvc_exists, mock_create_pvc, mock_jh_client, service, mock_db
+    ):
+        tenant = _make_tenant()
+        dataset = _make_dataset(tenant_id=tenant.id)
+        version = _make_version(dataset_id=dataset.id, version_number=1, total_size_bytes=5 * 1024**3)
+
+        jh_mock = AsyncMock()
+        jh_mock.ensure_user = AsyncMock()
+        jh_mock.start_server = AsyncMock()
+        mock_jh_client.return_value = jh_mock
+
+        mock_db.execute.side_effect = [
+            _sync_result(tenant),
+            _sync_result(dataset),
+            _sync_result(version),
+        ]
+
+        datasets = [DatasetMountRequest(dataset_id=dataset.id, version_id=version.id)]
+        await service.create_environment(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            username="testuser",
+            name="new-pvc",
+            image="jupyter/pytorch:latest",
+            datasets=datasets,
+        )
+
+        # create_pvc called once for workspace + once for dataset
+        assert mock_create_pvc.call_count == 2
+
+
+class TestStartEnvironmentRemount:
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    async def test_start_remounts_dataset_pvc(self, mock_jh_client, service, mock_db):
+        dataset_id = uuid.uuid4()
+        version_id = uuid.uuid4()
+        mounted_datasets = [
+            {
+                "dataset_id": str(dataset_id),
+                "dataset_name": "my-data",
+                "version_id": str(version_id),
+                "version_number": 2,
+                "pvc_name": "dataset-my-data-v2",
+                "mount_path": "/data/datasets/my-data/v2",
+            }
+        ]
+        env = _make_env(status=DevEnvironmentStatus.STOPPED, mounted_datasets=mounted_datasets)
+        tenant = _make_tenant(id=env.tenant_id)
+        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant)]
+
+        jh_mock = AsyncMock()
+        jh_mock.start_server = AsyncMock()
+        mock_jh_client.return_value = jh_mock
+
+        result = await service.start_environment(env.id, env.tenant_id)
+
+        assert result.status == DevEnvironmentStatus.CREATING
+        call_kwargs = jh_mock.start_server.call_args[1]
+        assert call_kwargs["extra_volumes"] is not None
+        assert len(call_kwargs["extra_volumes"]) == 1
+        assert call_kwargs["extra_volumes"][0]["name"] == "dataset-my-data-v2"
+        assert call_kwargs["extra_volume_mounts"][0]["readOnly"] is True
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    async def test_start_no_datasets_no_extra_volumes(self, mock_jh_client, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.STOPPED, mounted_datasets=None)
+        tenant = _make_tenant(id=env.tenant_id)
+        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant)]
+
+        jh_mock = AsyncMock()
+        jh_mock.start_server = AsyncMock()
+        mock_jh_client.return_value = jh_mock
+
+        result = await service.start_environment(env.id, env.tenant_id)
+
+        assert result.status == DevEnvironmentStatus.CREATING
+        call_kwargs = jh_mock.start_server.call_args[1]
+        assert call_kwargs["extra_volumes"] is None
+        assert call_kwargs["extra_volume_mounts"] is None

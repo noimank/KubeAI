@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import JSON, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -32,6 +33,11 @@ class DevEnvironment(Base, TimestampMixin):
     env_vars: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True, comment="环境变量")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True, comment="错误信息")
     last_active_at: Mapped[str | None] = mapped_column(String(30), nullable=True, comment="上次活跃时间")
+    mounted_datasets: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="挂载的数据集列表 [{dataset_id, dataset_name, version_id, version_number, pvc_name, mount_path}]",
+    )
 
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("id", uuid.uuid4())

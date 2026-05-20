@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import func, select
 
@@ -15,8 +16,9 @@ from app.core.exceptions import (
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.jupyterhub.client import get_jupyterhub_client
 from app.integrations.k8s.namespace import make_namespace_name
-from app.integrations.k8s.pvc import create_pvc, delete_pvc
+from app.integrations.k8s.pvc import create_pvc, delete_pvc, make_dataset_pvc_name, pvc_exists
 from app.integrations.k8s.resource_quota import get_quota_used
+from app.models.dataset import Dataset, DatasetVersion
 from app.models.dev_environment import DevEnvironment
 from app.models.enums import DevEnvironmentStatus
 from app.models.tenant import Tenant
@@ -25,6 +27,8 @@ if TYPE_CHECKING:
     import uuid
 
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.schemas.dev_environment import DatasetMountRequest
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +57,7 @@ class DevEnvironmentService:
         memory: str = "4Gi",
         description: str | None = None,
         env_vars: dict[str, str] | None = None,
+        datasets: list[DatasetMountRequest] | None = None,
     ) -> DevEnvironment:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
@@ -73,6 +78,37 @@ class DevEnvironmentService:
         except Exception as e:
             logger.error("Failed to create PVC %s: %s", pvc_name, e)
 
+        # Resolve dataset mounts
+        mounted_datasets_info: list[dict[str, Any]] = []
+        extra_volumes: list[dict[str, Any]] = []
+        extra_volume_mounts: list[dict[str, Any]] = []
+
+        if datasets:
+            for dm in datasets:
+                dataset, version = await self._resolve_dataset_mount(dm.dataset_id, dm.version_id, tenant_id)
+                ds_pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
+                mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
+
+                if not await pvc_exists(namespace, ds_pvc_name):
+                    size_bytes = version.total_size_bytes or 0
+                    size_gb = max(1, -(-size_bytes // (1024**3)))
+                    await create_pvc(namespace, ds_pvc_name, f"{size_gb}Gi")
+
+                vol_name = f"dataset-{sanitize_k8s_name(dataset.name)}-v{version.version_number}"
+                extra_volumes.append({"name": vol_name, "persistentVolumeClaim": {"claimName": ds_pvc_name}})
+                extra_volume_mounts.append({"name": vol_name, "mountPath": mount_path, "readOnly": True})
+
+                mounted_datasets_info.append(
+                    {
+                        "dataset_id": str(dataset.id),
+                        "dataset_name": dataset.name,
+                        "version_id": str(version.id),
+                        "version_number": version.version_number,
+                        "pvc_name": ds_pvc_name,
+                        "mount_path": mount_path,
+                    }
+                )
+
         env = DevEnvironment(
             tenant_id=tenant_id,
             created_by=user_id,
@@ -86,6 +122,7 @@ class DevEnvironmentService:
             pvc_name=pvc_name,
             description=description,
             env_vars=env_vars,
+            mounted_datasets=mounted_datasets_info if mounted_datasets_info else None,
         )
         self.db.add(env)
         await self.db.flush()
@@ -100,6 +137,8 @@ class DevEnvironmentService:
                 memory=memory,
                 gpu_count=gpu_count,
                 pvc_name=pvc_name,
+                extra_volumes=extra_volumes or None,
+                extra_volume_mounts=extra_volume_mounts or None,
                 env_vars=env_vars,
             )
         except Exception as e:
@@ -203,6 +242,15 @@ class DevEnvironmentService:
         if env.gpu_count > 0:
             await self._check_gpu_quota(namespace, tenant.gpu_limit, env.gpu_count)
 
+        # Rebuild dataset volume mounts from DB record
+        extra_volumes: list[dict[str, Any]] = []
+        extra_volume_mounts: list[dict[str, Any]] = []
+        if env.mounted_datasets:
+            for md in env.mounted_datasets:
+                vol_name = f"dataset-{sanitize_k8s_name(md['dataset_name'])}-v{md['version_number']}"
+                extra_volumes.append({"name": vol_name, "persistentVolumeClaim": {"claimName": md["pvc_name"]}})
+                extra_volume_mounts.append({"name": vol_name, "mountPath": md["mount_path"], "readOnly": True})
+
         jh_client = get_jupyterhub_client()
         try:
             await jh_client.start_server(
@@ -212,6 +260,8 @@ class DevEnvironmentService:
                 memory=env.memory,
                 gpu_count=env.gpu_count,
                 pvc_name=env.pvc_name,
+                extra_volumes=extra_volumes or None,
+                extra_volume_mounts=extra_volume_mounts or None,
                 env_vars=env.env_vars,
             )
         except Exception as e:
@@ -303,6 +353,7 @@ class DevEnvironmentService:
             server_url = server_data.get("url") if server_data else None
             if server_url:
                 env.notebook_url = server_url
+            env.last_active_at = datetime.now(UTC).isoformat()
 
         if new_status != env.status:
             logger.info(
@@ -345,3 +396,28 @@ class DevEnvironmentService:
         if not tenant:
             raise NotFoundException("租户不存在")
         return tenant
+
+    async def _resolve_dataset_mount(
+        self, dataset_id: uuid.UUID, version_id: uuid.UUID | None, tenant_id: uuid.UUID
+    ) -> tuple[Dataset, DatasetVersion]:
+        ds_stmt = select(Dataset).where(Dataset.id == dataset_id, Dataset.tenant_id == tenant_id)
+        dataset = (await self.db.execute(ds_stmt)).scalar_one_or_none()
+        if not dataset:
+            raise NotFoundException("数据集不存在")
+
+        if version_id:
+            ver_stmt = select(DatasetVersion).where(
+                DatasetVersion.id == version_id, DatasetVersion.dataset_id == dataset_id
+            )
+        else:
+            ver_stmt = (
+                select(DatasetVersion)
+                .where(DatasetVersion.dataset_id == dataset_id)
+                .order_by(DatasetVersion.version_number.desc())
+                .limit(1)
+            )
+        version = (await self.db.execute(ver_stmt)).scalar_one_or_none()
+        if not version:
+            raise NotFoundException("数据集版本不存在")
+
+        return dataset, version
