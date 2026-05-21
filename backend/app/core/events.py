@@ -15,6 +15,7 @@ from app.integrations.prometheus.client import PrometheusClient
 from app.models.enums import TenantStatus, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
+from app.services.idle_checker import IdleChecker
 
 logger = structlog.get_logger()
 
@@ -23,6 +24,7 @@ harbor_client: HarborClient | None = None
 prometheus_client: PrometheusClient | None = None
 labelstudio_client: LabelStudioClient | None = None
 mlflow_client: MLflowClient | None = None
+idle_checker: IdleChecker | None = None
 
 
 def get_minio_client() -> MinIOClient:
@@ -113,11 +115,11 @@ async def _ensure_default_tenant_k8s(tenant: Tenant) -> None:
 
 async def on_startup() -> None:
     global minio_client, prometheus_client, labelstudio_client
+    global harbor_client, mlflow_client, idle_checker
     await init_redis()
     CasbinEnforcer.initialize(settings.DATABASE_URL)
     await _init_admin_user()
     minio_client = MinIOClient()
-    global harbor_client, mlflow_client
     harbor_client = HarborClient()
     if settings.PROMETHEUS_URL:
         prometheus_client = PrometheusClient()
@@ -125,11 +127,17 @@ async def on_startup() -> None:
         labelstudio_client = LabelStudioClient()
     if settings.MLFLOW_ENABLED:
         mlflow_client = MLflowClient()
+    idle_checker = IdleChecker()
+    idle_checker.start()
     logger.info("application_startup", app="KubeAI")
 
 
 async def on_shutdown() -> None:
     global prometheus_client, labelstudio_client, harbor_client, minio_client, mlflow_client
+    global idle_checker
+    if idle_checker:
+        await idle_checker.stop()
+        idle_checker = None
     if prometheus_client:
         await prometheus_client.close()
         prometheus_client = None

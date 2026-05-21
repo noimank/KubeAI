@@ -47,6 +47,7 @@ class DevEnvironmentResponse(BaseModel):
     env_vars: dict[str, str] | None = None
     error_message: str | None = None
     last_active_at: str | None = None
+    stopped_reason: str | None = None
     mounted_datasets: list[DatasetMountInfo] | None = None
     created_at: datetime
     updated_at: datetime

@@ -168,7 +168,21 @@ class TestStopEnvironment:
         result = await service.stop_environment(env.id, env.tenant_id)
 
         assert result.status == DevEnvironmentStatus.STOPPED
+        assert result.stopped_reason == "manual"
         jh_mock.stop_server.assert_called_once()
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    async def test_stop_with_idle_timeout_reason(self, mock_jh_client, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.RUNNING)
+        mock_db.execute.return_value = _sync_result(env)
+        jh_mock = AsyncMock()
+        jh_mock.stop_server = AsyncMock()
+        mock_jh_client.return_value = jh_mock
+
+        result = await service.stop_environment(env.id, env.tenant_id, stopped_reason="idle_timeout")
+
+        assert result.status == DevEnvironmentStatus.STOPPED
+        assert result.stopped_reason == "idle_timeout"
 
     async def test_stop_already_stopped_raises(self, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.STOPPED)
@@ -319,6 +333,23 @@ class TestSyncEnvironmentStatus:
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
     async def test_sync_running_updates_last_active_at(self, mock_jh_client, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.CREATING, last_active_at=None)
+        jh_mock = AsyncMock()
+        jh_last_activity = "2026-05-20T11:30:00.123456Z"
+        jh_mock.get_user.return_value = {
+            "name": env.jupyterhub_user,
+            "servers": {"": {"ready": True, "url": "http://jupyter/user/test/", "last_activity": jh_last_activity}},
+        }
+        jh_mock.map_server_status = MagicMock(return_value=DevEnvironmentStatus.RUNNING)
+        mock_jh_client.return_value = jh_mock
+
+        await service._sync_environment_status(env, "kubeai-default")
+
+        assert env.last_active_at == jh_last_activity
+        assert env.status == DevEnvironmentStatus.RUNNING
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    async def test_sync_running_fallback_last_active_at(self, mock_jh_client, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.CREATING, last_active_at=None)
         jh_mock = AsyncMock()
         jh_mock.get_user.return_value = {

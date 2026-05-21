@@ -117,6 +117,14 @@ class JupyterHubClient:
             resp.raise_for_status()
             return cast("dict[str, Any]", resp.json())
 
+    async def get_server_last_activity(self, username: str) -> str | None:
+        user_data = await self.get_user(username)
+        if not user_data:
+            return None
+        servers = user_data.get("servers", {})
+        default_server = servers.get("", {})
+        return cast("str | None", default_server.get("last_activity"))
+
     async def delete_user(self, username: str) -> None:
         async with httpx.AsyncClient() as client:
             resp = await client.delete(

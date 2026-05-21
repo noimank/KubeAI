@@ -208,7 +208,9 @@ class DevEnvironmentService:
             await self.db.refresh(env)
         return env
 
-    async def stop_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
+    async def stop_environment(
+        self, env_id: uuid.UUID, tenant_id: uuid.UUID, *, stopped_reason: str = "manual"
+    ) -> DevEnvironment:
         env = await self._get_environment_or_fail(env_id, tenant_id)
 
         if env.status not in (
@@ -226,6 +228,7 @@ class DevEnvironmentService:
                 logger.warning("Failed to stop JupyterHub server for %s: %s", env.jupyterhub_user, e)
 
         env.status = DevEnvironmentStatus.STOPPED
+        env.stopped_reason = stopped_reason
         await self.db.commit()
         await self.db.refresh(env)
         return env
@@ -353,7 +356,11 @@ class DevEnvironmentService:
             server_url = server_data.get("url") if server_data else None
             if server_url:
                 env.notebook_url = server_url
-            env.last_active_at = datetime.now(UTC).isoformat()
+            jh_last_activity = server_data.get("last_activity") if server_data else None
+            if jh_last_activity:
+                env.last_active_at = jh_last_activity
+            else:
+                env.last_active_at = datetime.now(UTC).isoformat()
 
         if new_status != env.status:
             logger.info(

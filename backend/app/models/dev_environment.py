@@ -33,6 +33,9 @@ class DevEnvironment(Base, TimestampMixin):
     env_vars: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True, comment="环境变量")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True, comment="错误信息")
     last_active_at: Mapped[str | None] = mapped_column(String(30), nullable=True, comment="上次活跃时间")
+    stopped_reason: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, comment="停止原因: manual=手动停止, idle_timeout=空闲超时自动停止"
+    )
     mounted_datasets: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSON,
         nullable=True,
