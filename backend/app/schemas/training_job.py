@@ -47,6 +47,8 @@ class TrainingJobResponse(BaseModel):
     priority: str
     worker_count: int
     status: str
+    source: str
+    source_env_id: uuid.UUID | None
     vcjob_name: str | None
     started_at: datetime | None
     finished_at: datetime | None
@@ -97,3 +99,21 @@ class TrainingMetricsResponse(BaseModel):
     gpu_utilization_history: list[TimeSeriesPoint]
     metrics_url: str | None
     timestamp: str
+
+
+class TrainingJobFromEnvironmentRequest(BaseModel):
+    environment_id: uuid.UUID
+    name: str = Field(min_length=1, max_length=100)
+    command: str = Field(min_length=1)
+    description: str | None = None
+    image_id: uuid.UUID | None = None
+    dataset_id: uuid.UUID | None = None
+    dataset_version_id: uuid.UUID | None = None
+    gpu_count: int | None = Field(default=None, ge=0)
+    gpu_mode: str = Field(default="exclusive", pattern="^(exclusive|shared)$")
+    cpu: str | None = None
+    memory: str | None = None
+    priority: str = Field(default="normal", pattern="^(low|normal|high)$")
+    worker_count: int = Field(default=1, ge=1, le=16)
+    hyperparameters: list[HyperparameterItem] | None = None
+    metrics_port: int | None = None

@@ -61,5 +61,7 @@ class Settings(BaseSettings):
     JUPYTERHUB_API_TOKEN: str = ""
     JUPYTERHUB_BASE_URL: str = ""
 
+    BACKEND_API_URL: str = ""
+
 
 settings = Settings()

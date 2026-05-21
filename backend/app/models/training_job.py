@@ -56,6 +56,17 @@ class TrainingJob(Base, TimestampMixin):
     worker_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, comment="Worker 数量")
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", comment="任务状态")
+    source: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="manual",
+        comment="任务来源: manual=手动创建, dev_environment=开发环境, experiment_reproduction=实验复现",
+    )
+    source_env_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dev_environments.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="来源开发环境 ID",
+    )
     vcjob_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="Volcano Job 名称")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, comment="开始时间")
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, comment="结束时间")

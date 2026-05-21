@@ -613,3 +613,47 @@ class TestCreateTrainingJobWithSourceExperiment:
         )
 
         assert job.description == "普通任务"
+
+
+class TestSourceFieldDefaults:
+    @patch("app.services.training_job_service.create_vcjob")
+    @patch("app.services.training_job_service.build_vcjob")
+    async def test_manual_source_by_default(self, mock_build, mock_create, service, mock_db):
+        tenant = _make_tenant()
+        image = _make_image()
+        user = _make_user()
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
+        mock_build.return_value = {"metadata": {"name": "test"}}
+
+        job = await service.create_training_job(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            name="manual-job",
+            image_id=image.id,
+            command="python train.py",
+        )
+
+        assert job.source == "manual"
+        assert job.source_env_id is None
+
+    @patch("app.services.training_job_service.create_vcjob")
+    @patch("app.services.training_job_service.build_vcjob")
+    async def test_experiment_reproduction_source(self, mock_build, mock_create, service, mock_db):
+        tenant = _make_tenant()
+        image = _make_image()
+        user = _make_user()
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
+        mock_build.return_value = {"metadata": {"name": "test"}}
+        source_exp_id = uuid.uuid4()
+
+        job = await service.create_training_job(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            name="reproduce-job",
+            image_id=image.id,
+            command="python train.py",
+            source_experiment_id=source_exp_id,
+        )
+
+        assert job.source == "experiment_reproduction"
+        assert f"基于实验 #{source_exp_id} 复现" in job.description

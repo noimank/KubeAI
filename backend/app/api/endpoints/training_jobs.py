@@ -18,6 +18,7 @@ from app.schemas.training_job import (
     LogResponse,
     PodInfoResponse,
     TrainingJobCreateRequest,
+    TrainingJobFromEnvironmentRequest,
     TrainingJobResponse,
     TrainingMetricsResponse,
 )
@@ -79,6 +80,39 @@ async def create_training_job(
         data=_to_response(job, workspace_path="/workspace", home_path=f"/home/{sanitize_k8s_name(username)}"),
         message="训练任务创建成功",
     )
+
+
+@router.post("/from-environment", response_model=BaseResponse[TrainingJobResponse])
+async def create_from_environment(
+    req: TrainingJobFromEnvironmentRequest,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("training_jobs", "write"))],
+) -> BaseResponse[TrainingJobResponse]:
+    tenant_id = _require_tenant_id(user)
+    service = TrainingJobService(db)
+    hyperparams = None
+    if req.hyperparameters:
+        hyperparams = [{"key": h.key, "value": h.value} for h in req.hyperparameters]
+    job = await service.create_from_environment(
+        tenant_id=tenant_id,
+        user_id=user.id,
+        environment_id=req.environment_id,
+        name=req.name,
+        command=req.command,
+        description=req.description,
+        image_id=req.image_id,
+        dataset_id=req.dataset_id,
+        dataset_version_id=req.dataset_version_id,
+        gpu_count=req.gpu_count,
+        gpu_mode=req.gpu_mode,
+        cpu=req.cpu,
+        memory=req.memory,
+        priority=req.priority,
+        worker_count=req.worker_count,
+        hyperparameters=hyperparams,
+        metrics_port=req.metrics_port,
+    )
+    return BaseResponse(data=_to_response(job), message="训练任务创建成功")
 
 
 @router.get("", response_model=PageResponse[TrainingJobResponse])

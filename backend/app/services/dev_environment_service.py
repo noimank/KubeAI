@@ -139,7 +139,7 @@ class DevEnvironmentService:
                 pvc_name=pvc_name,
                 extra_volumes=extra_volumes or None,
                 extra_volume_mounts=extra_volume_mounts or None,
-                env_vars=env_vars,
+                env_vars=self._build_env_vars(env, env_vars),
             )
         except Exception as e:
             logger.error("Failed to start JupyterHub server for %s: %s", jupyterhub_user, e)
@@ -265,7 +265,7 @@ class DevEnvironmentService:
                 pvc_name=env.pvc_name,
                 extra_volumes=extra_volumes or None,
                 extra_volume_mounts=extra_volume_mounts or None,
-                env_vars=env.env_vars,
+                env_vars=self._build_env_vars(env, env.env_vars),
             )
         except Exception as e:
             logger.error("Failed to start JupyterHub server for %s: %s", env.jupyterhub_user, e)
@@ -372,6 +372,15 @@ class DevEnvironmentService:
                 },
             )
             env.status = new_status
+
+    def _build_env_vars(self, env: DevEnvironment, user_env_vars: dict[str, str] | None) -> dict[str, str]:
+        auto_inject: dict[str, str] = {}
+        if settings.BACKEND_API_URL:
+            auto_inject["KUBEAI_API_URL"] = settings.BACKEND_API_URL
+        auto_inject["KUBEAI_ENV_ID"] = str(env.id)
+        if user_env_vars:
+            auto_inject.update(user_env_vars)
+        return auto_inject
 
     async def _check_gpu_quota(self, namespace: str, gpu_limit: int, requested: int) -> None:
         if requested == 0:

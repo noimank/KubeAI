@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -31,7 +32,8 @@ from app.integrations.volcano.client import (
 )
 from app.integrations.volcano.job_builder import build_vcjob
 from app.models.dataset import Dataset, DatasetVersion
-from app.models.enums import TrainingJobStatus
+from app.models.dev_environment import DevEnvironment
+from app.models.enums import DevEnvironmentStatus, TrainingJobStatus
 from app.models.image import Image
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
@@ -39,7 +41,6 @@ from app.models.user import User
 from app.services.experiment_service import ExperimentService
 
 if TYPE_CHECKING:
-    import uuid
     from collections.abc import AsyncGenerator
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,6 +77,8 @@ class TrainingJobService:
         worker_count: int = 1,
         metrics_port: int | None = None,
         source_experiment_id: uuid.UUID | None = None,
+        source: str = "manual",
+        source_env_id: uuid.UUID | None = None,
     ) -> TrainingJob:
         image = await self._get_image_or_fail(image_id)
 
@@ -108,6 +111,7 @@ class TrainingJobService:
         if source_experiment_id:
             suffix = f"（基于实验 #{source_experiment_id} 复现）"  # noqa: RUF001
             final_description = f"{description}{suffix}" if final_description else suffix
+            source = "experiment_reproduction"
 
         job = TrainingJob(
             tenant_id=tenant_id,
@@ -127,6 +131,8 @@ class TrainingJobService:
             worker_count=worker_count,
             metrics_port=metrics_port,
             status=TrainingJobStatus.PENDING,
+            source=source,
+            source_env_id=source_env_id,
         )
         self.db.add(job)
         await self.db.flush()
@@ -316,6 +322,65 @@ class TrainingJobService:
             priority=job.priority,
             worker_count=job.worker_count,
             metrics_port=job.metrics_port,
+        )
+
+    async def create_from_environment(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        environment_id: uuid.UUID,
+        name: str,
+        command: str,
+        description: str | None = None,
+        image_id: uuid.UUID | None = None,
+        dataset_id: uuid.UUID | None = None,
+        dataset_version_id: uuid.UUID | None = None,
+        gpu_count: int | None = None,
+        gpu_mode: str = "exclusive",
+        cpu: str | None = None,
+        memory: str | None = None,
+        priority: str = "normal",
+        worker_count: int = 1,
+        hyperparameters: list[dict[str, str]] | None = None,
+        metrics_port: int | None = None,
+    ) -> TrainingJob:
+        env = await self._get_environment_or_fail(environment_id, tenant_id)
+        if env.status != DevEnvironmentStatus.RUNNING:
+            raise BadRequestException("只能从运行中的开发环境提交训练任务")
+
+        resolved_image_id = image_id or await self._resolve_image_from_env(env)
+
+        resolved_dataset_id = dataset_id
+        resolved_dataset_version_id = dataset_version_id
+        if dataset_id is None and env.mounted_datasets:
+            first = env.mounted_datasets[0]
+            resolved_dataset_id = uuid.UUID(first["dataset_id"])
+            resolved_dataset_version_id = uuid.UUID(first["version_id"])
+
+        resolved_gpu = gpu_count if gpu_count is not None else env.gpu_count
+        resolved_cpu = cpu or env.cpu
+        resolved_memory = memory or env.memory
+
+        return await self.create_training_job(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name=name,
+            description=description,
+            dataset_id=resolved_dataset_id,
+            dataset_version_id=resolved_dataset_version_id,
+            image_id=resolved_image_id,
+            command=command,
+            hyperparameters=hyperparameters,
+            gpu_count=resolved_gpu,
+            gpu_mode=gpu_mode,
+            cpu=resolved_cpu,
+            memory=resolved_memory,
+            priority=priority,
+            worker_count=worker_count,
+            metrics_port=metrics_port,
+            source="dev_environment",
+            source_env_id=environment_id,
         )
 
     async def _sync_job_status(self, job: TrainingJob) -> None:
@@ -684,3 +749,27 @@ class TrainingJobService:
         if not version:
             raise NotFoundException("数据集没有可用版本")
         return version
+
+    async def _get_environment_or_fail(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
+        result = await self.db.execute(
+            select(DevEnvironment).where(DevEnvironment.id == env_id, DevEnvironment.tenant_id == tenant_id)
+        )
+        env = result.scalar_one_or_none()
+        if not env:
+            raise NotFoundException("开发环境不存在")
+        return env
+
+    async def _resolve_image_from_env(self, env: DevEnvironment) -> uuid.UUID:
+        stmt = select(Image).where(
+            Image.image_ref == env.image,
+            Image.deleted_at.is_(None),
+            Image.is_enabled.is_(True),
+            or_(Image.tenant_id == env.tenant_id, Image.tenant_id.is_(None)),
+        )
+        result = await self.db.execute(stmt)
+        image = result.scalar_one_or_none()
+        if not image:
+            raise BadRequestException(
+                f"开发环境的镜像 '{env.image}' 未在平台镜像仓库中注册，请通过 image_id 参数指定镜像"  # noqa: RUF001
+            )
+        return image.id

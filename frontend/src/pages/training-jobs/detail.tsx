@@ -542,6 +542,15 @@ export default function TrainingJobDetailPage() {
               <Descriptions.Item label="运行时长">
                 {formatDuration(job.startedAt, job.finishedAt)}
               </Descriptions.Item>
+              <Descriptions.Item label="来源">
+                {job.source === 'dev_environment' ? (
+                  <Tag color="blue">开发环境</Tag>
+                ) : job.source === 'experiment_reproduction' ? (
+                  <Tag color="green">实验复现</Tag>
+                ) : (
+                  <Tag>手动创建</Tag>
+                )}
+              </Descriptions.Item>
             </Descriptions>
           </Card>
         </div>

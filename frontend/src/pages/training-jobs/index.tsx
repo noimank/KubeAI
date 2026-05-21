@@ -178,6 +178,16 @@ export default function TrainingJobsPage() {
       width: 180,
     },
     {
+      title: '来源',
+      dataIndex: 'source',
+      width: 100,
+      render: (val: string) => {
+        if (val === 'dev_environment') return <Tag color="blue">开发环境</Tag>
+        if (val === 'experiment_reproduction') return <Tag color="green">实验复现</Tag>
+        return null
+      },
+    },
+    {
       title: '运行时长',
       key: 'duration',
       width: 120,
