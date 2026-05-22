@@ -39,6 +39,7 @@ def _make_invitation(tenant_id=None, email="user@example.com", role=UserRole.ENG
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
+    db.add = MagicMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
     return db

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { User } from '@/types/auth'
 import { useRbacStore } from './rbacStore'
 import { useTenantStore } from './tenantStore'
+import { useNotificationStore } from './notificationStore'
 import { getCurrentUser } from '@/services/auth'
 
 export const ACCESS_TOKEN_KEY = 'kubeai_access_token'
@@ -57,6 +58,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (user.tenantId) {
       useTenantStore.getState().fetchCurrentTenant()
     }
+
+    useNotificationStore.getState().fetchUnreadCount()
   },
 
   logout: () => {

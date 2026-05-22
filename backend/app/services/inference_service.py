@@ -810,6 +810,38 @@ class InferenceServiceService:
                 },
             )
             svc.status = new_status
+            if new_status == InferenceServiceStatus.FAILED:
+                try:
+                    from sqlalchemy import true as sa_true
+
+                    from app.models.enums import NotificationPriority, NotificationType, UserRole
+                    from app.models.user import User as UserModel
+                    from app.services.notification_service import NotificationService
+
+                    notif_service = NotificationService(self.db)
+                    result = await self.db.execute(
+                        select(UserModel.id).where(
+                            UserModel.tenant_id == svc.tenant_id,
+                            UserModel.role.in_([UserRole.MLOPS, UserRole.ADMIN]),
+                            UserModel.is_active == sa_true(),
+                        )
+                    )
+                    user_ids = [row[0] for row in result.all()]
+                    if svc.created_by not in user_ids:
+                        user_ids.append(svc.created_by)
+                    if user_ids:
+                        await notif_service.create_notification_for_users(
+                            user_ids=user_ids,
+                            tenant_id=svc.tenant_id,
+                            type=NotificationType.INFERENCE_SERVICE,
+                            title="推理服务异常",
+                            content=f"推理服务「{svc.name}」运行失败, 请及时处理.",
+                            priority=NotificationPriority.HIGH,
+                            resource_type="inference_service",
+                            resource_id=str(svc.id),
+                        )
+                except Exception as e:
+                    logger.warning("Failed to send inference failure notification for %s: %s", svc.id, e)
 
         # Sync canary status
         if svc.canary_kserve_name:

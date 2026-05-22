@@ -42,6 +42,7 @@ def _quota_req(gpu=8, cpu="32", memory="64Gi", storage="100Gi", force=False):
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
+    db.add = MagicMock()
     db.flush = AsyncMock()
     return db
 

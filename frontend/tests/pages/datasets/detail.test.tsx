@@ -113,10 +113,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should render dataset detail with overview', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
 
     renderPage()
 
@@ -127,10 +124,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should show statistics in overview tab', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
 
     renderPage()
 
@@ -152,10 +146,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should show create version and delete buttons for admin', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
 
     renderPage()
 
@@ -168,10 +159,7 @@ describe('DatasetDetailPage', () => {
   it('should hide manage buttons for non-admin user', async () => {
     useRbacStore.getState().setRole('annotator')
 
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
 
     renderPage()
 
@@ -182,10 +170,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should render breadcrumb with dataset link', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
 
     renderPage()
 
@@ -197,10 +182,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should render tab labels', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
 
     renderPage()
 
@@ -211,10 +193,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should show version data after switching to versions tab', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
 
     renderPage()
 
@@ -231,10 +210,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should render preview tab label', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
 
     renderPage()
 
@@ -244,10 +220,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should show file list when preview tab is active', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
     mockGetVersionFiles.mockResolvedValueOnce([
       {
         fileName: 'data.csv',
@@ -289,10 +262,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should show stats when preview tab is active', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
     mockGetVersionFiles.mockResolvedValueOnce([])
     mockGetVersionStats.mockResolvedValueOnce({
       versionId: 'v-2',
@@ -319,10 +289,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should show empty state when no files', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
     mockGetVersionFiles.mockResolvedValueOnce([])
     mockGetVersionStats.mockResolvedValueOnce({
       versionId: 'v-2',
@@ -345,10 +312,7 @@ describe('DatasetDetailPage', () => {
   })
 
   it('should call download when download button clicked', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce({
-      success: true,
-      data: mockDataset,
-    })
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
     mockGetVersionFiles.mockResolvedValueOnce([
       {
         fileName: 'data.csv',

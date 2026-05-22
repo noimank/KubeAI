@@ -425,6 +425,27 @@ class AnnotationService:
             )
 
         await self.db.commit()
+
+        try:
+            from app.models.enums import NotificationPriority, NotificationType
+            from app.services.notification_service import NotificationService
+
+            notif_service = NotificationService(self.db)
+            project = await self.db.get(AnnotationProject, project_id)
+            project_name = project.name if project else "未知项目"
+            await notif_service.create_notification(
+                user_id=request.user_id,
+                tenant_id=tenant_id,
+                type=NotificationType.ANNOTATION_TASK,
+                title="标注任务分配",
+                content=f"您在项目「{project_name}」中被分配了 {len(tasks)} 个标注任务.",
+                priority=NotificationPriority.MEDIUM,
+                resource_type="annotation_project",
+                resource_id=str(project_id),
+            )
+        except Exception as e:
+            logger.warning("Failed to send annotation notification: %s", e)
+
         return len(tasks)
 
     async def unassign_tasks(
@@ -512,6 +533,31 @@ class AnnotationService:
             )
 
         await self.db.commit()
+
+        try:
+            from collections import Counter
+
+            from app.models.enums import NotificationPriority, NotificationType
+            from app.services.notification_service import NotificationService
+
+            notif_service = NotificationService(self.db)
+            project = await self.db.get(AnnotationProject, project_id)
+            project_name = project.name if project else "未知项目"
+            user_task_counts = Counter(request.user_ids[i % len(request.user_ids)] for i in range(total_to_assign))
+            for uid, count in user_task_counts.items():
+                await notif_service.create_notification(
+                    user_id=uid,
+                    tenant_id=tenant_id,
+                    type=NotificationType.ANNOTATION_TASK,
+                    title="标注任务分配",
+                    content=f"您在项目「{project_name}」中被分配了 {count} 个标注任务.",
+                    priority=NotificationPriority.MEDIUM,
+                    resource_type="annotation_project",
+                    resource_id=str(project_id),
+                )
+        except Exception as e:
+            logger.warning("Failed to send batch annotation notifications: %s", e)
+
         return total_to_assign
 
     async def list_my_tasks(

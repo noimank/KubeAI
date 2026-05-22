@@ -51,6 +51,7 @@ def _make_version(dataset_id=None, version_number=1):
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
+    db.add = MagicMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
     return db

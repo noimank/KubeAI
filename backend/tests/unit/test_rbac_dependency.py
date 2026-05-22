@@ -16,7 +16,7 @@ class MockUser:
         self.is_active = True
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def init_casbin():
     CasbinEnforcer.initialize(settings.DATABASE_URL)
 

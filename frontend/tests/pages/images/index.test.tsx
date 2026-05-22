@@ -33,6 +33,16 @@ vi.mock('@/services/images', () => ({
   rebuildImage: vi.fn(),
 }))
 
+vi.mock('@/services/dev-environment-images', () => ({
+  getDevEnvironmentImages: vi
+    .fn()
+    .mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 }),
+  createDevEnvironmentImage: vi.fn(),
+  updateDevEnvironmentImage: vi.fn(),
+  deleteDevEnvironmentImage: vi.fn(),
+  toggleDevEnvironmentImage: vi.fn(),
+}))
+
 vi.mock('@/utils/messageHolder', () => ({
   getMessageInstance: vi.fn(() => ({
     success: vi.fn(),
@@ -113,12 +123,13 @@ describe('ImagesPage enhancements', () => {
 
     renderPage()
 
-    // Click custom tab
+    // Click custom tab (second segmented - source filter)
+    // SOURCE_TABS segmented is the second one
     const customTab = screen.getByText('自定义')
     await userEvent.click(customTab)
 
     await waitFor(() => {
-      expect(screen.getByText(/还没有自定义镜像/)).toBeTruthy()
+      expect(screen.getByText(/还没有业务镜像/)).toBeTruthy()
     })
   })
 
@@ -136,7 +147,7 @@ describe('ImagesPage enhancements', () => {
     await userEvent.click(presetTab)
 
     await waitFor(() => {
-      expect(screen.getByText(/还没有预置镜像/)).toBeTruthy()
+      expect(screen.getByText(/还没有业务镜像/)).toBeTruthy()
     })
   })
 
@@ -151,7 +162,7 @@ describe('ImagesPage enhancements', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText(/还没有镜像，添加第一个镜像开始吧/)).toBeTruthy()
+      expect(screen.getByText(/还没有业务镜像/)).toBeTruthy()
     })
   })
 

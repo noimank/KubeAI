@@ -128,3 +128,16 @@ class EnvironmentType(enum.StrEnum):
     JUPYTER = "jupyter"
     VSCODE = "vscode"
     RSTUDIO = "rstudio"
+
+
+class NotificationType(enum.StrEnum):
+    TRAINING_JOB = "training_job"
+    QUOTA_ALERT = "quota_alert"
+    ANNOTATION_TASK = "annotation_task"
+    INFERENCE_SERVICE = "inference_service"
+
+
+class NotificationPriority(enum.StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"

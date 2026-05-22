@@ -36,6 +36,7 @@ def _make_tenant(name="test-tenant"):
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
+    db.add = MagicMock()
     db.flush = AsyncMock()
     return db
 

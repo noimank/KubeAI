@@ -69,6 +69,7 @@ def _scalar_one_or_none_result(value):
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
+    db.add = MagicMock()
     db.flush = AsyncMock()
     return db
 

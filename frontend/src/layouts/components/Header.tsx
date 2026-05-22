@@ -1,9 +1,8 @@
 import { useNavigate } from 'react-router-dom'
-import { Space, Avatar, Badge, Dropdown, Tooltip } from 'antd'
+import { Space, Avatar, Dropdown, Tooltip } from 'antd'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   SearchOutlined,
-  BellOutlined,
   UserOutlined,
   LogoutOutlined,
   SettingOutlined,
@@ -11,9 +10,12 @@ import {
   MoonOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
+import { useQuery } from '@tanstack/react-query'
 
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
+import { useNotificationStore } from '@/stores/notificationStore'
+import { NotificationDropdown } from './NotificationDropdown'
 import { getMessageInstance } from '@/utils/messageHolder'
 
 const actionGroupStyle: CSSProperties = {
@@ -61,6 +63,17 @@ export function Header() {
   const logout = useAuthStore((state) => state.logout)
   const themeMode = useThemeStore((s) => s.themeMode)
   const toggleTheme = useThemeStore((s) => s.toggleTheme)
+  const unreadCount = useNotificationStore((s) => s.unreadCount)
+  const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount)
+
+  useQuery({
+    queryKey: ['unreadCount'],
+    queryFn: async () => {
+      await fetchUnreadCount()
+      return null
+    },
+    refetchInterval: 60_000,
+  })
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === 'logout') {
@@ -88,11 +101,7 @@ export function Header() {
       <HeaderAction title="搜索">
         <SearchOutlined />
       </HeaderAction>
-      <HeaderAction title="通知">
-        <Badge count={0} showZero={false} styles={{ root: { display: 'inline-flex' } }}>
-          <BellOutlined />
-        </Badge>
-      </HeaderAction>
+      <NotificationDropdown unreadCount={unreadCount} />
       <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} placement="bottomRight">
         <button type="button" aria-label="用户菜单" style={actionButtonStyle}>
           <Avatar size={28} icon={<UserOutlined />} />

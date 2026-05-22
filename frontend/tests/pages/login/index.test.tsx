@@ -10,6 +10,10 @@ vi.mock('@/services/auth', () => ({
   login: vi.fn(),
 }))
 
+vi.mock('@/services/oauth', () => ({
+  getOAuthProviders: vi.fn().mockResolvedValue({ success: true, data: [] }),
+}))
+
 vi.mock('@/utils/messageHolder', () => ({
   getMessageInstance: vi.fn(() => ({
     error: vi.fn(),

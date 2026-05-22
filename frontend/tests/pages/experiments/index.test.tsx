@@ -26,6 +26,14 @@ vi.mock('@/services/experiments', () => ({
   getExperiments: vi.fn(),
 }))
 
+vi.mock('@/services/datasets', () => ({
+  getDatasets: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 100 }),
+}))
+
+vi.mock('@/services/images', () => ({
+  getImages: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 100 }),
+}))
+
 vi.mock('@/stores/rbacStore', () => ({
   useRbacStore: vi.fn((selector) => {
     const state = { hasPermission: (perm: string) => perm === 'experiments:read' }
@@ -99,10 +107,13 @@ describe('ExperimentsPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('test-training')).toBeTruthy()
+      // "test-training" appears in both the training job column and experiment name column
+      const elements = screen.getAllByText('test-training')
+      expect(elements.length).toBeGreaterThanOrEqual(1)
     })
 
-    expect(screen.getByText('completed-training')).toBeTruthy()
+    // "completed-training" also appears in both training job and experiment name columns
+    expect(screen.getAllByText('completed-training').length).toBeGreaterThanOrEqual(1)
   })
 
   it('should show empty state when no experiments', async () => {
@@ -116,9 +127,7 @@ describe('ExperimentsPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(
-        screen.getByText('还没有实验记录，提交训练任务后实验数据会自动记录到这里'),
-      ).toBeTruthy()
+      expect(screen.getByText('还没有实验记录，提交训练任务后实验会自动追踪到这里')).toBeTruthy()
     })
   })
 

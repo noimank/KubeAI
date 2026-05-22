@@ -84,6 +84,7 @@ def _sync_result(value):
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
+    db.add = MagicMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
     db.commit = AsyncMock()

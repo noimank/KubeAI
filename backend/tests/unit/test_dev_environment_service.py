@@ -96,6 +96,8 @@ def _make_user(**overrides):
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
+    db.add = MagicMock()
+    db.add_all = MagicMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
     db.commit = AsyncMock()

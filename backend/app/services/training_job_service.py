@@ -425,6 +425,24 @@ class TrainingJobService:
                         await experiment_service.sync_experiment_status(job.id, new_status)
                     except Exception as e:
                         logger.warning("Failed to sync experiment status for job %s: %s", job.id, e)
+                    try:
+                        from app.models.enums import NotificationPriority, NotificationType
+                        from app.services.notification_service import NotificationService
+
+                        notif_service = NotificationService(self.db)
+                        is_success = new_status == TrainingJobStatus.SUCCEEDED
+                        await notif_service.create_notification(
+                            user_id=job.created_by,
+                            tenant_id=job.tenant_id,
+                            type=NotificationType.TRAINING_JOB,
+                            title=f"训练任务{'完成' if is_success else '失败'}",
+                            content=f"训练任务「{job.name}」已{'完成' if is_success else '失败'}.",
+                            priority=NotificationPriority.HIGH if not is_success else NotificationPriority.MEDIUM,
+                            resource_type="training_job",
+                            resource_id=str(job.id),
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to send notification for job %s: %s", job.id, e)
         except Exception as e:
             logger.warning("Failed to sync VCJob status for %s: %s", job.vcjob_name, e)
 

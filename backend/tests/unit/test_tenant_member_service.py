@@ -36,6 +36,7 @@ def _make_user(tenant_id=None, role=UserRole.ENGINEER):
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
+    db.add = MagicMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
     return db

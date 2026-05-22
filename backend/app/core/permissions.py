@@ -32,6 +32,8 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("annotator", "datasets", "read"),
     ("annotator", "annotations", "read"),
     ("annotator", "annotations", "write"),
+    ("annotator", "notifications", "read"),
+    ("annotator", "notifications", "write"),
     # engineer
     ("engineer", "datasets", "read"),
     ("engineer", "training_jobs", "read"),

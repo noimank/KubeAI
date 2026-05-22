@@ -8,6 +8,7 @@ from app.models.experiment import Experiment
 from app.models.image import Image
 from app.models.inference_service import InferenceService
 from app.models.invitation import TenantInvitation
+from app.models.notification import Notification
 from app.models.registered_model import ModelVersion, RegisteredModel
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
@@ -25,6 +26,7 @@ __all__ = [
     "Image",
     "InferenceService",
     "ModelVersion",
+    "Notification",
     "RegisteredModel",
     "Tenant",
     "TenantInvitation",

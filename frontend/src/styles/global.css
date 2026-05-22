@@ -44,3 +44,98 @@ body {
 [data-theme='dark'] .elevated-card {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
+
+.notification-dropdown-shell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.notification-trigger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #ffffff;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.notification-trigger-button:hover,
+.notification-trigger-button:focus-visible {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
+  outline: none;
+}
+
+.notification-dropdown-panel .ant-list-item-meta {
+  min-width: 0;
+}
+
+.notification-dropdown-panel .ant-list-item-meta-content {
+  min-width: 0;
+}
+
+.notification-dropdown-panel .ant-list-item-meta-title {
+  margin-bottom: 4px;
+}
+
+.notification-dropdown-panel .ant-empty-normal {
+  margin-block: 0;
+}
+
+.notification-dropdown-filter .ant-segmented-item {
+  min-width: 0;
+}
+
+.notification-dropdown-filter .ant-segmented-item-label {
+  position: relative;
+  z-index: 1;
+  min-height: 24px;
+  padding-inline: 8px;
+  color: var(--ant-color-text-secondary);
+  line-height: 24px;
+}
+
+.notification-dropdown-filter .ant-segmented-thumb,
+.notification-dropdown-filter .ant-segmented-item-selected {
+  background: var(--notification-filter-thumb-bg);
+}
+
+.notification-dropdown-filter .ant-segmented-item-selected .ant-segmented-item-label {
+  color: var(--ant-color-text);
+  font-weight: 500;
+}
+
+.notification-dropdown-title,
+.notification-dropdown-content {
+  min-width: 0;
+}
+
+.notification-dropdown-item:hover {
+  background: var(--notification-item-hover-bg) !important;
+}
+
+.notification-dropdown-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--notification-scroll-thumb) transparent;
+}
+
+.notification-dropdown-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.notification-dropdown-body::-webkit-scrollbar-thumb {
+  background: var(--notification-scroll-thumb);
+  border-radius: 999px;
+}

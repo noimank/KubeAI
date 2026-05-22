@@ -78,11 +78,13 @@ class TestDevEnvironmentPermission:
 
 class TestDevEnvironmentCRUD:
     @pytest.mark.asyncio(loop_scope="session")
+    @patch("app.services.dev_environment_service.ensure_registry_pull_secret", new_callable=AsyncMock)
+    @patch("app.services.dev_environment_service.create_tenant_network_policy", new_callable=AsyncMock)
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
     @patch("app.services.dev_environment_service.create_pvc")
     @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
     async def test_create_and_get_environment(
-        self, _, mock_create_pvc, mock_jh_client, client: AsyncClient, admin_headers
+        self, _, mock_create_pvc, mock_jh_client, mock_net_pol, mock_pull_secret, client: AsyncClient, admin_headers
     ):
         from app.core.database import async_session_factory
         from app.models.tenant import Tenant
@@ -117,13 +119,29 @@ class TestDevEnvironmentCRUD:
         jh_mock = AsyncMock()
         jh_mock.ensure_user = AsyncMock()
         jh_mock.start_server = AsyncMock()
+        jh_mock.get_user = AsyncMock(return_value=None)
         mock_jh_client.return_value = jh_mock
+
+        from app.models.dev_environment_image import DevEnvironmentImage
+
+        image_id = uuid.uuid4()
+        async with async_session_factory() as db:
+            env_image = DevEnvironmentImage(
+                name="jupyter-pytorch",
+                image_ref="jupyter/pytorch:latest",
+                environment_type="jupyter",
+                is_enabled=True,
+            )
+            env_image.id = image_id
+            env_image.tenant_id = tenant_id
+            db.add(env_image)
+            await db.commit()
 
         resp = await client.post(
             "/api/dev-environments",
             json={
                 "name": "my-notebook",
-                "image": "jupyter/pytorch:latest",
+                "environment_image_id": str(image_id),
                 "cpu": "4",
                 "memory": "8Gi",
                 "gpu_count": 0,
@@ -134,7 +152,6 @@ class TestDevEnvironmentCRUD:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["name"] == "my-notebook"
-        assert data["image"] == "jupyter/pytorch:latest"
         assert data["status"] == "creating"
         env_id = data["id"]
         assert jh_mock.start_server.call_args[1]["namespace"] == tenant_namespace

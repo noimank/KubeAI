@@ -61,6 +61,7 @@ def _make_custom_image(**overrides):
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
+    db.add = MagicMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
     db.commit = AsyncMock()

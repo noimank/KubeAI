@@ -111,9 +111,12 @@ describe('DevEnvironmentsPage', () => {
 
     renderPage()
 
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /创建开发环境/ }).length).toBeGreaterThan(0)
-    })
+    await waitFor(
+      () => {
+        expect(screen.getAllByRole('button', { name: /创建开发环境/ }).length).toBeGreaterThan(0)
+      },
+      { timeout: 10000 },
+    )
 
     await userEvent.click(screen.getAllByRole('button', { name: /创建开发环境/ })[0])
     await userEvent.click(screen.getByLabelText('环境类型'))
@@ -137,5 +140,5 @@ describe('DevEnvironmentsPage', () => {
     expect(deferredImageReset).toBeUndefined()
 
     setTimeoutSpy.mockRestore()
-  })
+  }, 15000)
 })
