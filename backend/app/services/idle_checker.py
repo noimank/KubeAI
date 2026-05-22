@@ -55,7 +55,6 @@ class IdleChecker:
                 DevEnvironment.status.in_(
                     [
                         DevEnvironmentStatus.RUNNING,
-                        DevEnvironmentStatus.CREATING,
                     ]
                 )
             )
@@ -67,7 +66,9 @@ class IdleChecker:
 
             for env in environments:
                 async with self._semaphore:
-                    jh_user = env.jupyterhub_user
+                    if env.status != DevEnvironmentStatus.RUNNING:
+                        continue
+                    jh_user = env.spawner_name
                     if not jh_user:
                         continue
                     try:
@@ -83,7 +84,12 @@ class IdleChecker:
                     if last_activity.tzinfo is None:
                         last_activity = last_activity.replace(tzinfo=UTC)
 
-                    idle_duration = now - last_activity
+                    created_at = env.created_at
+                    if created_at and created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=UTC)
+                    reference_time = max(last_activity, created_at) if created_at else last_activity
+
+                    idle_duration = now - reference_time
                     if idle_duration > timeout:
                         try:
                             await jh_client.stop_server(jh_user)

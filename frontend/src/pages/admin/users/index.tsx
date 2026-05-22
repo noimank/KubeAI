@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import {
   Button,
   DatePicker,
@@ -164,15 +164,6 @@ export default function UsersPage() {
     setEditModalOpen(true)
     loadTenants()
   }
-
-  useEffect(() => {
-    if (!editModalOpen || !editingUser) return
-
-    form.setFieldsValue({
-      role: editingUser.role,
-      tenantId: editingUser.tenantId ?? undefined,
-    })
-  }, [editModalOpen, editingUser, form])
 
   const handleEdit = async (values: { role: UserRole; tenantId?: string }) => {
     if (!editingUser) return
@@ -412,6 +403,13 @@ export default function UsersPage() {
         }}
         footer={null}
         destroyOnHidden
+        afterOpenChange={(visible) => {
+          if (!visible || !editingUser) return
+          form.setFieldsValue({
+            role: editingUser.role,
+            tenantId: editingUser.tenantId ?? undefined,
+          })
+        }}
       >
         <Form form={form} layout="vertical" onFinish={handleEdit}>
           <Form.Item name="role" label="角色" rules={[{ required: true }]}>

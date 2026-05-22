@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
-import { Button, Modal, Popconfirm, Space, Table, Tag } from 'antd'
+import { Button, Input, Modal, Popconfirm, Segmented, Space, Table, Tag } from 'antd'
 import { Link } from 'react-router-dom'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery } from '@tanstack/react-query'
 import TenantCreateForm from './components/TenantCreateForm'
@@ -20,19 +20,18 @@ import {
 import type { Tenant, TenantUpdateRequest } from '@/types/tenant'
 import { getMessageInstance } from '@/utils/messageHolder'
 
-const STATUS_COLORS: Record<string, string> = {
-  active: 'green',
-  disabled: 'red',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  active: '正常',
-  disabled: '已禁用',
-}
+const STATUS_TABS = [
+  { label: '全部', value: '' },
+  { label: '正常', value: 'active' },
+  { label: '已禁用', value: 'disabled' },
+]
 
 export default function TenantsPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [keyword, setKeyword] = useState<string | undefined>(undefined)
+  const [searchText, setSearchText] = useState('')
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null)
@@ -50,9 +49,14 @@ export default function TenantsPage() {
     isLoading,
     refetch,
   } = useQuery({
-    queryKey: ['tenants', page, pageSize],
-    queryFn: () => getTenants(page, pageSize),
+    queryKey: ['tenants', page, pageSize, statusFilter, keyword],
+    queryFn: () => getTenants(page, pageSize, { status: statusFilter || undefined, keyword }),
   })
+
+  const handleSearch = useCallback((value: string) => {
+    setKeyword(value || undefined)
+    setPage(1)
+  }, [])
 
   const handleTableChange = useCallback((pagination: TablePaginationConfig) => {
     setPage(pagination.current || 1)
@@ -128,8 +132,8 @@ export default function TenantsPage() {
       dataIndex: 'status',
       width: 100,
       render: (_, record) => (
-        <Tag color={STATUS_COLORS[record.status]}>
-          {STATUS_LABELS[record.status] || record.status}
+        <Tag color={record.status === 'active' ? 'green' : 'red'}>
+          {record.status === 'active' ? '正常' : '已禁用'}
         </Tag>
       ),
     },
@@ -227,13 +231,34 @@ export default function TenantsPage() {
 
   return (
     <>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
-          创建租户
-        </Button>
-        <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
-          刷新
-        </Button>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <Space>
+          <Segmented
+            options={STATUS_TABS}
+            value={statusFilter}
+            onChange={(val) => {
+              setStatusFilter(val as string)
+              setPage(1)
+            }}
+          />
+          <Input.Search
+            placeholder="搜索租户名称"
+            allowClear
+            style={{ width: 280 }}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            onSearch={handleSearch}
+            prefix={<SearchOutlined />}
+          />
+        </Space>
+        <Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
+            创建租户
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
+            刷新
+          </Button>
+        </Space>
       </div>
 
       <Table<Tenant>

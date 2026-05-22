@@ -111,7 +111,7 @@ export default function LoginPage() {
         </section>
 
         <section className="login-form-panel">
-          <Card className="login-card elevated-card" bordered={false}>
+          <Card className="login-card elevated-card" variant="borderless">
             <div className="login-card-header">
               <ProductIcon className="login-card-icon" />
               <div>

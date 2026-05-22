@@ -1,75 +1,69 @@
-# AGENTS.md — KubeAI
+# Repository Guidelines
 
-## 快速命令
+## Project Structure
+
+KubeAI is split into a FastAPI backend, a React/Vite frontend, and Kubernetes deployment assets.
+
+- `backend/app/`: API entrypoint, routers, config/security, SQLAlchemy models, Pydantic schemas, services, middleware, and K8s integrations.
+- `backend/tests/`: pytest tests; async tests use `pytest-asyncio` with `asyncio_mode=auto`.
+- `frontend/src/`: React app, routes in `App.tsx`, API client, Zustand stores, guards, and components.
+- `frontend/tests/`: Vitest setup and frontend tests.
+- `infra/`: Helm chart, image Dockerfiles, and infrastructure scripts.
+- `docs/`, `data/`: documentation and local data artifacts.
+
+## Commands
+
+Run backend commands from `backend/`:
 
 ```bash
-# 后端 (backend/)
-uv sync                    # 安装依赖
-uv run pytest              # 全部测试
-uv run pytest tests/unit/test_security.py::test_hash_password -v  # 单个测试
-uv run uvicorn app.main:app --reload  # 开发服务器 (端口 8000)
-uv run ruff check .        # 检查
-uv run ruff check --fix .  # 自动修复
-uv run ruff format .       # 格式化
-uv run mypy app/           # 类型检查
-
-# 前端 (frontend/)
-pnpm install               # 安装依赖
-pnpm dev                   # 开发服务器 (端口 3000, /api → localhost:8000)
-pnpm build                 # 构建 (先 tsc -b 再 vite build)
-pnpm lint                  # ESLint
-pnpm format                # Prettier
-pnpm typecheck             # tsc --noEmit
-pnpm test                  # Vitest
-pnpm test:watch            # Vitest watch 模式
-
-# 基础设施 (项目根目录)
-helm install kubeai infra/helm/kubeai/ -f infra/helm/kubeai/values-dev.yaml -n kubeai --create-namespace
-
-# 数据库迁移
+uv sync
 uv run alembic upgrade head
-uv run alembic revision --autogenerate -m "描述"
+uv run uvicorn app.main:app --reload
+uv run pytest
+uv run ruff check .
+uv run ruff format .
+uv run mypy app/
 ```
 
-## 那些容易被忽略的事实
+Run frontend commands from `frontend/`:
 
-- **所有用户可见文本是中文 (zh-CN)** — 没有 i18n 库，字符串硬编码
-- **后端 API 返回 `BaseResponse[T]`** 包装：`{success, message, data}`。前端 api.ts 自动在请求时 snake→camel、响应时 camel→snake 转换
-- **前端 Token 双重持久化**：localStorage（拦截器读取） + Zustand 状态（React 响应式）
-- **`get_db()` 在两处定义**：`app/core/database.py` 和 `app/api/deps.py`，**endpoint 使用 deps.py 中的**
-- **多 endpoint 文件已存在但未挂载**：`app/api/endpoints/` 中有 datasets, training_jobs, experiments 等，但只有 `auth`, `credentials`, `tenants` 以及新增的 `datasets`, `images`, `training_jobs`, `users`, `audit_logs` 被挂载。创建新 endpoint 需在 `router.py` 中注册
-- **K8s 调用是同步的**：`app/integrations/k8s/` 使用同步 `kubernetes` Python 客户端，会阻塞异步事件循环
-- **pre-commit 钩子按顺序执行**：ruff (fix+format) → mypy → eslint → prettier → tsc --noEmit
-- **Tailwind preflight 被禁用**：`corePlugins: { preflight: false }` 以兼容 Ant Design
-- **暗色模式通过 `[data-theme="dark"]` 属性选择器**，而非 Tailwind 的 `dark:` class
-- **Zustand store 间通信**：使用 `useOtherStore.getState()` 模式（如 authStore 在登录时设置 rbacStore role），不使用 middleware
-- **后端 `.env` 文件包含实际凭据**（Harbor OIDC 等），生成 .env.example 时需脱敏
-- **前端构建分两步**：`tsc -b` 类型检查完成后才 `vite build`（package.json 脚本定义）
-- **Vite 配置中 `@` 指向 `src/`**，测试中用 `jsdom` + `setupFiles: ['./tests/setup.ts']`
-
-## 架构速览
-
-```
-backend/
-  app/
-    main.py               # FastAPI 入口
-    api/endpoints/router.py # 所有路由在此注册 (prefix=/api)
-    core/                 # config, security, casbin, database, redis, exceptions
-    models/               # SQLAlchemy (TimestampMixin, SoftDeleteMixin)
-    schemas/              # Pydantic (BaseResponse[T])
-    services/             # 业务逻辑 (构造函数注入 AsyncSession + 可选 Redis)
-    integrations/k8s/     # 同步 K8s 客户端包装
-    middleware/           # RequestId, Tenant, ErrorHandler
-  tests/                  # pytest (asyncio_mode=auto)
-frontend/
-  src/
-    App.tsx               # 路由定义 (React Router v7, 懒加载)
-    services/api.ts       # Axios 实例 (自动 snake/camel 转换 + token 刷新队列)
-    stores/               # Zustand (authStore, rbacStore, tenantStore, themeStore)
-    components/           # AuthGuard, PermissionGuard
+```bash
+pnpm install
+pnpm dev
+pnpm build
+pnpm lint
+pnpm typecheck
+pnpm test
 ```
 
-## 样式约定
+Deploy dev Helm resources from the repository root:
 
-- Python: Ruff (line-length=120, 双引号), mypy strict (pydantic 插件)
-- TypeScript/React: Prettier (无分号, 单引号, printWidth=100, 2空格), ESLint 9 flat config
+```bash
+helm install kubeai infra/helm/kubeai/ -f infra/helm/kubeai/values-dev.yaml -n kubeai --create-namespace
+```
+
+## Coding Style
+
+Backend code targets Python 3.12, uses Ruff with 120-character lines and double quotes, and runs strict mypy. Keep API responses wrapped in `BaseResponse[T]`.
+
+Frontend code uses TypeScript, React, Ant Design, Zustand, ESLint 9, and Prettier with 2-space indentation, single quotes, no semicolons, and 100-character print width. The Vite alias `@` maps to `frontend/src/`. User-visible UI text must be zh-CN.
+
+## Testing Guidelines
+
+Name backend tests `test_*.py` under `backend/tests/`; run one test with:
+
+```bash
+uv run pytest tests/unit/test_security.py::test_hash_password -v
+```
+
+Frontend tests use Vitest and jsdom. Run `pnpm test` before submitting UI changes. Add or update tests when changing shared services, auth, permissions, API transforms, or user-facing workflows.
+
+## Commit & Pull Request Guidelines
+
+Recent history uses emoji-prefixed Conventional Commits, for example `✨ feat: ...`, `🔒 fix: ...`, `♻️ refactor: ...`, `✅ test: ...`, and `🔧 chore: ...`. Keep commits scoped and use Chinese summaries when matching history.
+
+Pull requests should include a short description, linked issue or task, verification commands, screenshots for UI changes, and notes for migrations or Helm/config changes.
+
+## Security & Configuration Tips
+
+Backend `.env` files may contain real credentials. Do not commit secrets; keep examples sanitized. Endpoint modules must be mounted in `backend/app/api/endpoints/router.py` before use. Tailwind preflight is disabled for Ant Design, and dark mode uses `[data-theme="dark"]`.

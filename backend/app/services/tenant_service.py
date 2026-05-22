@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.core.exceptions import (
     BadRequestException,
@@ -12,7 +12,13 @@ from app.core.exceptions import (
     NotFoundException,
     QuotaExceededException,
 )
-from app.integrations.k8s.namespace import create_namespace, delete_namespace, make_namespace_name
+from app.integrations.jupyterhub.rbac import delete_jupyterhub_tenant_rbac, ensure_jupyterhub_tenant_rbac
+from app.integrations.k8s.namespace import (
+    create_namespace,
+    delete_namespace,
+    make_namespace_name,
+    tenant_namespace_labels,
+)
 from app.integrations.k8s.network_policy import create_tenant_network_policy, delete_network_policy
 from app.integrations.k8s.resource_quota import (
     build_tenant_resource_quota,
@@ -43,6 +49,21 @@ class TenantService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    async def ensure_tenant_k8s_infra(
+        namespace: str, gpu_limit: int, cpu_limit: str, memory_limit: str, storage_limit: str
+    ) -> None:
+        quota = build_tenant_resource_quota(
+            gpu_limit=gpu_limit,
+            cpu_limit=cpu_limit,
+            memory_limit=memory_limit,
+            storage_limit=storage_limit,
+        )
+        await create_resource_quota(namespace, quota)
+        await create_tenant_network_policy(namespace)
+        await ensure_jupyterhub_tenant_rbac(namespace)
+        await ensure_s3_credentials_secret(namespace)
+
     async def create_tenant(self, req: TenantCreateRequest, audit_context: dict[str, Any] | None = None) -> Tenant:
         existing = await self.db.execute(select(Tenant).where(Tenant.name == req.name))
         if existing.scalar_one_or_none() is not None:
@@ -58,19 +79,18 @@ class TenantService:
 
         namespace = make_namespace_name(tenant.name)
         try:
-            await create_namespace(namespace)
+            await create_namespace(namespace, labels=tenant_namespace_labels())
             try:
-                quota = build_tenant_resource_quota(
+                await TenantService.ensure_tenant_k8s_infra(
+                    namespace,
                     gpu_limit=tenant.gpu_limit,
                     cpu_limit=tenant.cpu_limit,
                     memory_limit=tenant.memory_limit,
                     storage_limit=tenant.storage_limit,
                 )
-                await create_resource_quota(namespace, quota)
-                await create_tenant_network_policy(namespace)
-                await ensure_s3_credentials_secret(namespace)
             except Exception:
                 await delete_s3_credentials_secret(namespace)
+                await delete_jupyterhub_tenant_rbac(namespace)
                 await delete_resource_quota(namespace)
                 await delete_network_policy(namespace)
                 await delete_namespace(namespace)
@@ -98,9 +118,23 @@ class TenantService:
 
         return tenant
 
-    async def list_tenants(self, page: int = 1, page_size: int = 20) -> tuple[list[dict[str, Any]], int]:
-        count_result = await self.db.execute(select(func.count()).select_from(Tenant))
-        total = count_result.scalar_one()
+    async def list_tenants(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        status: str | None = None,
+        keyword: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        filters = []
+        if status:
+            filters.append(Tenant.status == status)
+        if keyword:
+            filters.append(or_(Tenant.name.ilike(f"%{keyword}%"), Tenant.display_name.ilike(f"%{keyword}%")))
+
+        count_query = select(func.count()).select_from(Tenant)
+        if filters:
+            count_query = count_query.where(*filters)
+        total = (await self.db.execute(count_query)).scalar_one()
 
         member_subq = (
             select(func.count())
@@ -116,6 +150,8 @@ class TenantService:
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
+        if filters:
+            query = query.where(*filters)
         result = await self.db.execute(query)
         rows = result.all()
 
@@ -238,6 +274,7 @@ class TenantService:
         if namespace:
             cleanup_ops: list[tuple[Callable[[str], Awaitable[None]], str]] = [
                 (delete_s3_credentials_secret, "S3CredentialsSecret"),
+                (delete_jupyterhub_tenant_rbac, "JupyterHubTenantRBAC"),
                 (delete_resource_quota, "ResourceQuota"),
                 (delete_network_policy, "NetworkPolicy"),
                 (delete_namespace, "Namespace"),

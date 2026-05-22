@@ -7,6 +7,7 @@ from app.core.database import async_session_factory, close_db
 from app.core.redis import close_redis, init_redis
 from app.core.security import hash_password
 from app.integrations.harbor.client import HarborClient
+from app.integrations.jupyterhub.client import close_jupyterhub_client
 from app.integrations.k8s.client import close_k8s_clients
 from app.integrations.labelstudio import LabelStudioClient
 from app.integrations.minio import MinIOClient
@@ -92,21 +93,19 @@ async def _init_admin_user() -> None:
 
 
 async def _ensure_default_tenant_k8s(tenant: Tenant) -> None:
-    from app.integrations.k8s.namespace import create_namespace, make_namespace_name
-    from app.integrations.k8s.network_policy import create_tenant_network_policy
-    from app.integrations.k8s.resource_quota import build_tenant_resource_quota, create_resource_quota
+    from app.integrations.k8s.namespace import create_namespace, make_namespace_name, tenant_namespace_labels
+    from app.services.tenant_service import TenantService
 
     namespace = make_namespace_name(tenant.name)
     try:
-        await create_namespace(namespace)
-        quota = build_tenant_resource_quota(
+        await create_namespace(namespace, labels=tenant_namespace_labels())
+        await TenantService.ensure_tenant_k8s_infra(
+            namespace,
             gpu_limit=tenant.gpu_limit,
             cpu_limit=tenant.cpu_limit,
             memory_limit=tenant.memory_limit,
             storage_limit=tenant.storage_limit,
         )
-        await create_resource_quota(namespace, quota)
-        await create_tenant_network_policy(namespace)
         tenant.k8s_namespace_name = namespace
         logger.info("default_tenant_namespace_ready", namespace=namespace)
     except Exception as e:
@@ -153,6 +152,7 @@ async def on_shutdown() -> None:
     if mlflow_client:
         await mlflow_client.close()
         mlflow_client = None
+    await close_jupyterhub_client()
     await close_k8s_clients()
     await close_db()
     await close_redis()

@@ -22,10 +22,13 @@ data:
   MINIO_BUCKET_PREFIX: {{ .Values.backend.env.MINIO_BUCKET_PREFIX | quote }}
   HARBOR_PROJECT_PREFIX: {{ .Values.backend.env.HARBOR_PROJECT_PREFIX | quote }}
   FRONTEND_URL: {{ .Values.backend.env.FRONTEND_URL | quote }}
+  K8S_PLATFORM_NAMESPACE: {{ .Release.Namespace | quote }}
   PROMETHEUS_URL: {{ include "kubeai.prometheusUrl" . | default "" | quote }}
   MLFLOW_ENABLED: {{ .Values.mlflow.enabled | quote }}
   MLFLOW_TRACKING_URI: {{ include "kubeai.mlflowTrackingUri" . | default "" | quote }}
   LABEL_STUDIO_URL: {{ include "kubeai.labelStudioUrl" . | default "" | quote }}
   JUPYTERHUB_API_URL: {{ include "kubeai.jupyterhubApiUrl" . | default "" | quote }}
   JUPYTERHUB_BASE_URL: {{ include "kubeai.jupyterhubBaseUrl" . | default "" | quote }}
+  JUPYTERHUB_HUB_SERVICE_ACCOUNT: {{ include "kubeai.jupyterhubHubServiceAccount" . | default "" | quote }}
+  DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS: {{ .Values.backend.env.DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS | default "60" | quote }}
 {{- end }}

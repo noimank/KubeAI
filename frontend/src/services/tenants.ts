@@ -16,9 +16,10 @@ import type {
 export async function getTenants(
   page: number = 1,
   pageSize: number = 20,
+  params?: { status?: string; keyword?: string },
 ): Promise<PageResponse<Tenant>> {
   const res = await api.get<PageResponse<Tenant>>('/tenants', {
-    params: { page, pageSize },
+    params: { page, pageSize, ...params },
   })
   return res.data
 }

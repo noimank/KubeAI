@@ -20,7 +20,7 @@ def _make_env(**overrides):
         "cpu": "2",
         "memory": "4Gi",
         "status": DevEnvironmentStatus.RUNNING,
-        "jupyterhub_user": "devenv-testuser-abcd1234",
+        "spawner_name": "devenv-testuser-abcd1234",
     }
     defaults.update(overrides)
     env = DevEnvironment(**defaults)
@@ -63,7 +63,7 @@ class TestIdleCheckerCheckAndCull:
 
         assert env.status == DevEnvironmentStatus.STOPPED
         assert env.stopped_reason == "idle_timeout"
-        jh_mock.stop_server.assert_called_once_with(env.jupyterhub_user)
+        jh_mock.stop_server.assert_called_once_with(env.spawner_name)
 
     @patch("app.services.idle_checker.get_jupyterhub_client")
     @patch("app.services.idle_checker.async_session_factory")
@@ -119,10 +119,28 @@ class TestIdleCheckerCheckAndCull:
 
     @patch("app.services.idle_checker.get_jupyterhub_client")
     @patch("app.services.idle_checker.async_session_factory")
+    async def test_does_not_stop_creating_environment(self, mock_session_factory, mock_jh_getter):
+        last_activity = (datetime.now(UTC) - timedelta(minutes=90)).isoformat()
+        env = _make_env(status=DevEnvironmentStatus.CREATING)
+        _setup_mock_db(mock_session_factory, [env])
+
+        jh_mock = AsyncMock()
+        jh_mock.get_server_last_activity.return_value = last_activity
+        jh_mock.stop_server = AsyncMock()
+        mock_jh_getter.return_value = jh_mock
+
+        checker = IdleChecker()
+        await checker._check_and_cull_idle()
+
+        assert env.status == DevEnvironmentStatus.CREATING
+        jh_mock.stop_server.assert_not_called()
+
+    @patch("app.services.idle_checker.get_jupyterhub_client")
+    @patch("app.services.idle_checker.async_session_factory")
     async def test_jh_api_error_does_not_affect_other_environments(self, mock_session_factory, mock_jh_getter):
         idle_activity = (datetime.now(UTC) - timedelta(minutes=90)).isoformat()
-        env1 = _make_env(jupyterhub_user="devenv-user1-aaa")
-        env2 = _make_env(jupyterhub_user="devenv-user2-bbb")
+        env1 = _make_env(spawner_name="devenv-user1-aaa")
+        env2 = _make_env(spawner_name="devenv-user2-bbb")
         _setup_mock_db(mock_session_factory, [env1, env2])
 
         jh_mock = AsyncMock()
@@ -143,7 +161,7 @@ class TestIdleCheckerCheckAndCull:
     @patch("app.services.idle_checker.get_jupyterhub_client")
     @patch("app.services.idle_checker.async_session_factory")
     async def test_semaphore_limits_concurrency(self, mock_session_factory, mock_jh_getter):
-        envs = [_make_env(jupyterhub_user=f"devenv-user{i}-{i:04x}") for i in range(10)]
+        envs = [_make_env(spawner_name=f"devenv-user{i}-{i:04x}") for i in range(10)]
         concurrent_count = 0
         max_concurrent = 0
         _setup_mock_db(mock_session_factory, envs)

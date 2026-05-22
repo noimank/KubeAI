@@ -42,6 +42,7 @@ backend:
     HARBOR_PROJECT_PREFIX: "kubeai-"
     FRONTEND_URL: "http://localhost:30000"
     PROMETHEUS_URL: "http://kubeai-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+    DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS: "60"
   secrets:
     SECRET_KEY: ""
     DATABASE_URL: ""
@@ -54,6 +55,7 @@ backend:
     HARBOR_PASSWORD: ""
     LABEL_STUDIO_API_TOKEN: ""
     JUPYTERHUB_API_TOKEN: ""
+    JUPYTERHUB_HUB_SERVICE_ACCOUNT: ""
 
 # -- Frontend configuration
 frontend:
@@ -296,6 +298,167 @@ jupyterhub:
     config:
       JupyterHub:
         authenticator_class: "null"
+      Spawner:
+        http_timeout: 300
+    extraConfig:
+      10-kubeai-user-options: |
+        import json
+        import os
+
+        from jupyterhub.auth import Authenticator
+        from tornado.httpclient import AsyncHTTPClient, HTTPError, HTTPRequest
+
+        _kubeai_hub_namespace = os.environ.get("POD_NAMESPACE", "kubeai")
+        c.JupyterHub.hub_connect_url = f"http://hub.{_kubeai_hub_namespace}.svc.cluster.local:8081/hub/"
+        _kubeai_login_url = os.environ.get(
+            "KUBEAI_JUPYTERHUB_LOGIN_URL",
+            f"http://kubeai-backend.{_kubeai_hub_namespace}.svc.cluster.local:8000/api/dev-environments/jupyterhub-login",
+        )
+
+        class KubeAIForcedLoginAuthenticator(Authenticator):
+            auto_login = True
+            login_service = "KubeAI"
+
+            async def authenticate(self, handler, data=None):
+                login_token = handler.get_argument("login_token", "")
+                if not login_token:
+                    return None
+
+                request = HTTPRequest(
+                    _kubeai_login_url,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                    body=json.dumps({"token": login_token}),
+                    request_timeout=10,
+                )
+                try:
+                    response = await AsyncHTTPClient().fetch(request)
+                    payload = json.loads(response.body.decode("utf-8"))
+                except (HTTPError, json.JSONDecodeError) as exc:
+                    self.log.warning("KubeAI forced login failed: %s", exc)
+                    return None
+
+                name = payload.get("name")
+                if isinstance(name, str) and name:
+                    return {"name": name}
+                return None
+
+        c.JupyterHub.authenticator_class = KubeAIForcedLoginAuthenticator
+        c.Authenticator.allow_all = True
+
+        def _kubeai_cpu_value(value):
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                value = value.strip()
+                if value.endswith("m"):
+                    return float(value[:-1]) / 1000
+                return float(value)
+            return None
+
+        def _kubeai_memory_value(value):
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str):
+                value = value.strip()
+                for suffix in ("Ki", "Mi", "Gi", "Ti"):
+                    if value.endswith(suffix):
+                        return value[:-1]
+                return value
+            return None
+
+        def _kubeai_apply_user_options(spawner, user_options):
+            override = user_options.get("kubespawner_override") if isinstance(user_options, dict) else None
+            if not isinstance(override, dict):
+                return
+
+            namespace = override.get("namespace")
+            if isinstance(namespace, str) and namespace.startswith("kubeai-"):
+                spawner.namespace = namespace
+
+            image = override.get("image")
+            if isinstance(image, str) and image:
+                spawner.image = image
+
+            image_pull_secret = override.get("imagePullSecret")
+            if isinstance(image_pull_secret, str) and image_pull_secret:
+                spawner.image_pull_secrets = [{"name": image_pull_secret}]
+
+            cmd = override.get("cmd")
+            if isinstance(cmd, str) and cmd:
+                spawner.cmd = cmd
+            elif isinstance(cmd, list) and all(isinstance(item, str) for item in cmd):
+                spawner.cmd = cmd
+
+            args = override.get("args")
+            if isinstance(args, str) and args:
+                spawner.args = [args]
+            elif isinstance(args, list) and all(isinstance(item, str) for item in args):
+                spawner.args = args
+
+            port = override.get("port")
+            if isinstance(port, int) and port > 0:
+                spawner.port = port
+
+            default_url = override.get("defaultUrl")
+            if isinstance(default_url, str) and default_url:
+                spawner.default_url = default_url
+
+            working_dir = override.get("workingDir")
+            if isinstance(working_dir, str) and working_dir:
+                spawner.working_dir = working_dir
+
+            resources = override.get("resources")
+            if isinstance(resources, dict):
+                requests = resources.get("requests")
+                limits = resources.get("limits")
+                if isinstance(requests, dict):
+                    if requests.get("cpu"):
+                        spawner.cpu_guarantee = _kubeai_cpu_value(requests["cpu"])
+                    if requests.get("memory"):
+                        spawner.mem_guarantee = _kubeai_memory_value(requests["memory"])
+                    spawner.extra_resource_guarantees = {
+                        k: v for k, v in requests.items() if k not in {"cpu", "memory"}
+                    }
+                if isinstance(limits, dict):
+                    if limits.get("cpu"):
+                        spawner.cpu_limit = _kubeai_cpu_value(limits["cpu"])
+                    if limits.get("memory"):
+                        spawner.mem_limit = _kubeai_memory_value(limits["memory"])
+                    spawner.extra_resource_limits = {
+                        k: v for k, v in limits.items() if k not in {"cpu", "memory"}
+                    }
+
+            volumes = override.get("volumes")
+            if isinstance(volumes, list):
+                spawner.volumes = volumes
+
+            volume_mounts = override.get("volumeMounts")
+            if isinstance(volume_mounts, list):
+                spawner.volume_mounts = volume_mounts
+
+            env = override.get("env")
+            if isinstance(env, list):
+                environment = dict(spawner.environment or {})
+                for item in env:
+                    if isinstance(item, dict) and isinstance(item.get("name"), str):
+                        environment[item["name"]] = item.get("value", "")
+                spawner.environment = environment
+
+            init_containers = override.get("initContainers")
+            if isinstance(init_containers, list):
+                spawner.init_containers = init_containers
+
+        c.Spawner.apply_user_options = _kubeai_apply_user_options
+    networkPolicy:
+      interNamespaceAccessLabels: accept
+      egress:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubeai.io/tenant-namespace: "true"
+          ports:
+            - port: 8888
     resources:
       requests:
         cpu: 250m
@@ -308,6 +471,15 @@ jupyterhub:
     service:
       type: LoadBalancer
     chp:
+      networkPolicy:
+        interNamespaceAccessLabels: accept
+        egress:
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubeai.io/tenant-namespace: "true"
+            ports:
+              - port: 8888
       resources:
         requests:
           cpu: 100m
@@ -320,6 +492,14 @@ jupyterhub:
     image:
       name: jupyter/datascience-notebook
       tag: "latest"
+    networkTools:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 50m
+          memory: 64Mi
     storage:
       type: none
     profileList: []

@@ -1,0 +1,35 @@
+# Jupyter SciPy Notebook (CPU)
+# Scientific computing with NumPy, SciPy, Pandas, Matplotlib
+#
+# KubeAI platform-required JupyterHub pieces are already provided by
+# quay.io/jupyter/scipy-notebook:
+#   jupyterhub-singleuser, Jupyter Server, and JupyterLab are built in.
+# This Dockerfile only adds optional project-specific tools.
+#
+# Build:
+#   docker build -t kubeai-jupyter-scipy -f Dockerfile.scipy .
+#   docker build -t hub.uimpcloud.com/kubeai/jupyter-scipy:latest -f Dockerfile.scipy .
+
+FROM quay.io/jupyter/scipy-notebook:latest
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir \
+    scikit-learn \
+    xgboost \
+    lightgbm \
+    optuna \
+    plotly \
+    seaborn
+
+RUN mkdir -p /workspace && chown ${NB_USER}:users /workspace
+
+USER ${NB_UID}
+
+EXPOSE 8888

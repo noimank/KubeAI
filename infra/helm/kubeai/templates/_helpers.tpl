@@ -113,3 +113,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "http://%s-proxy.%s.svc.cluster.local:80" (include "kubeai.fullname" .) .Release.Namespace }}
 {{- end }}
 {{- end }}
+
+{{- define "kubeai.jupyterhubHubServiceAccount" -}}
+{{- if .Values.backend.secrets.JUPYTERHUB_HUB_SERVICE_ACCOUNT }}
+{{- .Values.backend.secrets.JUPYTERHUB_HUB_SERVICE_ACCOUNT }}
+{{- else if and .Values.jupyterhub.hub.serviceAccount .Values.jupyterhub.hub.serviceAccount.name }}
+{{- .Values.jupyterhub.hub.serviceAccount.name }}
+{{- else if and (kindIs "string" .Values.jupyterhub.fullnameOverride) .Values.jupyterhub.fullnameOverride }}
+{{- printf "%s-hub" .Values.jupyterhub.fullnameOverride }}
+{{- else }}
+{{- "hub" }}
+{{- end }}
+{{- end }}

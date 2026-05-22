@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Button, Empty, Input, Popconfirm, Space, Table, Tag, Typography } from 'antd'
+import { Button, Empty, Input, Popconfirm, Segmented, Space, Table, Tag, Typography } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -32,7 +32,7 @@ export default function InferencePage() {
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
+  const [statusFilter, setStatusFilter] = useState<string>('')
   const [keyword, setKeyword] = useState<string | undefined>(undefined)
   const [searchText, setSearchText] = useState('')
 
@@ -46,7 +46,7 @@ export default function InferencePage() {
       getInferenceServices({
         current: page,
         pageSize,
-        status: statusFilter,
+        status: statusFilter || undefined,
         name: keyword,
       }),
     refetchInterval: (query) => {
@@ -225,23 +225,14 @@ export default function InferencePage() {
     <div style={{ padding: 0 }}>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
         <Space>
-          <span style={{ display: 'inline-flex', gap: 4 }}>
-            {statusTabs.map((tab) => (
-              <Tag
-                key={tab.value}
-                style={{ cursor: 'pointer', padding: '4px 12px' }}
-                color={
-                  statusFilter === tab.value || (!statusFilter && !tab.value) ? 'blue' : undefined
-                }
-                onClick={() => {
-                  setStatusFilter(tab.value || undefined)
-                  setPage(1)
-                }}
-              >
-                {tab.label}
-              </Tag>
-            ))}
-          </span>
+          <Segmented
+            options={statusTabs}
+            value={statusFilter}
+            onChange={(val) => {
+              setStatusFilter(val as string)
+              setPage(1)
+            }}
+          />
           <Input.Search
             placeholder="搜索服务名称"
             allowClear

@@ -3,21 +3,27 @@ import logging
 from kubernetes_asyncio import client
 from kubernetes_asyncio.client.rest import ApiException
 
+from app.core.config import settings
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
 
 POLICY_NAME = "tenant-isolation"
 
-ALLOWED_NAMESPACES = [
+DEFAULT_ALLOWED_NAMESPACES = [
     "kube-system",
-    "kubeai-platform",
 ]
+ALLOWED_NAMESPACES = DEFAULT_ALLOWED_NAMESPACES
+
+
+def get_allowed_namespaces() -> list[str]:
+    namespaces = [settings.K8S_PLATFORM_NAMESPACE, *DEFAULT_ALLOWED_NAMESPACES]
+    return list(dict.fromkeys(ns.strip() for ns in namespaces if ns.strip()))
 
 
 def build_tenant_network_policy(namespace: str) -> client.V1NetworkPolicy:
     ns_peers = []
-    for ns in [namespace, *ALLOWED_NAMESPACES]:
+    for ns in [namespace, *get_allowed_namespaces()]:
         ns_peers.append(
             client.V1NetworkPolicyPeer(
                 namespace_selector=client.V1LabelSelector(
@@ -79,7 +85,12 @@ async def create_tenant_network_policy(namespace: str) -> client.V1NetworkPolicy
         return policy
     except ApiException as e:
         if e.status == 409:
-            logger.info("NetworkPolicy %s already exists in %s", POLICY_NAME, namespace)
+            await networking_v1.replace_namespaced_network_policy(
+                name=POLICY_NAME,
+                namespace=namespace,
+                body=policy,
+            )
+            logger.info("Updated NetworkPolicy %s in namespace %s", POLICY_NAME, namespace)
             return policy
         raise
 

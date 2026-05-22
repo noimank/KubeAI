@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { Form, Modal, Select, InputNumber, Space, Typography } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
@@ -59,14 +58,7 @@ export default function TaskAssignModal({
     },
   })
 
-  useEffect(() => {
-    if (open) {
-      form.resetFields()
-    }
-  }, [open, form])
-
   const handleClose = () => {
-    form.resetFields()
     onClose()
   }
 

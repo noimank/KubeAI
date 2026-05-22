@@ -19,7 +19,7 @@ class DatasetMountInfo(BaseModel):
 
 class DevEnvironmentCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    image: str = Field(..., min_length=1, max_length=500)
+    environment_image_id: uuid.UUID
     gpu_count: int = Field(default=0, ge=0)
     cpu: str = Field(default="2")
     memory: str = Field(default="4Gi")
@@ -40,9 +40,10 @@ class DevEnvironmentResponse(BaseModel):
     cpu: str
     memory: str
     status: str
-    jupyterhub_user: str | None = None
-    notebook_url: str | None = None
-    pvc_name: str | None = None
+    spawner_name: str | None = None
+    access_url: str | None = None
+    environment_image_id: uuid.UUID | None = None
+    environment_type: str | None = None
     description: str | None = None
     env_vars: dict[str, str] | None = None
     error_message: str | None = None
@@ -60,6 +61,6 @@ class DevEnvironmentListParams(BaseModel):
     name: str | None = None
 
 
-class NotebookUrlResponse(BaseModel):
-    notebook_url: str
+class AccessUrlResponse(BaseModel):
+    access_url: str
     message: str

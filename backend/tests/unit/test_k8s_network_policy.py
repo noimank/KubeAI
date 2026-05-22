@@ -1,11 +1,11 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.integrations.k8s.network_policy import (
-    ALLOWED_NAMESPACES,
     POLICY_NAME,
     build_tenant_network_policy,
     create_tenant_network_policy,
     delete_network_policy,
+    get_allowed_namespaces,
 )
 
 
@@ -23,13 +23,19 @@ class TestBuildTenantNetworkPolicy:
         policy = build_tenant_network_policy("kubeai-test-123")
         assert len(policy.spec.ingress) == 1
         ingress_from = policy.spec.ingress[0]._from
-        assert len(ingress_from) == 1 + len(ALLOWED_NAMESPACES)
+        assert len(ingress_from) == 1 + len(get_allowed_namespaces())
 
     def test_egress_rules_allow_namespace_traffic(self):
         policy = build_tenant_network_policy("kubeai-test-123")
         assert len(policy.spec.egress) == 2
         egress_to = policy.spec.egress[0].to
-        assert len(egress_to) == 1 + len(ALLOWED_NAMESPACES)
+        assert len(egress_to) == 1 + len(get_allowed_namespaces())
+
+    def test_allows_platform_namespace(self):
+        policy = build_tenant_network_policy("kubeai-test-123")
+        ingress_from = policy.spec.ingress[0]._from
+        namespace_names = {peer.namespace_selector.match_labels["kubernetes.io/metadata.name"] for peer in ingress_from}
+        assert "kubeai" in namespace_names
 
     def test_egress_rules_allow_dns(self):
         policy = build_tenant_network_policy("kubeai-test-123")
@@ -52,14 +58,17 @@ class TestCreateTenantNetworkPolicy:
         mock_api.create_namespaced_network_policy.assert_called_once()
 
     @patch("app.integrations.k8s.network_policy.get_k8s_clients", new_callable=AsyncMock)
-    async def test_create_already_exists(self, mock_get_clients):
+    async def test_create_already_exists_replaces(self, mock_get_clients):
         from kubernetes_asyncio.client.rest import ApiException
 
         mock_api = MagicMock()
         mock_api.create_namespaced_network_policy = AsyncMock(side_effect=ApiException(status=409))
+        mock_api.replace_namespaced_network_policy = AsyncMock()
         mock_get_clients.return_value = {"networking_v1": mock_api}
 
         await create_tenant_network_policy("kubeai-test-123")
+
+        mock_api.replace_namespaced_network_policy.assert_called_once()
 
 
 class TestDeleteNetworkPolicy:

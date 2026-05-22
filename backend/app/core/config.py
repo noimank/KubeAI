@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     JUPYTERHUB_API_URL: str = "http://jupyterhub-hub:8081/hub/api"
     JUPYTERHUB_API_TOKEN: str = ""
     JUPYTERHUB_BASE_URL: str = ""
+    JUPYTERHUB_HUB_SERVICE_ACCOUNT: str = ""
+    DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS: int = 60
+
+    K8S_PLATFORM_NAMESPACE: str = "kubeai"
 
     BACKEND_API_URL: str = ""
 

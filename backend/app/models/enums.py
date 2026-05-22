@@ -50,6 +50,7 @@ class ResourceType(enum.StrEnum):
     CREDENTIAL = "credential"
     DATASET = "dataset"
     IMAGE = "image"
+    DEV_ENVIRONMENT_IMAGE = "dev_environment_image"
     TRAINING_JOB = "training_job"
     MODEL = "model"
     ANNOTATION_PROJECT = "annotation_project"
@@ -121,3 +122,9 @@ class DevEnvironmentStatus(enum.StrEnum):
     RUNNING = "running"
     STOPPED = "stopped"
     FAILED = "failed"
+
+
+class EnvironmentType(enum.StrEnum):
+    JUPYTER = "jupyter"
+    VSCODE = "vscode"
+    RSTUDIO = "rstudio"

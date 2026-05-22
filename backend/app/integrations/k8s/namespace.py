@@ -8,6 +8,13 @@ from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
 
+TENANT_NAMESPACE_LABEL_KEY = "kubeai.io/tenant-namespace"
+TENANT_NAMESPACE_LABEL_VALUE = "true"
+
+
+def tenant_namespace_labels() -> dict[str, str]:
+    return {TENANT_NAMESPACE_LABEL_KEY: TENANT_NAMESPACE_LABEL_VALUE}
+
 
 async def create_namespace(name: str, labels: dict[str, str] | None = None) -> client.V1Namespace:
     k8s = await get_k8s_clients()
@@ -24,7 +31,14 @@ async def create_namespace(name: str, labels: dict[str, str] | None = None) -> c
         return await core_v1.create_namespace(body=namespace)
     except ApiException as e:
         if e.status == 409:
-            return await core_v1.read_namespace(name=name)
+            existing = await core_v1.read_namespace(name=name)
+            existing_labels = existing.metadata.labels or {}
+            missing_labels = {key: value for key, value in ns_labels.items() if existing_labels.get(key) != value}
+            if not missing_labels:
+                return existing
+
+            existing.metadata.labels = {**existing_labels, **missing_labels}
+            return await core_v1.patch_namespace(name=name, body=existing)
         raise
 
 

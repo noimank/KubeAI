@@ -13,6 +13,7 @@ class RESOURCE(enum.StrEnum):
     INFERENCE_SERVICES = "inference_services"
     IMAGES = "images"
     DEV_ENVIRONMENTS = "dev_environments"
+    DEV_ENVIRONMENT_IMAGES = "dev_environment_images"
     MONITORING = "monitoring"
     AUDIT_LOGS = "audit_logs"
     NOTIFICATIONS = "notifications"
@@ -42,6 +43,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("engineer", "images", "build"),
     ("engineer", "dev_environments", "read"),
     ("engineer", "dev_environments", "write"),
+    ("engineer", "dev_environment_images", "read"),
     ("engineer", "inference_services", "read"),
     # mlops (inherits engineer + additional)
     ("mlops", "annotations", "manage"),
@@ -52,6 +54,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("mlops", "images", "read"),
     ("mlops", "images", "build"),
     ("mlops", "dev_environments", "manage"),
+    ("mlops", "dev_environment_images", "manage"),
     ("mlops", "monitoring", "read"),
     ("mlops", "audit_logs", "read"),
     ("mlops", "users", "read"),
@@ -69,6 +72,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("admin", "inference_services", "manage"),
     ("admin", "images", "manage"),
     ("admin", "dev_environments", "manage"),
+    ("admin", "dev_environment_images", "manage"),
     ("admin", "experiments", "manage"),
 ]
 

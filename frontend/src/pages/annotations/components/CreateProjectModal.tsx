@@ -233,18 +233,8 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   })
 
   const handleClose = () => {
-    form.resetFields()
     onClose()
   }
-
-  useEffect(() => {
-    if (!open) return
-    form.setFieldsValue({
-      taskType: 'image_classification',
-      labels: TASK_TYPE_MAP.image_classification.defaultLabels,
-      choiceMode: TASK_TYPE_MAP.image_classification.choiceMode,
-    })
-  }, [form, open])
 
   useEffect(() => {
     if (!open) return
@@ -311,7 +301,16 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       destroyOnHidden
       width={880}
     >
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+      <Form
+        form={form}
+        layout="vertical"
+        style={{ marginTop: 8 }}
+        initialValues={{
+          taskType: 'image_classification',
+          labels: TASK_TYPE_MAP.image_classification.defaultLabels,
+          choiceMode: TASK_TYPE_MAP.image_classification.choiceMode,
+        }}
+      >
         <Space style={{ width: '100%' }} direction="vertical" size="middle">
           <Form.Item
             label="项目名称"

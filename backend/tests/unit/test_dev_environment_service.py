@@ -4,14 +4,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.exceptions import ConflictException, NotFoundException, QuotaExceededException
+from app.core.exceptions import ConflictException, ExternalServiceException, NotFoundException, QuotaExceededException
+from app.core.security import decode_token
 from app.models.dev_environment import DevEnvironment
+from app.models.dev_environment_image import DevEnvironmentImage
 from app.models.enums import DevEnvironmentStatus
 from app.models.tenant import Tenant
+from app.models.user import User
 from app.schemas.dev_environment import DatasetMountRequest
 from app.services.dev_environment_service import DevEnvironmentService
 
 _NOW = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
+_DEFAULT_IMAGE_ID = uuid.uuid4()
 
 
 def _sync_result(value):
@@ -29,10 +33,28 @@ def _make_tenant(**overrides):
     }
     defaults.update(overrides)
     t = Tenant(**defaults)
-    t.id = uuid.uuid4()
+    t.id = overrides.get("id", uuid.uuid4())
     t.created_at = _NOW
     t.updated_at = _NOW
     return t
+
+
+def _make_dev_env_image(**overrides):
+    defaults = {
+        "name": "Jupyter PyTorch",
+        "environment_type": "jupyter",
+        "image_ref": "jupyter/pytorch:latest",
+        "default_cpu": "2",
+        "default_memory": "4Gi",
+        "default_gpu_count": 0,
+        "is_enabled": True,
+    }
+    defaults.update(overrides)
+    img = DevEnvironmentImage(**defaults)
+    img.id = overrides.get("id", _DEFAULT_IMAGE_ID)
+    img.created_at = _NOW
+    img.updated_at = _NOW
+    return img
 
 
 def _make_env(**overrides):
@@ -45,15 +67,30 @@ def _make_env(**overrides):
         "cpu": "2",
         "memory": "4Gi",
         "status": DevEnvironmentStatus.RUNNING,
-        "jupyterhub_user": "devenv-testuser-abcd1234",
-        "pvc_name": "workspace-testuser-abcd1234",
+        "spawner_name": "devenv-testuser-abcd1234",
+        "environment_image_id": _DEFAULT_IMAGE_ID,
+        "environment_type": "jupyter",
     }
     defaults.update(overrides)
     env = DevEnvironment(**defaults)
     env.id = uuid.uuid4()
-    env.created_at = _NOW
-    env.updated_at = _NOW
+    env.created_at = overrides.get("created_at", _NOW)
+    env.updated_at = overrides.get("updated_at", _NOW)
     return env
+
+
+def _make_user(**overrides):
+    defaults = {
+        "username": "testuser",
+        "email": "test@example.com",
+        "hashed_password": "fakehash",
+    }
+    defaults.update(overrides)
+    u = User(**defaults)
+    u.id = overrides.get("id", uuid.uuid4())
+    u.created_at = _NOW
+    u.updated_at = _NOW
+    return u
 
 
 @pytest.fixture
@@ -66,6 +103,24 @@ def mock_db():
     return db
 
 
+@pytest.fixture(autouse=True)
+def mock_ensure_registry_pull_secret():
+    with patch(
+        "app.services.dev_environment_service.ensure_registry_pull_secret",
+        new=AsyncMock(return_value="registry-pull-secret"),
+    ) as m:
+        yield m
+
+
+@pytest.fixture(autouse=True)
+def mock_create_tenant_network_policy():
+    with patch(
+        "app.services.dev_environment_service.create_tenant_network_policy",
+        new=AsyncMock(),
+    ) as m:
+        yield m
+
+
 @pytest.fixture
 def service(mock_db):
     return DevEnvironmentService(mock_db)
@@ -73,48 +128,56 @@ def service(mock_db):
 
 class TestCreateEnvironment:
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
-    async def test_create_cpu_env_success(self, mock_create_pvc, mock_jh_client, service, mock_db):
+    async def test_create_cpu_env_success(self, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
+        dev_image = _make_dev_env_image()
         jh_mock = AsyncMock()
         jh_mock.ensure_user = AsyncMock()
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute.return_value = _sync_result(dev_image)
+        # Second execute call for tenant
+        mock_db.execute.side_effect = [_sync_result(dev_image), _sync_result(tenant)]
 
         env = await service.create_environment(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             username="testuser",
             name="my-notebook",
-            image="jupyter/pytorch:latest",
+            environment_image_id=dev_image.id,
             gpu_count=0,
         )
 
         assert env.status == DevEnvironmentStatus.CREATING
         assert env.name == "my-notebook"
-        mock_create_pvc.assert_called_once()
+        assert env.spawner_name is not None
+        assert env.spawner_name.endswith(str(env.id)[:8])
+        assert env.environment_image_id == dev_image.id
+        assert env.environment_type == "jupyter"
         jh_mock.ensure_user.assert_called_once()
+        assert jh_mock.ensure_user.call_args[0][0] == env.spawner_name
         jh_mock.start_server.assert_called_once()
+        assert jh_mock.start_server.call_args[0][0] == env.spawner_name
+        assert jh_mock.start_server.call_args[1]["namespace"] == "kubeai-default"
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
     @patch("app.services.dev_environment_service.get_quota_used")
-    async def test_create_gpu_env_quota_check(self, mock_quota, mock_create_pvc, mock_jh_client, service, mock_db):
+    async def test_create_gpu_env_quota_check(self, mock_quota, mock_jh_client, service, mock_db):
         tenant = _make_tenant(gpu_limit=10)
+        dev_image = _make_dev_env_image()
         mock_quota.return_value = {"requests.nvidia.com/gpu": "3"}
         jh_mock = AsyncMock()
         jh_mock.ensure_user = AsyncMock()
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute.side_effect = [_sync_result(dev_image), _sync_result(tenant)]
 
         env = await service.create_environment(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             username="testuser",
             name="gpu-notebook",
-            image="jupyter/pytorch:latest",
+            environment_image_id=dev_image.id,
             gpu_count=2,
         )
 
@@ -123,8 +186,9 @@ class TestCreateEnvironment:
     @patch("app.services.dev_environment_service.get_quota_used")
     async def test_create_gpu_env_quota_exceeded(self, mock_quota, service, mock_db):
         tenant = _make_tenant(gpu_limit=5)
+        dev_image = _make_dev_env_image()
         mock_quota.return_value = {"requests.nvidia.com/gpu": "4"}
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute.side_effect = [_sync_result(dev_image), _sync_result(tenant)]
 
         with pytest.raises(QuotaExceededException):
             await service.create_environment(
@@ -132,27 +196,42 @@ class TestCreateEnvironment:
                 user_id=uuid.uuid4(),
                 username="testuser",
                 name="gpu-notebook",
-                image="jupyter/pytorch:latest",
+                environment_image_id=dev_image.id,
                 gpu_count=2,
             )
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
-    async def test_create_jupyterhub_failure_sets_failed(self, mock_create_pvc, mock_jh_client, service, mock_db):
+    async def test_create_jupyterhub_failure_cleans_up_user(self, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
+        dev_image = _make_dev_env_image()
         jh_mock = AsyncMock()
         jh_mock.ensure_user = AsyncMock()
         jh_mock.start_server = AsyncMock(side_effect=Exception("connection refused"))
+        jh_mock.delete_user = AsyncMock()
         mock_jh_client.return_value = jh_mock
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute.side_effect = [_sync_result(dev_image), _sync_result(tenant)]
 
-        with pytest.raises(Exception, match="JupyterHub"):
+        with pytest.raises(Exception, match="启动失败"):
             await service.create_environment(
                 tenant_id=tenant.id,
                 user_id=uuid.uuid4(),
                 username="testuser",
                 name="my-notebook",
-                image="jupyter/pytorch:latest",
+                environment_image_id=dev_image.id,
+            )
+
+        jh_mock.delete_user.assert_called_once()
+
+    async def test_create_image_not_found(self, service, mock_db):
+        mock_db.execute.return_value = _sync_result(None)
+
+        with pytest.raises(NotFoundException, match="开发环境镜像不存在"):
+            await service.create_environment(
+                tenant_id=uuid.uuid4(),
+                user_id=uuid.uuid4(),
+                username="testuser",
+                name="my-notebook",
+                environment_image_id=uuid.uuid4(),
             )
 
 
@@ -204,15 +283,19 @@ class TestStartEnvironment:
     async def test_start_stopped_env(self, mock_jh_client, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.STOPPED)
         tenant = _make_tenant(id=env.tenant_id)
-        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant)]
+        user = _make_user(id=env.created_by)
+        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant), _sync_result(user)]
         jh_mock = AsyncMock()
+        jh_mock.ensure_user = AsyncMock()
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
         result = await service.start_environment(env.id, env.tenant_id)
 
         assert result.status == DevEnvironmentStatus.CREATING
+        jh_mock.ensure_user.assert_called_once()
         jh_mock.start_server.assert_called_once()
+        assert jh_mock.start_server.call_args[1]["namespace"] == "kubeai-default"
 
     async def test_start_running_raises(self, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.RUNNING)
@@ -226,9 +309,11 @@ class TestStartEnvironment:
     async def test_start_gpu_env_quota_check(self, mock_quota, mock_jh_client, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.STOPPED, gpu_count=2)
         tenant = _make_tenant(id=env.tenant_id, gpu_limit=10)
+        user = _make_user(id=env.created_by)
         mock_quota.return_value = {"requests.nvidia.com/gpu": "5"}
-        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant)]
+        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant), _sync_result(user)]
         jh_mock = AsyncMock()
+        jh_mock.ensure_user = AsyncMock()
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
@@ -237,13 +322,10 @@ class TestStartEnvironment:
 
 
 class TestDeleteEnvironment:
-    @patch("app.services.dev_environment_service.delete_pvc")
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    async def test_delete_cleanup(self, mock_jh_client, mock_delete_pvc, service, mock_db):
+    async def test_delete_cleanup(self, mock_jh_client, service, mock_db):
         env = _make_env()
         mock_db.execute.return_value = _sync_result(env)
-        tenant = _make_tenant(id=env.tenant_id)
-        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant)]
         jh_mock = AsyncMock()
         jh_mock.stop_server = AsyncMock()
         jh_mock.delete_user = AsyncMock()
@@ -253,25 +335,96 @@ class TestDeleteEnvironment:
 
         jh_mock.stop_server.assert_called_once()
         jh_mock.delete_user.assert_called_once()
-        mock_delete_pvc.assert_called_once()
         mock_db.delete.assert_called_once()
 
 
-class TestGetNotebookUrl:
-    async def test_running_env_returns_cached_url(self, service, mock_db):
-        env = _make_env(status=DevEnvironmentStatus.RUNNING, notebook_url="http://jupyter/user/test/")
+class TestGetAccessUrl:
+    async def test_running_env_creates_open_ticket(self, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.RUNNING, access_url="http://jupyter/user/test/")
         mock_db.execute.return_value = _sync_result(env)
 
-        url = await service.get_notebook_url(env.id, env.tenant_id)
+        with patch("app.services.dev_environment_service.settings") as mock_settings:
+            mock_settings.JUPYTERHUB_BASE_URL = "http://localhost:30801"
+            mock_settings.DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS = 60
+            ticket = await service.create_open_ticket(env.id, env.tenant_id, env.created_by)
 
-        assert url == "http://jupyter/user/test/"
+        payload = decode_token(ticket)
+        assert payload["purpose"] == "dev_environment_open"
+        assert payload["env_id"] == str(env.id)
+        assert payload["tenant_id"] == str(env.tenant_id)
+        assert payload["spawner_name"] == env.spawner_name
+
+    async def test_open_ticket_builds_hub_forced_login_url_for_vscode(self, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.RUNNING, environment_type="vscode")
+        mock_db.execute.side_effect = [_sync_result(env), _sync_result(env)]
+
+        with patch("app.services.dev_environment_service.settings") as mock_settings:
+            mock_settings.JUPYTERHUB_BASE_URL = "http://localhost:30801"
+            mock_settings.DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS = 60
+            ticket = await service.create_open_ticket(env.id, env.tenant_id, env.created_by)
+            url, spawner_name = await service.build_hub_login_url_from_ticket(
+                ticket,
+                env.id,
+                login_token="login-token",
+            )
+
+        assert spawner_name == env.spawner_name
+        assert (
+            url == "http://localhost:30801/hub/login?"
+            "login_token=login-token&next=%2Fhub%2Fuser-redirect%2Fcodeserver%2F"
+        )
+
+    async def test_open_ticket_builds_hub_forced_login_url_for_jupyter(self, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.RUNNING, environment_type="jupyter")
+        mock_db.execute.side_effect = [_sync_result(env), _sync_result(env)]
+
+        with patch("app.services.dev_environment_service.settings") as mock_settings:
+            mock_settings.JUPYTERHUB_BASE_URL = "http://localhost:30801"
+            mock_settings.DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS = 60
+            ticket = await service.create_open_ticket(env.id, env.tenant_id, env.created_by)
+            url, spawner_name = await service.build_hub_login_url_from_ticket(
+                ticket,
+                env.id,
+                login_token="login-token",
+            )
+
+        assert spawner_name == env.spawner_name
+        assert url == "http://localhost:30801/hub/login?login_token=login-token&next=%2Fhub%2Fuser-redirect%2Flab"
+
+    async def test_open_ticket_builds_hub_forced_login_url_for_rstudio(self, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.RUNNING, environment_type="rstudio")
+        mock_db.execute.side_effect = [_sync_result(env), _sync_result(env)]
+
+        with patch("app.services.dev_environment_service.settings") as mock_settings:
+            mock_settings.JUPYTERHUB_BASE_URL = "http://localhost:30801"
+            mock_settings.DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS = 60
+            ticket = await service.create_open_ticket(env.id, env.tenant_id, env.created_by)
+            url, spawner_name = await service.build_hub_login_url_from_ticket(
+                ticket,
+                env.id,
+                login_token="login-token",
+            )
+
+        assert spawner_name == env.spawner_name
+        assert (
+            url == "http://localhost:30801/hub/login?login_token=login-token&next=%2Fhub%2Fuser-redirect%2Frstudio%2F"
+        )
 
     async def test_stopped_env_raises(self, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.STOPPED)
         mock_db.execute.return_value = _sync_result(env)
 
         with pytest.raises(ConflictException, match="未运行"):
-            await service.get_notebook_url(env.id, env.tenant_id)
+            await service.create_open_ticket(env.id, env.tenant_id, env.created_by)
+
+    async def test_access_url_requires_public_jupyterhub_base_url(self, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.RUNNING)
+        mock_db.execute.return_value = _sync_result(env)
+
+        with patch("app.services.dev_environment_service.settings") as mock_settings:
+            mock_settings.JUPYTERHUB_BASE_URL = ""
+            with pytest.raises(ExternalServiceException, match="访问地址"):
+                await service.create_open_ticket(env.id, env.tenant_id, env.created_by)
 
 
 class TestMapServerStatus:
@@ -309,7 +462,7 @@ class TestSyncEnvironmentStatus:
         env = _make_env(status=DevEnvironmentStatus.CREATING)
         jh_mock = AsyncMock()
         jh_mock.get_user.return_value = {
-            "name": env.jupyterhub_user,
+            "name": env.spawner_name,
             "servers": {"": {"ready": True, "url": "http://jupyter/user/test/"}},
         }
         jh_mock.map_server_status = MagicMock(return_value=DevEnvironmentStatus.RUNNING)
@@ -318,10 +471,10 @@ class TestSyncEnvironmentStatus:
         await service._sync_environment_status(env, "kubeai-default")
 
         assert env.status == DevEnvironmentStatus.RUNNING
-        assert env.notebook_url == "http://jupyter/user/test/"
+        assert env.access_url == "http://jupyter/user/test/"
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    async def test_sync_user_not_found_sets_stopped(self, mock_jh_client, service, mock_db):
+    async def test_sync_user_not_found_sets_failed_after_startup_grace(self, mock_jh_client, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.CREATING)
         jh_mock = AsyncMock()
         jh_mock.get_user.return_value = None
@@ -329,7 +482,31 @@ class TestSyncEnvironmentStatus:
 
         await service._sync_environment_status(env, "kubeai-default")
 
-        assert env.status == DevEnvironmentStatus.STOPPED
+        assert env.status == DevEnvironmentStatus.FAILED
+        assert env.error_message is not None
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    async def test_sync_user_not_found_keeps_recent_start_creating(self, mock_jh_client, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.CREATING, updated_at=datetime.now(UTC))
+        jh_mock = AsyncMock()
+        jh_mock.get_user.return_value = None
+        mock_jh_client.return_value = jh_mock
+
+        await service._sync_environment_status(env, "kubeai-default")
+
+        assert env.status == DevEnvironmentStatus.CREATING
+
+    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    async def test_sync_missing_server_marks_creating_failed_after_grace(self, mock_jh_client, service, mock_db):
+        env = _make_env(status=DevEnvironmentStatus.CREATING)
+        jh_mock = AsyncMock()
+        jh_mock.get_user.return_value = {"name": env.spawner_name, "servers": {}}
+        mock_jh_client.return_value = jh_mock
+
+        await service._sync_environment_status(env, "kubeai-default")
+
+        assert env.status == DevEnvironmentStatus.FAILED
+        assert env.error_message is not None
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
     async def test_sync_running_updates_last_active_at(self, mock_jh_client, service, mock_db):
@@ -337,7 +514,7 @@ class TestSyncEnvironmentStatus:
         jh_mock = AsyncMock()
         jh_last_activity = "2026-05-20T11:30:00.123456Z"
         jh_mock.get_user.return_value = {
-            "name": env.jupyterhub_user,
+            "name": env.spawner_name,
             "servers": {"": {"ready": True, "url": "http://jupyter/user/test/", "last_activity": jh_last_activity}},
         }
         jh_mock.map_server_status = MagicMock(return_value=DevEnvironmentStatus.RUNNING)
@@ -353,7 +530,7 @@ class TestSyncEnvironmentStatus:
         env = _make_env(status=DevEnvironmentStatus.CREATING, last_active_at=None)
         jh_mock = AsyncMock()
         jh_mock.get_user.return_value = {
-            "name": env.jupyterhub_user,
+            "name": env.spawner_name,
             "servers": {"": {"ready": True, "url": "http://jupyter/user/test/"}},
         }
         jh_mock.map_server_status = MagicMock(return_value=DevEnvironmentStatus.RUNNING)
@@ -397,10 +574,10 @@ def _make_version(**overrides):
 
 class TestCreateEnvironmentWithDatasets:
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
     @patch("app.services.dev_environment_service.pvc_exists", return_value=True)
-    async def test_create_with_single_dataset(self, mock_pvc_exists, mock_create_pvc, mock_jh_client, service, mock_db):
+    async def test_create_with_single_dataset(self, mock_pvc_exists, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
+        dev_image = _make_dev_env_image()
         dataset = _make_dataset(tenant_id=tenant.id)
         version = _make_version(dataset_id=dataset.id, version_number=1)
 
@@ -409,8 +586,9 @@ class TestCreateEnvironmentWithDatasets:
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
-        # Mock DB queries: tenant, dataset, version
+        # Mock DB queries: dev_image, tenant, dataset, version
         mock_db.execute.side_effect = [
+            _sync_result(dev_image),  # _get_dev_environment_image
             _sync_result(tenant),  # _get_tenant_or_fail
             _sync_result(dataset),  # _resolve_dataset_mount dataset
             _sync_result(version),  # _resolve_dataset_mount version
@@ -422,27 +600,28 @@ class TestCreateEnvironmentWithDatasets:
             user_id=uuid.uuid4(),
             username="testuser",
             name="notebook-with-ds",
-            image="jupyter/pytorch:latest",
+            environment_image_id=dev_image.id,
             datasets=datasets,
         )
 
         assert env.mounted_datasets is not None
         assert len(env.mounted_datasets) == 1
         assert env.mounted_datasets[0]["dataset_name"] == "test-dataset"
-        assert env.mounted_datasets[0]["mount_path"] == "/data/datasets/test-dataset/v1"
+        assert env.mounted_datasets[0]["mount_path"] == "/kubeai/datasets/test-dataset/v1"
         jh_mock.start_server.assert_called_once()
         call_kwargs = jh_mock.start_server.call_args[1]
         assert call_kwargs["extra_volumes"] is not None
         assert call_kwargs["extra_volume_mounts"] is not None
-        assert call_kwargs["extra_volume_mounts"][0]["readOnly"] is True
+        # 3 volumes: workspace hostPath + home hostPath + dataset PVC
+        assert len(call_kwargs["extra_volumes"]) == 3
+        assert len(call_kwargs["extra_volume_mounts"]) == 3
+        assert call_kwargs["extra_volume_mounts"][2]["readOnly"] is True
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
     @patch("app.services.dev_environment_service.pvc_exists", return_value=True)
-    async def test_create_with_multiple_datasets(
-        self, mock_pvc_exists, mock_create_pvc, mock_jh_client, service, mock_db
-    ):
+    async def test_create_with_multiple_datasets(self, mock_pvc_exists, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
+        dev_image = _make_dev_env_image()
         ds1 = _make_dataset(name="dataset-a", tenant_id=tenant.id)
         v1 = _make_version(dataset_id=ds1.id, version_number=1)
         ds2 = _make_dataset(name="dataset-b", tenant_id=tenant.id)
@@ -454,6 +633,7 @@ class TestCreateEnvironmentWithDatasets:
         mock_jh_client.return_value = jh_mock
 
         mock_db.execute.side_effect = [
+            _sync_result(dev_image),
             _sync_result(tenant),
             _sync_result(ds1),
             _sync_result(v1),
@@ -470,7 +650,7 @@ class TestCreateEnvironmentWithDatasets:
             user_id=uuid.uuid4(),
             username="testuser",
             name="multi-ds",
-            image="jupyter/pytorch:latest",
+            environment_image_id=dev_image.id,
             datasets=datasets,
         )
 
@@ -479,39 +659,47 @@ class TestCreateEnvironmentWithDatasets:
         names = {md["dataset_name"] for md in env.mounted_datasets}
         assert names == {"dataset-a", "dataset-b"}
         call_kwargs = jh_mock.start_server.call_args[1]
-        assert len(call_kwargs["extra_volumes"]) == 2
-        assert len(call_kwargs["extra_volume_mounts"]) == 2
+        # 4 volumes: workspace hostPath + home hostPath + 2 dataset PVCs
+        assert len(call_kwargs["extra_volumes"]) == 4
+        assert len(call_kwargs["extra_volume_mounts"]) == 4
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
-    async def test_create_without_datasets_backward_compat(self, mock_create_pvc, mock_jh_client, service, mock_db):
+    async def test_create_without_datasets_backward_compat(self, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
+        dev_image = _make_dev_env_image()
         jh_mock = AsyncMock()
         jh_mock.ensure_user = AsyncMock()
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute.side_effect = [_sync_result(dev_image), _sync_result(tenant)]
 
         env = await service.create_environment(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             username="testuser",
             name="no-datasets",
-            image="jupyter/pytorch:latest",
+            environment_image_id=dev_image.id,
         )
 
         assert env.mounted_datasets is None
         call_kwargs = jh_mock.start_server.call_args[1]
-        assert call_kwargs["extra_volumes"] is None
-        assert call_kwargs["extra_volume_mounts"] is None
+        # Always has home + workspace hostPath volumes
+        assert call_kwargs["extra_volumes"] is not None
+        assert len(call_kwargs["extra_volumes"]) == 2
+        assert len(call_kwargs["extra_volume_mounts"]) == 2
+        assert call_kwargs["extra_volume_mounts"][0]["mountPath"] == "/kubeai/home"
+        assert call_kwargs["extra_volume_mounts"][1]["mountPath"] == "/kubeai/workspace"
+        assert call_kwargs["env_vars"]["KUBEAI_ROOT_PATH"] == "/kubeai"
+        assert call_kwargs["env_vars"]["KUBEAI_HOME_PATH"] == "/kubeai/home"
+        assert call_kwargs["env_vars"]["KUBEAI_WORKSPACE_PATH"] == "/kubeai/workspace"
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
     @patch("app.services.dev_environment_service.pvc_exists", return_value=True)
     async def test_create_uses_latest_version_when_no_version_id(
-        self, mock_pvc_exists, mock_create_pvc, mock_jh_client, service, mock_db
+        self, mock_pvc_exists, mock_jh_client, service, mock_db
     ):
         tenant = _make_tenant()
+        dev_image = _make_dev_env_image()
         dataset = _make_dataset(tenant_id=tenant.id)
         version = _make_version(dataset_id=dataset.id, version_number=5)
 
@@ -521,6 +709,7 @@ class TestCreateEnvironmentWithDatasets:
         mock_jh_client.return_value = jh_mock
 
         mock_db.execute.side_effect = [
+            _sync_result(dev_image),
             _sync_result(tenant),
             _sync_result(dataset),
             _sync_result(version),
@@ -532,18 +721,19 @@ class TestCreateEnvironmentWithDatasets:
             user_id=uuid.uuid4(),
             username="testuser",
             name="latest-ver",
-            image="jupyter/pytorch:latest",
+            environment_image_id=dev_image.id,
             datasets=datasets,
         )
 
         assert env.mounted_datasets[0]["version_number"] == 5
-        assert env.mounted_datasets[0]["mount_path"] == "/data/datasets/test-dataset/v5"
+        assert env.mounted_datasets[0]["mount_path"] == "/kubeai/datasets/test-dataset/v5"
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
-    async def test_create_nonexistent_dataset_raises(self, mock_create_pvc, mock_jh_client, service, mock_db):
+    async def test_create_nonexistent_dataset_raises(self, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
+        dev_image = _make_dev_env_image()
         mock_db.execute.side_effect = [
+            _sync_result(dev_image),
             _sync_result(tenant),
             _sync_result(None),  # dataset not found
         ]
@@ -555,16 +745,17 @@ class TestCreateEnvironmentWithDatasets:
                 user_id=uuid.uuid4(),
                 username="testuser",
                 name="bad-ds",
-                image="jupyter/pytorch:latest",
+                environment_image_id=dev_image.id,
                 datasets=datasets,
             )
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
-    async def test_create_nonexistent_version_raises(self, mock_create_pvc, mock_jh_client, service, mock_db):
+    async def test_create_nonexistent_version_raises(self, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
+        dev_image = _make_dev_env_image()
         dataset = _make_dataset(tenant_id=tenant.id)
         mock_db.execute.side_effect = [
+            _sync_result(dev_image),
             _sync_result(tenant),
             _sync_result(dataset),
             _sync_result(None),  # version not found
@@ -577,7 +768,7 @@ class TestCreateEnvironmentWithDatasets:
                 user_id=uuid.uuid4(),
                 username="testuser",
                 name="bad-ver",
-                image="jupyter/pytorch:latest",
+                environment_image_id=dev_image.id,
                 datasets=datasets,
             )
 
@@ -588,6 +779,7 @@ class TestCreateEnvironmentWithDatasets:
         self, mock_pvc_exists, mock_create_pvc, mock_jh_client, service, mock_db
     ):
         tenant = _make_tenant()
+        dev_image = _make_dev_env_image()
         dataset = _make_dataset(tenant_id=tenant.id)
         version = _make_version(dataset_id=dataset.id, version_number=1, total_size_bytes=5 * 1024**3)
 
@@ -597,6 +789,7 @@ class TestCreateEnvironmentWithDatasets:
         mock_jh_client.return_value = jh_mock
 
         mock_db.execute.side_effect = [
+            _sync_result(dev_image),
             _sync_result(tenant),
             _sync_result(dataset),
             _sync_result(version),
@@ -608,12 +801,12 @@ class TestCreateEnvironmentWithDatasets:
             user_id=uuid.uuid4(),
             username="testuser",
             name="new-pvc",
-            image="jupyter/pytorch:latest",
+            environment_image_id=dev_image.id,
             datasets=datasets,
         )
 
-        # create_pvc called once for workspace + once for dataset
-        assert mock_create_pvc.call_count == 2
+        # create_pvc called once for dataset only (workspace uses hostPath now)
+        assert mock_create_pvc.call_count == 1
 
 
 class TestStartEnvironmentRemount:
@@ -628,14 +821,16 @@ class TestStartEnvironmentRemount:
                 "version_id": str(version_id),
                 "version_number": 2,
                 "pvc_name": "dataset-my-data-v2",
-                "mount_path": "/data/datasets/my-data/v2",
+                "mount_path": "/kubeai/datasets/my-data/v2",
             }
         ]
         env = _make_env(status=DevEnvironmentStatus.STOPPED, mounted_datasets=mounted_datasets)
         tenant = _make_tenant(id=env.tenant_id)
-        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant)]
+        user = _make_user(id=env.created_by)
+        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant), _sync_result(user)]
 
         jh_mock = AsyncMock()
+        jh_mock.ensure_user = AsyncMock()
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
@@ -644,17 +839,22 @@ class TestStartEnvironmentRemount:
         assert result.status == DevEnvironmentStatus.CREATING
         call_kwargs = jh_mock.start_server.call_args[1]
         assert call_kwargs["extra_volumes"] is not None
-        assert len(call_kwargs["extra_volumes"]) == 1
-        assert call_kwargs["extra_volumes"][0]["name"] == "dataset-my-data-v2"
-        assert call_kwargs["extra_volume_mounts"][0]["readOnly"] is True
+        # 3 volumes: workspace hostPath + home hostPath + dataset PVC
+        assert len(call_kwargs["extra_volumes"]) == 3
+        # Dataset PVC is the last one
+        dataset_vol = call_kwargs["extra_volumes"][2]
+        assert "persistentVolumeClaim" in dataset_vol
+        assert call_kwargs["extra_volume_mounts"][2]["readOnly"] is True
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    async def test_start_no_datasets_no_extra_volumes(self, mock_jh_client, service, mock_db):
+    async def test_start_no_datasets_only_hostpath_volumes(self, mock_jh_client, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.STOPPED, mounted_datasets=None)
         tenant = _make_tenant(id=env.tenant_id)
-        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant)]
+        user = _make_user(id=env.created_by)
+        mock_db.execute.side_effect = [_sync_result(env), _sync_result(tenant), _sync_result(user)]
 
         jh_mock = AsyncMock()
+        jh_mock.ensure_user = AsyncMock()
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
@@ -662,5 +862,7 @@ class TestStartEnvironmentRemount:
 
         assert result.status == DevEnvironmentStatus.CREATING
         call_kwargs = jh_mock.start_server.call_args[1]
-        assert call_kwargs["extra_volumes"] is None
-        assert call_kwargs["extra_volume_mounts"] is None
+        # Only workspace + home hostPath volumes
+        assert call_kwargs["extra_volumes"] is not None
+        assert len(call_kwargs["extra_volumes"]) == 2
+        assert len(call_kwargs["extra_volume_mounts"]) == 2

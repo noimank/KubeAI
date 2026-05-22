@@ -98,6 +98,9 @@ docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
   - `ExperimentService` — MLflow-backed experiment tracking, reproduces experiments as training jobs
   - `InvitationService` — tenant member invitation with role assignment
   - `AuditService` — records audit logs for resource operations
+  - `AnnotationService` — Label Studio-backed annotation projects with custom XML config, task assignment, and annotation writeback to dataset versions
+  - `DevEnvironmentService` — JupyterHub-based dev environments with dataset mounting, idle timeout auto-stop, and training job creation from notebooks
+  - `InferenceService` — KServe-based model inference with KEDA autoscaling, canary deployments, and API token auth
 - **Model registry**: No dedicated service — `app/api/endpoints/model_registry.py` handles logic directly. Models in `app/models/registered_model.py` (`RegisteredModel` + `ModelVersion`). Versions uploaded via K8s upload Jobs, files stored in MinIO
 - **Multi-tenancy**: Three layers — DB-level (`TenantMixin` + FK), app-level (`TenantMiddleware` + `require_tenant_access`), infra-level (K8s NetworkPolicy per namespace isolating tenant traffic)
 - **External integrations** (`app/integrations/`):
@@ -106,12 +109,16 @@ docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
   - `volcano/` — Volcano batch scheduler via async K8s CustomObjectsApi (`batch.volcano.sh/v1alpha1` VCJobs). Maps Volcano phases to internal status (Pending→pending, Running→running, Completed→succeeded, etc.)
   - `harbor/` — Harbor REST API client via `httpx` for container registry management (projects, repos, robots). Sync calls wrapped in `asyncio.to_thread()` at service level
   - `minio/` — MinIO/S3 client for dataset file storage (buckets, presigned upload/download URLs). Sync calls wrapped in `asyncio.to_thread()` at service level
+  - `jupyterhub/` — JupyterHub REST API client via `httpx` for dev environment lifecycle (user creation, server start/stop, spawner management)
+  - `labelstudio/` — Label Studio REST API client + XML template builder (`templates.py`) for annotation projects. Supports image classification, object detection, segmentation, text classification, and custom choices/text areas
+  - `kserve/` — KServe inference services via async K8s CustomObjectsApi (`serving.kserve.io/v1beta1`). Builder pattern for InferenceService specs, canary rollout support
+  - `keda/` — KEDA autoscaler via async K8s CustomObjectsApi (`keda.sh/v1alpha1`). Builds ScaledObjects for inference service auto-scaling
   - Namespace prefix: `kubeai-`
 - **API responses**: All endpoints return `BaseResponse[T]` wrapper (`{success, message, data}`)
 - **Exceptions**: `AppException` hierarchy in `app/core/exceptions.py` — caught by error handler middleware returning `BaseResponse` with appropriate HTTP status. All default messages are in Chinese
 - **Startup**: `app/core/events.py` — initializes Redis, Casbin, seeds admin user (`admin`/`Admin123456`) and default tenant, creates MinIO client singleton (accessed via `get_minio_client()`)
 - **Tests**: `asyncio_mode = "auto"` in pytest config. `conftest.py` provides session-scoped `event_loop` + `httpx.AsyncClient` with `ASGITransport` for in-process testing. Unit tests in `tests/unit/`, integration in `tests/integration/`
-- **Mounted routers** (`router.py`): auth, credentials, datasets, experiments, images, model_registry, tenants, training_jobs, users, audit_logs
+- **Mounted routers** (`api/endpoints/router.py`): auth, annotations, audit_logs, credentials, datasets, dev_environments, experiments, images, inference_services, inference_proxy, model_registry, tenants, training_jobs, users
 
 ### Frontend (`frontend/`)
 

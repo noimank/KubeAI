@@ -91,9 +91,11 @@ async def list_tenants(
     _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None),
+    keyword: str | None = Query(None),
 ) -> PageResponse[TenantResponse]:
     service = TenantService(db)
-    items, total = await service.list_tenants(page=page, page_size=page_size)
+    items, total = await service.list_tenants(page=page, page_size=page_size, status=status, keyword=keyword)
     tenant_list = [TenantResponse(**item) for item in items]
     page_data = PageData(items=tenant_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")

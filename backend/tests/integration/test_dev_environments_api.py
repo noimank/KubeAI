@@ -88,11 +88,12 @@ class TestDevEnvironmentCRUD:
         from app.models.tenant import Tenant
 
         tenant_id = uuid.uuid4()
+        tenant_namespace = f"kubeai-{_unique('ns')}"
         async with async_session_factory() as db:
             tenant = Tenant(
                 name=_unique("tenant"),
                 display_name="Test Tenant",
-                k8s_namespace_name=f"kubeai-{_unique('ns')}",
+                k8s_namespace_name=tenant_namespace,
                 gpu_limit=10,
             )
             tenant.id = tenant_id
@@ -136,6 +137,7 @@ class TestDevEnvironmentCRUD:
         assert data["image"] == "jupyter/pytorch:latest"
         assert data["status"] == "creating"
         env_id = data["id"]
+        assert jh_mock.start_server.call_args[1]["namespace"] == tenant_namespace
 
         resp = await client.get(f"/api/dev-environments/{env_id}", headers=admin_headers)
         assert resp.status_code == 200
