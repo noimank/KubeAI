@@ -17,6 +17,7 @@ class RESOURCE(enum.StrEnum):
     MONITORING = "monitoring"
     AUDIT_LOGS = "audit_logs"
     NOTIFICATIONS = "notifications"
+    DASHBOARD = "dashboard"
 
 
 class ACTION(enum.StrEnum):
@@ -29,12 +30,14 @@ class ACTION(enum.StrEnum):
 # (sub, obj, act)
 SEED_POLICIES: list[tuple[str, str, str]] = [
     # annotator
+    ("annotator", "dashboard", "read"),
     ("annotator", "datasets", "read"),
     ("annotator", "annotations", "read"),
     ("annotator", "annotations", "write"),
     ("annotator", "notifications", "read"),
     ("annotator", "notifications", "write"),
     # engineer
+    ("engineer", "dashboard", "read"),
     ("engineer", "datasets", "read"),
     ("engineer", "training_jobs", "read"),
     ("engineer", "training_jobs", "write"),
@@ -48,6 +51,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("engineer", "dev_environment_images", "read"),
     ("engineer", "inference_services", "read"),
     # mlops (inherits engineer + additional)
+    ("mlops", "dashboard", "read"),
     ("mlops", "annotations", "manage"),
     ("mlops", "datasets", "write"),
     ("mlops", "training_jobs", "manage"),
@@ -62,6 +66,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("mlops", "users", "read"),
     ("mlops", "experiments", "manage"),
     # admin (inherits mlops + additional)
+    ("admin", "dashboard", "read"),
     ("admin", "tenants", "manage"),
     ("admin", "users", "manage"),
     ("admin", "quotas", "manage"),

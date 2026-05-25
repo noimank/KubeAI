@@ -12,11 +12,14 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.core.exceptions import ExternalServiceException, UnauthorizedException
 from app.core.security import create_access_token, create_refresh_token, hash_password
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.auth import TokenResponse
 from app.schemas.oauth import OAuthProviderResponse
 
 if TYPE_CHECKING:
+    import uuid
+
     import redis.asyncio as aioredis
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,17 +134,25 @@ class OAuthService:
         username = await self._make_unique_username(username)
         email = await self._make_unique_email(email, username)
 
+        default_tenant_id = await self._get_default_tenant_id()
+
         user = User(
             username=username,
             email=email,
             hashed_password=await hash_password(secrets.token_urlsafe(32)),
             auth_provider="oidc",
             external_id=external_id,
+            tenant_id=default_tenant_id,
         )
         self.db.add(user)
         await self.db.flush()
 
-        logger.info("oauth_user_created", user_id=str(user.id), username=username)
+        logger.info(
+            "oauth_user_created",
+            user_id=str(user.id),
+            username=username,
+            tenant_id=str(default_tenant_id) if default_tenant_id else None,
+        )
         return user
 
     def _normalize_username(self, username: str) -> str:
@@ -193,6 +204,11 @@ class OAuthService:
             existing_user = await self._find_user_by_email(email)
             if existing_user is None or existing_user.id == user.id:
                 user.email = email
+
+    async def _get_default_tenant_id(self) -> uuid.UUID | None:
+        result = await self.db.execute(select(Tenant).where(Tenant.name == "default"))
+        tenant = result.scalar_one_or_none()
+        return tenant.id if tenant else None
 
     def _generate_tokens(self, user_id: str, tenant_id: str | None = None) -> TokenResponse:
         payload: dict[str, str] = {"sub": user_id}

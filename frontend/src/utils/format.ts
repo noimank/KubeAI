@@ -27,6 +27,27 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
 }
 
+export function formatKi(ki: number): string {
+  if (ki <= 0) return '0 Ki'
+  if (ki >= 1024 ** 3) return `${(ki / 1024 ** 3).toFixed(1)} Ti`
+  if (ki >= 1024 ** 2) return `${(ki / 1024 ** 2).toFixed(1)} Gi`
+  if (ki >= 1024) return `${(ki / 1024).toFixed(1)} Mi`
+  return `${Math.round(ki)} Ki`
+}
+
+export function parseK8sQuantity(val: string | number): number {
+  if (typeof val === 'number') return val
+  if (!val || val === '0') return 0
+  const str = String(val)
+  const num = parseFloat(str)
+  if (str.endsWith('Ti')) return num * 1024 ** 3
+  if (str.endsWith('Gi')) return num * 1024 ** 2
+  if (str.endsWith('Mi')) return num * 1024
+  if (str.endsWith('Ki')) return num
+  if (str.endsWith('m')) return num / 1000
+  return num
+}
+
 export function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
