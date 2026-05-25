@@ -11,6 +11,7 @@ import {
   TeamOutlined,
   FileSearchOutlined,
   SafetyCertificateOutlined,
+  BellOutlined,
 } from '@ant-design/icons'
 import type { MenuDataItem } from '@ant-design/pro-components'
 import { filterMenuItems, toMenuDataItem } from './sidebar-utils'
@@ -88,6 +89,12 @@ const MENU_CONFIG: MenuGroup[] = [
         name: '监控',
         icon: <MonitorOutlined />,
         permission: 'monitoring:read',
+      },
+      {
+        path: '/notifications',
+        name: '通知中心',
+        icon: <BellOutlined />,
+        permission: 'notifications:read',
       },
       {
         path: '/admin',

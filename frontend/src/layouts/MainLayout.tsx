@@ -19,6 +19,7 @@ const NAVIGATE_MAP: Record<string, string> = {
   '/images': '镜像管理',
   '/annotations': '数据标注',
   '/monitoring': '监控',
+  '/notifications': '通知中心',
   '/admin/tenants': '租户管理',
   '/admin/users': '用户管理',
   '/admin/audit-logs': '审计日志',

@@ -36,6 +36,7 @@ const AnnotationsPage = lazy(() => import('./pages/annotations'))
 const AnnotationDetailPage = lazy(() => import('./pages/annotations/detail'))
 const AnnotationWorkspacePage = lazy(() => import('./pages/annotations/workspace'))
 const MonitoringPage = lazy(() => import('./pages/monitoring'))
+const NotificationsPage = lazy(() => import('./pages/notifications'))
 const ForbiddenPage = lazy(() => import('./pages/403'))
 const InvitePage = lazy(() => import('./pages/invite'))
 const TenantsPage = lazy(() => import('./pages/admin/tenants'))
@@ -259,6 +260,14 @@ export default function App() {
                       element={
                         <PermissionGuard permission="monitoring:read">
                           <MonitoringPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
+                      path="notifications"
+                      element={
+                        <PermissionGuard permission="notifications:read">
+                          <NotificationsPage />
                         </PermissionGuard>
                       }
                     />

@@ -12,9 +12,11 @@ import {
   App,
   theme,
   ConfigProvider,
+  Typography,
 } from 'antd'
 import { BellOutlined, CheckOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
@@ -53,6 +55,7 @@ interface PanelProps {
   onItemClick: (item: Notification) => void
   onMarkAllRead: () => void
   markAllPending: boolean
+  onViewAll: () => void
 }
 
 function NotificationPanelContent({
@@ -64,6 +67,7 @@ function NotificationPanelContent({
   onItemClick,
   onMarkAllRead,
   markAllPending,
+  onViewAll,
 }: PanelProps) {
   const { token } = theme.useToken()
   const isDark = useThemeStore((s) => s.themeMode) === 'dark'
@@ -252,6 +256,15 @@ function NotificationPanelContent({
           />
         )}
       </div>
+      <div
+        style={{
+          padding: '8px 16px',
+          borderTop: `1px solid ${token.colorSplit}`,
+          textAlign: 'center',
+        }}
+      >
+        <Typography.Link onClick={onViewAll}>查看全部通知</Typography.Link>
+      </div>
     </div>
   )
 }
@@ -271,6 +284,7 @@ export function NotificationDropdown({ unreadCount }: NotificationDropdownProps)
   const decrementUnread = useNotificationStore((s) => s.decrementUnread)
   const queryClient = useQueryClient()
   const { message } = App.useApp()
+  const navigate = useNavigate()
 
   const { data, isLoading } = useQuery({
     queryKey: ['notifications', filter],
@@ -305,9 +319,27 @@ export function NotificationDropdown({ unreadCount }: NotificationDropdownProps)
       if (!item.isRead) {
         readMutation.mutate(item.id)
       }
+      if (item.resourceType && item.resourceId) {
+        const routeMap: Record<string, string> = {
+          training_job: `/training-jobs/${item.resourceId}`,
+          inference_service: `/inference/${item.resourceId}`,
+          annotation_project: `/annotations/${item.resourceId}`,
+          dataset: `/datasets/${item.resourceId}`,
+        }
+        const route = routeMap[item.resourceType]
+        if (route) {
+          setOpen(false)
+          navigate(route)
+        }
+      }
     },
-    [readMutation],
+    [readMutation, navigate],
   )
+
+  const handleViewAll = useCallback(() => {
+    setOpen(false)
+    navigate('/notifications')
+  }, [navigate])
 
   const notifications = data?.data?.items ?? []
 
@@ -327,6 +359,7 @@ export function NotificationDropdown({ unreadCount }: NotificationDropdownProps)
               onItemClick={handleItemClick}
               onMarkAllRead={() => readAllMutation.mutate()}
               markAllPending={readAllMutation.isPending}
+              onViewAll={handleViewAll}
             />
           </ConfigProvider>
         )}

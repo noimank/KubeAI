@@ -39,6 +39,8 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
     'monitoring:read',
     'audit_logs:read',
     'users:read',
+    'notifications:read',
+    'notifications:write',
   ],
   engineer: [
     'datasets:read',
@@ -53,8 +55,16 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
     'dev_environments:write',
     'dev_environment_images:read',
     'inference_services:read',
+    'notifications:read',
+    'notifications:write',
   ],
-  annotator: ['datasets:read', 'annotations:read', 'annotations:write'],
+  annotator: [
+    'datasets:read',
+    'annotations:read',
+    'annotations:write',
+    'notifications:read',
+    'notifications:write',
+  ],
 }
 
 export const useRbacStore = create<RbacState>((set, get) => ({
