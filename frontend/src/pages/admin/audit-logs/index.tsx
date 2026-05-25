@@ -23,6 +23,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   add_member: '添加成员',
   remove_member: '移除成员',
   update_quota: '调整配额',
+  transfer_quota: '配额调配',
 }
 
 const ACTION_COLORS: Record<string, string> = {
@@ -41,6 +42,7 @@ const ACTION_COLORS: Record<string, string> = {
   add_member: 'green',
   remove_member: 'red',
   update_quota: 'geekblue',
+  transfer_quota: 'purple',
 }
 
 const RESOURCE_LABELS: Record<ResourceType, string> = {

@@ -71,3 +71,39 @@ export interface TenantResourceDetail {
   activeJobs: JobSummary[]
   runningServices: ServiceSummary[]
 }
+
+export interface QuotaAllocationItem {
+  total: number
+  allocated: number
+  available: number
+}
+
+export interface QuotaAllocationOverview {
+  gpu: QuotaAllocationItem
+  cpu: QuotaAllocationItem
+  memory: QuotaAllocationItem
+  storage: QuotaAllocationItem
+}
+
+export interface TenantQuotaComparisonItem {
+  quota: number
+  used: number
+  utilization: number
+}
+
+export interface TenantQuotaComparison {
+  tenantId: string
+  tenantName: string
+  gpu: TenantQuotaComparisonItem
+  cpu: TenantQuotaComparisonItem
+  memory: TenantQuotaComparisonItem
+  storage: TenantQuotaComparisonItem
+}
+
+export interface QuotaTransferRequest {
+  sourceTenantId: string
+  targetTenantId: string
+  resourceType: 'gpu' | 'cpu' | 'memory' | 'storage'
+  amount: string
+  force?: boolean
+}

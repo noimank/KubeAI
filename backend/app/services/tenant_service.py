@@ -315,8 +315,21 @@ class TenantService:
         try:
             capacity = await get_cluster_capacity()
             cluster_gpu = int(capacity["gpu"])
-            if req.gpu_limit > cluster_gpu:
-                raise QuotaExceededException(f"GPU 配额超过集群可用资源(集群总量 {cluster_gpu} 张)")
+
+            # Calculate available = total - (all other tenants' allocated quota)
+            other_result = await self.db.execute(
+                select(func.coalesce(func.sum(Tenant.gpu_limit), 0)).where(
+                    Tenant.status == TenantStatus.ACTIVE,
+                    Tenant.id != tenant.id,
+                )
+            )
+            other_gpu = other_result.scalar() or 0
+            available_gpu = cluster_gpu - other_gpu
+
+            if req.gpu_limit > available_gpu:
+                raise QuotaExceededException(
+                    f"GPU 配额超过集群可分配余量(可分配 {available_gpu} 张, 集群总量 {cluster_gpu} 张)"
+                )
         except QuotaExceededException:
             raise
         except Exception as e:

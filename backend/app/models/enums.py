@@ -36,6 +36,7 @@ class AuditAction(enum.StrEnum):
     ADD_MEMBER = "add_member"
     REMOVE_MEMBER = "remove_member"
     UPDATE_QUOTA = "update_quota"
+    TRANSFER_QUOTA = "transfer_quota"
     UPLOAD = "upload"
     BUILD = "build"
     REBUILD = "rebuild"

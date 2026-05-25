@@ -1,6 +1,5 @@
-from __future__ import annotations
-
-from typing import Any
+import uuid
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -77,3 +76,39 @@ class TenantResourceDetail(BaseModel):
     storage: TenantQuotaUsed
     active_jobs: list[JobSummary] = []
     running_services: list[ServiceSummary] = []
+
+
+class QuotaAllocationItem(BaseModel):
+    total: int | float = 0
+    allocated: int | float = 0
+    available: int | float = 0
+
+
+class QuotaAllocationOverview(BaseModel):
+    gpu: QuotaAllocationItem
+    cpu: QuotaAllocationItem
+    memory: QuotaAllocationItem
+    storage: QuotaAllocationItem
+
+
+class TenantQuotaComparisonItem(BaseModel):
+    quota: int | float = 0
+    used: int | float = 0
+    utilization: float = 0.0
+
+
+class TenantQuotaComparison(BaseModel):
+    tenant_id: str
+    tenant_name: str
+    gpu: TenantQuotaComparisonItem
+    cpu: TenantQuotaComparisonItem
+    memory: TenantQuotaComparisonItem
+    storage: TenantQuotaComparisonItem
+
+
+class QuotaTransferRequest(BaseModel):
+    source_tenant_id: uuid.UUID
+    target_tenant_id: uuid.UUID
+    resource_type: Literal["gpu", "cpu", "memory", "storage"]
+    amount: str
+    force: bool = False

@@ -14,6 +14,7 @@ export type AuditAction =
   | 'update_role'
   | 'remove_member'
   | 'update_quota'
+  | 'transfer_quota'
 
 export type ResourceType = 'tenant' | 'user' | 'quota' | 'membership' | 'invitation' | 'credential'
 

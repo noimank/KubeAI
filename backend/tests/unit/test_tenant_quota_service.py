@@ -21,6 +21,12 @@ def _sync_result(value):
     return result
 
 
+def _scalar_result(value):
+    result = MagicMock()
+    result.scalar.return_value = value
+    return result
+
+
 def _make_tenant(name="test-tenant"):
     t = Tenant(name=name, display_name=name, description=None)
     t.id = uuid.uuid4()
@@ -58,7 +64,7 @@ class TestUpdateQuota:
     @patch("app.services.tenant_service.get_cluster_capacity")
     async def test_update_quota_success(self, mock_capacity, mock_used, mock_k8s_update, tenant_service, mock_db):
         tenant = _make_tenant()
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute = AsyncMock(side_effect=[_sync_result(tenant), _scalar_result(0)])
         mock_db.refresh = AsyncMock(return_value=None)
         mock_capacity.return_value = {"gpu": "16", "cpu": "128", "memory": "512GiKi"}
         mock_used.return_value = {
@@ -81,10 +87,10 @@ class TestUpdateQuota:
         self, mock_capacity, mock_used, mock_k8s_update, tenant_service, mock_db
     ):
         tenant = _make_tenant()
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute = AsyncMock(side_effect=[_sync_result(tenant), _scalar_result(0)])
         mock_capacity.return_value = {"gpu": "4", "cpu": "64", "memory": "256GiKi"}
 
-        with pytest.raises(QuotaExceededException, match="超过集群可用资源"):
+        with pytest.raises(QuotaExceededException, match="可分配余量"):
             await tenant_service.update_quota(tenant.id, _quota_req(gpu=8))
 
     @patch("app.services.tenant_service.update_resource_quota")
@@ -94,7 +100,7 @@ class TestUpdateQuota:
         self, mock_capacity, mock_used, mock_k8s_update, tenant_service, mock_db
     ):
         tenant = _make_tenant()
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute = AsyncMock(side_effect=[_sync_result(tenant), _scalar_result(0)])
         mock_capacity.return_value = {"gpu": "16", "cpu": "128", "memory": "512GiKi"}
         mock_used.return_value = {
             "requests.nvidia.com/gpu": "10",
@@ -113,7 +119,7 @@ class TestUpdateQuota:
         self, mock_capacity, mock_used, mock_k8s_update, tenant_service, mock_db
     ):
         tenant = _make_tenant()
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute = AsyncMock(side_effect=[_sync_result(tenant), _scalar_result(0)])
         mock_db.refresh = AsyncMock(return_value=None)
         mock_capacity.return_value = {"gpu": "16", "cpu": "128", "memory": "512GiKi"}
         mock_used.return_value = {
@@ -149,7 +155,7 @@ class TestUpdateQuota:
         self, mock_capacity, mock_used, mock_k8s_update, tenant_service, mock_db
     ):
         tenant = _make_tenant()
-        mock_db.execute.return_value = _sync_result(tenant)
+        mock_db.execute = AsyncMock(side_effect=[_sync_result(tenant), _scalar_result(0)])
         mock_db.refresh = AsyncMock(return_value=None)
         mock_capacity.return_value = {"gpu": "16", "cpu": "128", "memory": "512GiKi"}
         mock_used.return_value = {

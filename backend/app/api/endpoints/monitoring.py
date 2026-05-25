@@ -10,6 +10,9 @@ from app.schemas.base import BaseResponse
 from app.schemas.monitoring import (
     ClusterOverviewResponse,
     NodeResourceDetail,
+    QuotaAllocationOverview,
+    QuotaTransferRequest,
+    TenantQuotaComparison,
     TenantResourceDetail,
     TenantResourceSummary,
 )
@@ -61,3 +64,39 @@ async def get_tenant_resource_detail(
     if data is None:
         raise NotFoundException("租户不存在")
     return BaseResponse(data=TenantResourceDetail(**data))
+
+
+@router.get("/quota-allocation", response_model=BaseResponse[QuotaAllocationOverview])
+async def get_quota_allocation(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _user: Annotated[CurrentUser, Depends(require_permission("monitoring", "manage"))],
+) -> BaseResponse[QuotaAllocationOverview]:
+    service = MonitoringService(db)
+    data = await service.get_quota_allocation_overview()
+    return BaseResponse(data=QuotaAllocationOverview(**data))
+
+
+@router.get("/quota-comparison", response_model=BaseResponse[list[TenantQuotaComparison]])
+async def get_quota_comparison(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _user: Annotated[CurrentUser, Depends(require_permission("monitoring", "manage"))],
+) -> BaseResponse[list[TenantQuotaComparison]]:
+    service = MonitoringService(db)
+    data = await service.get_tenant_quota_comparison()
+    items = [TenantQuotaComparison(**t) for t in data]
+    return BaseResponse(data=items)
+
+
+@router.post("/quota-transfer", response_model=BaseResponse[None])
+async def transfer_quota(
+    req: QuotaTransferRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[CurrentUser, Depends(require_permission("monitoring", "manage"))],
+) -> BaseResponse[None]:
+    service = MonitoringService(db)
+    audit_context = {
+        "user_id": user.id,
+        "ip_address": "",
+    }
+    await service.transfer_quota(req, audit_context)
+    return BaseResponse(message="配额调配成功")
