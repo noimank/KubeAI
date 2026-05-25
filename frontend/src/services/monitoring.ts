@@ -1,10 +1,13 @@
 import { api } from './api'
 import type { BaseResponse } from '@/types/api'
 import type {
+  CleanupResult,
   ClusterOverview,
   NodeResourceDetail,
+  OrphanPVC,
   QuotaAllocationOverview,
   QuotaTransferRequest,
+  StaleJob,
   TenantQuotaComparison,
   TenantResourceDetail,
   TenantResourceSummary,
@@ -44,5 +47,25 @@ export async function getQuotaComparison(): Promise<BaseResponse<TenantQuotaComp
 
 export async function transferQuota(data: QuotaTransferRequest): Promise<BaseResponse<null>> {
   const res = await api.post<BaseResponse<null>>('/monitoring/quota-transfer', data)
+  return res.data
+}
+
+export async function getStaleJobs(): Promise<BaseResponse<StaleJob[]>> {
+  const res = await api.get<BaseResponse<StaleJob[]>>('/monitoring/cleanup/stale-jobs')
+  return res.data
+}
+
+export async function getOrphanPVCs(): Promise<BaseResponse<OrphanPVC[]>> {
+  const res = await api.get<BaseResponse<OrphanPVC[]>>('/monitoring/cleanup/orphan-pvcs')
+  return res.data
+}
+
+export async function cleanupPVCs(items: [string, string][]): Promise<BaseResponse<CleanupResult>> {
+  const res = await api.post<BaseResponse<CleanupResult>>('/monitoring/cleanup/pvcs', { items })
+  return res.data
+}
+
+export async function triggerCleanup(): Promise<BaseResponse<null>> {
+  const res = await api.post<BaseResponse<null>>('/monitoring/cleanup/trigger')
   return res.data
 }

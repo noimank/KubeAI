@@ -1,12 +1,15 @@
 import { useState } from 'react'
-import { Card, Col, Row, Tabs, Typography } from 'antd'
-import { useQuery } from '@tanstack/react-query'
+import { Button, Card, Col, message, Row, Tabs, Typography } from 'antd'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getClusterOverview,
   getNodeDetails,
+  getOrphanPVCs,
   getQuotaAllocationOverview,
   getQuotaComparison,
+  getStaleJobs,
   getTenantResourceSummary,
+  triggerCleanup,
 } from '@/services/monitoring'
 import type { TenantQuotaComparison } from '@/types/monitoring'
 import ClusterOverviewCards from './components/ClusterOverviewCards'
@@ -16,6 +19,8 @@ import TenantResourceDrawer from './components/TenantResourceDrawer'
 import QuotaAllocationBar from './components/QuotaAllocationBar'
 import TenantQuotaTable from './components/TenantQuotaTable'
 import QuotaTransferModal from './components/QuotaTransferModal'
+import StaleJobTable from './components/StaleJobTable'
+import OrphanPVCTable from './components/OrphanPVCTable'
 
 export default function MonitoringPage() {
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null)
@@ -56,6 +61,24 @@ export default function MonitoringPage() {
     refetchInterval: 30_000,
   })
 
+  const queryClient = useQueryClient()
+
+  const { data: staleJobsRes, isLoading: staleJobsLoading } = useQuery({
+    queryKey: ['staleJobs'],
+    queryFn: getStaleJobs,
+    refetchInterval: 30_000,
+  })
+
+  const {
+    data: orphanPVCsRes,
+    isLoading: orphanPVCsLoading,
+    refetch: refetchOrphanPVCs,
+  } = useQuery({
+    queryKey: ['orphanPVCs'],
+    queryFn: getOrphanPVCs,
+    refetchInterval: 30_000,
+  })
+
   const handleTransfer = (tenant?: TenantQuotaComparison) => {
     setTransferFrom(tenant)
     setTransferOpen(true)
@@ -63,6 +86,23 @@ export default function MonitoringPage() {
 
   const handleTransferSuccess = () => {
     refetchComparison()
+  }
+
+  const handleTriggerCleanup = async () => {
+    try {
+      const res = await triggerCleanup()
+      if (res.success) {
+        message.success('清理任务已触发')
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ['staleJobs'] })
+          refetchOrphanPVCs()
+        }, 3000)
+      } else {
+        message.error(res.message || '触发失败')
+      }
+    } catch {
+      message.error('触发清理请求失败')
+    }
   }
 
   return (
@@ -113,6 +153,29 @@ export default function MonitoringPage() {
                     data={comparisonRes?.data ?? []}
                     loading={comparisonLoading}
                     onTransfer={handleTransfer}
+                  />
+                </Card>
+              </>
+            ),
+          },
+          {
+            key: 'cleanup',
+            label: '资源清理',
+            children: (
+              <>
+                <div style={{ marginBottom: 16, textAlign: 'right' }}>
+                  <Button type="primary" onClick={handleTriggerCleanup}>
+                    立即清理
+                  </Button>
+                </div>
+                <Card title="过期任务资源" size="small" style={{ marginBottom: 16 }}>
+                  <StaleJobTable data={staleJobsRes?.data ?? []} loading={staleJobsLoading} />
+                </Card>
+                <Card title="孤立 PVC" size="small">
+                  <OrphanPVCTable
+                    data={orphanPVCsRes?.data ?? []}
+                    loading={orphanPVCsLoading}
+                    onRefresh={refetchOrphanPVCs}
                   />
                 </Card>
               </>

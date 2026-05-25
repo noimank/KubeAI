@@ -60,5 +60,18 @@ async def namespace_exists(name: str) -> bool:
         raise
 
 
+async def list_tenant_namespaces() -> list[str]:
+    k8s = await get_k8s_clients()
+    core_v1: client.CoreV1Api = k8s["core_v1"]
+    try:
+        ns_list = await core_v1.list_namespace(
+            label_selector=f"{TENANT_NAMESPACE_LABEL_KEY}={TENANT_NAMESPACE_LABEL_VALUE}"
+        )
+        return [ns.metadata.name for ns in ns_list.items if ns.metadata and ns.metadata.name]
+    except ApiException:
+        logger.exception("list_tenant_namespaces_failed")
+        return []
+
+
 def make_namespace_name(tenant_name: str) -> str:
     return f"{K8S_NAMESPACE_PREFIX}{sanitize_k8s_name(tenant_name)}"

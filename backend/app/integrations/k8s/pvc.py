@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 
 from kubernetes_asyncio import client
 from kubernetes_asyncio.client.rest import ApiException
@@ -9,6 +10,15 @@ from app.integrations.k8s.client import get_k8s_clients
 logger = logging.getLogger(__name__)
 
 KUBEAI_DATA_DIR = "/data/kubeai"
+
+
+@dataclass
+class PVCInfo:
+    name: str
+    namespace: str
+    storage: str
+    labels: dict[str, str]
+    creation_timestamp: str | None
 
 
 async def create_pvc(
@@ -76,6 +86,54 @@ async def delete_pvc(namespace: str, pvc_name: str) -> None:
 
 def make_dataset_pvc_name(dataset_name: str, version_number: int) -> str:
     return f"dataset-{sanitize_k8s_name(dataset_name)}-v{version_number}"
+
+
+async def list_namespace_pvcs(namespace: str) -> list[PVCInfo]:
+    k8s = await get_k8s_clients()
+    core_v1: client.CoreV1Api = k8s["core_v1"]
+    try:
+        resp = await core_v1.list_namespaced_persistent_volume_claim(namespace=namespace)
+        result: list[PVCInfo] = []
+        for pvc in resp.items:
+            if not pvc.metadata or not pvc.metadata.name:
+                continue
+            storage = ""
+            if pvc.spec and pvc.spec.resources and pvc.spec.resources.requests:
+                storage = pvc.spec.resources.requests.get("storage", "")
+            result.append(
+                PVCInfo(
+                    name=pvc.metadata.name,
+                    namespace=namespace,
+                    storage=storage,
+                    labels=pvc.metadata.labels or {},
+                    creation_timestamp=pvc.metadata.creation_timestamp.isoformat()
+                    if pvc.metadata.creation_timestamp
+                    else None,
+                )
+            )
+        return result
+    except ApiException:
+        logger.exception("list_namespace_pvcs_failed: namespace=%s", namespace)
+        return []
+
+
+async def list_namespace_pods_by_pvc(namespace: str, pvc_name: str) -> list[str]:
+    k8s = await get_k8s_clients()
+    core_v1: client.CoreV1Api = k8s["core_v1"]
+    try:
+        pods = await core_v1.list_namespaced_pod(namespace=namespace)
+        mounted_pods: list[str] = []
+        for pod in pods.items:
+            if not pod.spec or not pod.metadata or not pod.metadata.name:
+                continue
+            for volume in pod.spec.volumes or []:
+                if volume.persistent_volume_claim and volume.persistent_volume_claim.claim_name == pvc_name:
+                    mounted_pods.append(pod.metadata.name)
+                    break
+        return mounted_pods
+    except ApiException:
+        logger.exception("list_namespace_pods_by_pvc_failed: namespace=%s pvc=%s", namespace, pvc_name)
+        return []
 
 
 def make_workspace_host_path(tenant_name: str) -> str:

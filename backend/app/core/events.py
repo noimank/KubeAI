@@ -21,6 +21,7 @@ from app.models.enums import TenantStatus, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.idle_checker import IdleChecker
+from app.services.resource_cleaner import ResourceCleaner
 
 logger = structlog.get_logger()
 
@@ -30,6 +31,7 @@ prometheus_client: PrometheusClient | None = None
 labelstudio_client: LabelStudioClient | None = None
 mlflow_client: MLflowClient | None = None
 idle_checker: IdleChecker | None = None
+resource_cleaner: ResourceCleaner | None = None
 _metrics_push_task: asyncio.Task[None] | None = None
 
 
@@ -57,6 +59,10 @@ def get_labelstudio_client() -> LabelStudioClient:
 
 def get_mlflow_client() -> MLflowClient | None:
     return mlflow_client
+
+
+def get_resource_cleaner() -> ResourceCleaner | None:
+    return resource_cleaner
 
 
 async def _init_admin_user() -> None:
@@ -134,7 +140,7 @@ async def _metrics_push_loop() -> None:
 
 async def on_startup() -> None:
     global minio_client, prometheus_client, labelstudio_client
-    global harbor_client, mlflow_client, idle_checker
+    global harbor_client, mlflow_client, idle_checker, resource_cleaner
     await init_redis()
     CasbinEnforcer.initialize(settings.DATABASE_URL)
     await _init_admin_user()
@@ -160,6 +166,10 @@ async def on_startup() -> None:
     idle_checker = IdleChecker()
     idle_checker.start()
 
+    if settings.RESOURCE_CLEANUP_ENABLED:
+        resource_cleaner = ResourceCleaner()
+        resource_cleaner.start()
+
     # Start cluster metrics push background task
     global _metrics_push_task
     _metrics_push_task = asyncio.create_task(_metrics_push_loop())
@@ -169,7 +179,7 @@ async def on_startup() -> None:
 
 async def on_shutdown() -> None:
     global prometheus_client, labelstudio_client, harbor_client, minio_client, mlflow_client
-    global idle_checker, _metrics_push_task
+    global idle_checker, resource_cleaner, _metrics_push_task
 
     if _metrics_push_task:
         _metrics_push_task.cancel()
@@ -185,6 +195,9 @@ async def on_shutdown() -> None:
     if idle_checker:
         await idle_checker.stop()
         idle_checker = None
+    if resource_cleaner:
+        await resource_cleaner.stop()
+        resource_cleaner = None
     if prometheus_client:
         await prometheus_client.close()
         prometheus_client = None
