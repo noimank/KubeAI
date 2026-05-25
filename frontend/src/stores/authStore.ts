@@ -3,6 +3,7 @@ import type { User } from '@/types/auth'
 import { useRbacStore } from './rbacStore'
 import { useTenantStore } from './tenantStore'
 import { useNotificationStore } from './notificationStore'
+import { useWsStore } from './wsStore'
 import { getCurrentUser } from '@/services/auth'
 
 export const ACCESS_TOKEN_KEY = 'kubeai_access_token'
@@ -60,10 +61,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
 
     useNotificationStore.getState().fetchUnreadCount()
+
+    useWsStore.getState().connect()
   },
 
   logout: () => {
     callLogoutApi()
+    useWsStore.getState().disconnect()
     localStorage.removeItem(ACCESS_TOKEN_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)
     useRbacStore.getState().clearRbac()
@@ -94,6 +98,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           useTenantStore.getState().fetchCurrentTenant()
         }
         set({ user: res.data, isAuthenticated: true, isInitializing: false })
+        useWsStore.getState().connect()
       } else {
         set({ isInitializing: false })
       }

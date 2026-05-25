@@ -4,6 +4,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenException, NotFoundException
+from app.core.ws_pubsub import get_ws_pubsub
 from app.models.enums import NotificationPriority, NotificationType
 from app.models.notification import Notification
 
@@ -35,6 +36,8 @@ class NotificationService:
         )
         self.db.add(notification)
         await self.db.flush()
+
+        self._publish_notification(notification)
         return notification
 
     async def create_notification_for_users(
@@ -63,6 +66,10 @@ class NotificationService:
         ]
         self.db.add_all(notifications)
         await self.db.flush()
+
+        for n in notifications:
+            self._publish_notification(n)
+
         return notifications
 
     async def list_notifications(
@@ -118,3 +125,25 @@ class NotificationService:
         rows = result.fetchall()
         await self.db.flush()
         return len(rows)
+
+    @staticmethod
+    def _publish_notification(notification: Notification) -> None:
+        pubsub = get_ws_pubsub()
+        if pubsub is None:
+            return
+        import asyncio
+
+        asyncio.ensure_future(  # noqa: RUF006
+            pubsub.publish(
+                tenant_id=notification.tenant_id,
+                event="notification.created",
+                payload={
+                    "id": str(notification.id),
+                    "type": notification.type.value if notification.type else None,
+                    "title": notification.title,
+                    "resource_type": notification.resource_type,
+                    "resource_id": notification.resource_id,
+                },
+                target_user_id=notification.user_id,
+            )
+        )

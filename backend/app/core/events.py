@@ -4,8 +4,10 @@ from sqlalchemy import select
 from app.core.casbin import CasbinEnforcer
 from app.core.config import settings
 from app.core.database import async_session_factory, close_db
-from app.core.redis import close_redis, init_redis
+from app.core.redis import _redis_pool, close_redis, init_redis
 from app.core.security import hash_password
+from app.core.ws_manager import ConnectionManager, set_ws_manager
+from app.core.ws_pubsub import WebSocketPubSub, set_ws_pubsub
 from app.integrations.harbor.client import HarborClient
 from app.integrations.jupyterhub.client import close_jupyterhub_client
 from app.integrations.k8s.client import close_k8s_clients
@@ -118,6 +120,17 @@ async def on_startup() -> None:
     await init_redis()
     CasbinEnforcer.initialize(settings.DATABASE_URL)
     await _init_admin_user()
+
+    # WebSocket infrastructure
+    ws_manager = ConnectionManager()
+    set_ws_manager(ws_manager)
+    if _redis_pool is not None:
+        ws_pubsub = WebSocketPubSub(_redis_pool)
+        set_ws_pubsub(ws_pubsub)
+        await ws_pubsub.subscribe()
+    else:
+        set_ws_pubsub(None)
+
     minio_client = MinIOClient()
     harbor_client = HarborClient()
     if settings.PROMETHEUS_URL:
@@ -134,6 +147,14 @@ async def on_startup() -> None:
 async def on_shutdown() -> None:
     global prometheus_client, labelstudio_client, harbor_client, minio_client, mlflow_client
     global idle_checker
+
+    from app.core.ws_pubsub import get_ws_pubsub
+
+    ws_pubsub = get_ws_pubsub()
+    if ws_pubsub:
+        await ws_pubsub.close()
+        set_ws_pubsub(None)
+
     if idle_checker:
         await idle_checker.stop()
         idle_checker = None

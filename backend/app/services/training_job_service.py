@@ -14,6 +14,7 @@ from app.core.exceptions import (
     NotFoundException,
     QuotaExceededException,
 )
+from app.core.ws_pubsub import get_ws_pubsub
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.pod import get_pod_failure_info, get_pod_log, list_vcjob_pods, stream_pod_logs
@@ -265,6 +266,7 @@ class TrainingJobService:
                 await self.db.commit()
                 for job in modified_jobs:
                     await self.db.refresh(job)
+                    self._publish_status_change(job.tenant_id, job.id, job.status, job.status)
 
         return jobs, total
 
@@ -443,6 +445,9 @@ class TrainingJobService:
                         )
                     except Exception as e:
                         logger.warning("Failed to send notification for job %s: %s", job.id, e)
+
+                    # WebSocket push
+                    self._publish_status_change(job.tenant_id, job.id, old_status, new_status.value)
         except Exception as e:
             logger.warning("Failed to sync VCJob status for %s: %s", job.vcjob_name, e)
 
@@ -490,6 +495,21 @@ class TrainingJobService:
                 job.started_at = job.created_at
             if not job.finished_at:
                 job.finished_at = datetime.now(UTC)
+
+    @staticmethod
+    def _publish_status_change(tenant_id: uuid.UUID, job_id: uuid.UUID, old_status: str, new_status: str) -> None:
+        pubsub = get_ws_pubsub()
+        if pubsub is None:
+            return
+        import asyncio
+
+        _task = asyncio.ensure_future(  # noqa: RUF006
+            pubsub.publish(
+                tenant_id=tenant_id,
+                event="training.status_changed",
+                payload={"id": str(job_id), "old_status": old_status, "new_status": new_status},
+            )
+        )
 
     async def stream_logs(
         self,

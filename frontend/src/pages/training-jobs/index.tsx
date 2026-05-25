@@ -6,19 +6,8 @@ import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
-import { useWebSocket } from '@/hooks/useWebSocket'
 import { getTrainingJob, getTrainingJobs, stopTrainingJob } from '@/services/training-jobs'
-import type { PageData } from '@/types/api'
 import type { TrainingJob, TrainingJobStatus } from '@/types/training-job'
-
-const WS_BASE_URL = (() => {
-  const base = import.meta.env.VITE_API_BASE_URL || '/api'
-  if (base.startsWith('http')) {
-    return base.replace(/^http/, 'ws')
-  }
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}${base}`
-})()
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   pending: { color: 'default', text: '等待中' },
@@ -81,32 +70,6 @@ export default function TrainingJobsPage() {
       )
       return hasActive ? 5000 : false
     },
-  })
-
-  const handleWsMessage = useCallback(
-    (msg: unknown) => {
-      const payload = msg as { event?: string; data?: { id?: string; status?: TrainingJobStatus } }
-      if (payload.event !== 'training.status_changed' || !payload.data?.id) return
-      queryClient.setQueryData<PageData<TrainingJob>>(
-        ['trainingJobs', page, pageSize, statusFilter, keyword],
-        (old: PageData<TrainingJob> | undefined) => {
-          if (!old?.items) return old
-          return {
-            ...old,
-            items: old.items.map((j: TrainingJob) =>
-              j.id === payload.data!.id ? { ...j, status: payload.data!.status ?? j.status } : j,
-            ),
-          }
-        },
-      )
-    },
-    [queryClient, page, pageSize, statusFilter, keyword],
-  )
-
-  useWebSocket({
-    url: `${WS_BASE_URL}/ws/training-jobs`,
-    onMessage: handleWsMessage,
-    enabled: true,
   })
 
   const stopMutation = useMutation({

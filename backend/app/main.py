@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.endpoints.router import api_router
+from app.api.endpoints.ws import router as ws_router
 from app.core.config import settings
 from app.core.events import on_shutdown, on_startup
 from app.core.exceptions import AppException
@@ -32,3 +33,4 @@ app.add_exception_handler(AppException, app_exception_handler)  # type: ignore[a
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.include_router(api_router, prefix=settings.API_PREFIX)
+app.include_router(ws_router)

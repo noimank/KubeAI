@@ -13,6 +13,7 @@ from app.core.exceptions import (
     QuotaExceededException,
 )
 from app.core.security import generate_api_token, hash_api_token
+from app.core.ws_pubsub import get_ws_pubsub
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.resource_quota import get_quota_used
@@ -799,11 +800,12 @@ class InferenceServiceService:
                     svc.error_message = message
 
         if new_status != svc.status:
+            old_status = svc.status
             logger.info(
                 "inference_service_status_changed",
                 extra={
                     "service_id": str(svc.id),
-                    "old_status": svc.status,
+                    "old_status": old_status,
                     "new_status": new_status,
                     "tenant_id": str(svc.tenant_id),
                     "reason": ready_condition.get("reason", ""),
@@ -843,7 +845,8 @@ class InferenceServiceService:
                 except Exception as e:
                     logger.warning("Failed to send inference failure notification for %s: %s", svc.id, e)
 
-        # Sync canary status
+            # WebSocket push
+            self._publish_status_change(svc.tenant_id, svc.id, old_status, new_status.value)
         if svc.canary_kserve_name:
             canary_obj = await get_inferenceservice(namespace, svc.canary_kserve_name)
             if canary_obj is None:
@@ -905,3 +908,23 @@ class InferenceServiceService:
         if not version:
             raise NotFoundException("模型版本不存在")
         return version
+
+    @staticmethod
+    def _publish_status_change(
+        tenant_id: uuid.UUID,
+        service_id: uuid.UUID,
+        old_status: str,
+        new_status: str,
+    ) -> None:
+        pubsub = get_ws_pubsub()
+        if pubsub is None:
+            return
+        import asyncio
+
+        _task = asyncio.ensure_future(  # noqa: RUF006
+            pubsub.publish(
+                tenant_id=tenant_id,
+                event="inference.status_changed",
+                payload={"id": str(service_id), "old_status": old_status, "new_status": new_status},
+            )
+        )

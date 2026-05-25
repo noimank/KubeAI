@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { Space, Avatar, Dropdown, Tooltip } from 'antd'
 import type { CSSProperties, ReactNode } from 'react'
 import {
@@ -10,8 +10,8 @@ import {
   MoonOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
-import { useQuery } from '@tanstack/react-query'
 
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { useNotificationStore } from '@/stores/notificationStore'
@@ -66,14 +66,9 @@ export function Header() {
   const unreadCount = useNotificationStore((s) => s.unreadCount)
   const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount)
 
-  useQuery({
-    queryKey: ['unreadCount'],
-    queryFn: async () => {
-      await fetchUnreadCount()
-      return null
-    },
-    refetchInterval: 60_000,
-  })
+  useEffect(() => {
+    fetchUnreadCount()
+  }, [fetchUnreadCount])
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === 'logout') {

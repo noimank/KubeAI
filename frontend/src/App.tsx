@@ -1,7 +1,7 @@
 import { useMemo, lazy, Suspense, useEffect } from 'react'
 import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd'
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import zhCN from 'antd/locale/zh_CN'
 import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
@@ -11,6 +11,7 @@ import { setMessageInstance } from './utils/messageHolder'
 import { setModalInstance } from './utils/modalHolder'
 import { useAuthStore } from './stores/authStore'
 import { useThemeStore } from './stores/themeStore'
+import { queryClient } from './lib/queryClient'
 
 const LoginPage = lazy(() => import('./pages/login'))
 const OAuthCallbackPage = lazy(() => import('./pages/login/callback'))
@@ -41,15 +42,6 @@ const TenantsPage = lazy(() => import('./pages/admin/tenants'))
 const TenantDetailPage = lazy(() => import('./pages/admin/tenants/detail'))
 const UsersPage = lazy(() => import('./pages/admin/users'))
 const AuditLogsPage = lazy(() => import('./pages/admin/audit-logs'))
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-})
 
 function LoadingFallback() {
   return (

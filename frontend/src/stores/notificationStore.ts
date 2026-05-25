@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { message } from 'antd'
 import { getUnreadCount } from '@/services/notifications'
 
 interface NotificationState {
@@ -6,6 +7,7 @@ interface NotificationState {
   fetchUnreadCount: () => Promise<void>
   decrementUnread: () => void
   clearUnread: () => void
+  handleWsNotification: (payload: Record<string, unknown>) => void
 }
 
 export const useNotificationStore = create<NotificationState>((set) => ({
@@ -23,4 +25,12 @@ export const useNotificationStore = create<NotificationState>((set) => ({
   decrementUnread: () => set((s) => ({ unreadCount: Math.max(0, s.unreadCount - 1) })),
 
   clearUnread: () => set({ unreadCount: 0 }),
+
+  handleWsNotification: (payload: Record<string, unknown>) => {
+    set((s) => ({ unreadCount: s.unreadCount + 1 }))
+    const title = payload.title as string | undefined
+    if (title) {
+      message.info({ content: title, duration: 3 })
+    }
+  },
 }))

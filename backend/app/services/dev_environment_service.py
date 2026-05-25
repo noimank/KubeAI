@@ -16,6 +16,7 @@ from app.core.exceptions import (
     QuotaExceededException,
 )
 from app.core.security import create_access_token, decode_token
+from app.core.ws_pubsub import get_ws_pubsub
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.jupyterhub.client import get_jupyterhub_client
 from app.integrations.k8s.namespace import make_namespace_name
@@ -477,13 +478,15 @@ class DevEnvironmentService:
             env.stopped_reason = None
 
         if new_status != env.status:
+            old_status = env.status
             logger.info(
                 "dev_environment_status_changed",
                 env_id=str(env.id),
-                old_status=env.status,
+                old_status=old_status,
                 new_status=new_status,
             )
             env.status = new_status
+            self._publish_status_change(env.tenant_id, env.id, old_status, new_status.value)
 
     def _mark_missing_server_status(self, env: DevEnvironment, message: str) -> None:
         if env.status in (DevEnvironmentStatus.PENDING, DevEnvironmentStatus.CREATING):
@@ -618,3 +621,23 @@ class DevEnvironmentService:
             raise NotFoundException("数据集版本不存在")
 
         return dataset, version
+
+    @staticmethod
+    def _publish_status_change(
+        tenant_id: uuid.UUID,
+        env_id: uuid.UUID,
+        old_status: str,
+        new_status: str,
+    ) -> None:
+        pubsub = get_ws_pubsub()
+        if pubsub is None:
+            return
+        import asyncio
+
+        _task = asyncio.ensure_future(  # noqa: RUF006
+            pubsub.publish(
+                tenant_id=tenant_id,
+                event="dev_environment.status_changed",
+                payload={"id": str(env_id), "old_status": old_status, "new_status": new_status},
+            )
+        )
