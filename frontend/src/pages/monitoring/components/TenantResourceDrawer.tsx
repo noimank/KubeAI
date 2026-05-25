@@ -2,6 +2,7 @@ import { Descriptions, Divider, Drawer, Spin, Table } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { getTenantResourceDetail } from '@/services/monitoring'
 import type { JobSummary, ServiceSummary, TenantResourceDetail as Detail } from '@/types/monitoring'
+import { formatKi, parseK8sQuantity } from '@/utils/format'
 
 interface Props {
   tenantId: string | null
@@ -9,7 +10,16 @@ interface Props {
 }
 
 function toNum(v: number | string): number {
-  return typeof v === 'number' ? v : parseFloat(v) || 0
+  return parseK8sQuantity(v)
+}
+
+function formatMemDisplay(v: number | string): string {
+  return formatKi(parseK8sQuantity(v))
+}
+
+function formatCpuDisplay(v: number | string): string {
+  const cores = parseK8sQuantity(v)
+  return cores % 1 === 0 ? `${cores} 核` : `${cores.toFixed(1)} 核`
 }
 
 const jobColumns = [
@@ -55,13 +65,13 @@ export default function TenantResourceDrawer({ tenantId, onClose }: Props) {
               {toNum(detail.gpu.used)} / {toNum(detail.gpu.quota)}
             </Descriptions.Item>
             <Descriptions.Item label="CPU 使用">
-              {toNum(detail.cpu.used)} / {toNum(detail.cpu.quota)}
+              {formatCpuDisplay(detail.cpu.used)} / {formatCpuDisplay(detail.cpu.quota)}
             </Descriptions.Item>
             <Descriptions.Item label="内存使用">
-              {detail.memory.used} / {detail.memory.quota}
+              {formatMemDisplay(detail.memory.used)} / {formatMemDisplay(detail.memory.quota)}
             </Descriptions.Item>
             <Descriptions.Item label="存储使用">
-              {detail.storage.used} / {detail.storage.quota}
+              {formatMemDisplay(detail.storage.used)} / {formatMemDisplay(detail.storage.quota)}
             </Descriptions.Item>
           </Descriptions>
 

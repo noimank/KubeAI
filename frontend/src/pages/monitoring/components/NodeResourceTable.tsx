@@ -1,6 +1,7 @@
 import { Progress, Table, Tag } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { NodeResourceDetail as NodeDetail } from '@/types/monitoring'
+import { formatKi } from '@/utils/format'
 
 interface Props {
   data: NodeDetail[]
@@ -58,7 +59,14 @@ const columns: ColumnsType<NodeDetail> = [
     render: (_, record) => {
       const { allocatable, allocated } = record.cpu
       const pct = allocatable > 0 ? Math.round((allocated / allocatable) * 100) : 0
-      return <Progress percent={pct} strokeColor={getUtilColor(pct)} size="small" />
+      return (
+        <div>
+          <span style={{ fontSize: 12, marginRight: 8 }}>
+            {allocated}/{allocatable} 核
+          </span>
+          <Progress percent={pct} strokeColor={getUtilColor(pct)} size="small" />
+        </div>
+      )
     },
   },
   {
@@ -68,7 +76,14 @@ const columns: ColumnsType<NodeDetail> = [
     render: (_, record) => {
       const { allocatable, allocated } = record.memory
       const pct = allocatable > 0 ? Math.round((allocated / allocatable) * 100) : 0
-      return <Progress percent={pct} strokeColor={getUtilColor(pct)} size="small" />
+      return (
+        <div>
+          <span style={{ fontSize: 12, marginRight: 8 }}>
+            {formatKi(allocated)}/{formatKi(allocatable)}
+          </span>
+          <Progress percent={pct} strokeColor={getUtilColor(pct)} size="small" />
+        </div>
+      )
     },
   },
 ]

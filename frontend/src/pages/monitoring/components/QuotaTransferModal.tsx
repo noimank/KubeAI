@@ -16,6 +16,7 @@ import { getMessageInstance } from '@/utils/messageHolder'
 import { getModalInstance } from '@/utils/modalHolder'
 import { transferQuota } from '@/services/monitoring'
 import type { QuotaTransferRequest, TenantQuotaComparison } from '@/types/monitoring'
+import { formatKi } from '@/utils/format'
 
 interface Props {
   open: boolean
@@ -25,14 +26,8 @@ interface Props {
   onSuccess: () => void
 }
 
-function formatMem(ki: number): string {
-  if (ki >= 1024 ** 2) return `${(ki / 1024 ** 2).toFixed(0)} Gi`
-  if (ki >= 1024) return `${(ki / 1024).toFixed(0)} Mi`
-  return `${ki} Ki`
-}
-
 function formatQuotaValue(type: string, val: number): string {
-  if (type === 'memory' || type === 'storage') return formatMem(val)
+  if (type === 'memory' || type === 'storage') return formatKi(val)
   return `${val}`
 }
 

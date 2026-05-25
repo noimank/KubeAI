@@ -1,6 +1,7 @@
 import { Card, Col, Progress, Row, Statistic } from 'antd'
 import { DashboardOutlined, DesktopOutlined, CloudOutlined, HddOutlined } from '@ant-design/icons'
 import type { ClusterOverview } from '@/types/monitoring'
+import { formatKi } from '@/utils/format'
 
 interface Props {
   data: ClusterOverview | null
@@ -16,16 +17,14 @@ function getUtilColor(pct: number): string {
 function MetricCard({
   title,
   icon,
-  used,
-  total,
-  unit,
+  usedDisplay,
+  totalDisplay,
   utilization,
 }: {
   title: string
   icon: React.ReactNode
-  used: number
-  total: number
-  unit?: string
+  usedDisplay: string
+  totalDisplay?: string
   utilization: number
 }) {
   const color = getUtilColor(utilization)
@@ -34,8 +33,8 @@ function MetricCard({
       <Statistic
         title={title}
         prefix={icon}
-        value={used}
-        suffix={unit ? ` / ${total} ${unit}` : ''}
+        value={usedDisplay}
+        suffix={totalDisplay ? ` / ${totalDisplay}` : ''}
       />
       <Progress
         type="dashboard"
@@ -68,8 +67,8 @@ export default function ClusterOverviewCards({ data, loading }: Props) {
         <MetricCard
           title="GPU"
           icon={<DashboardOutlined />}
-          used={data.gpu.used}
-          total={data.gpu.total}
+          usedDisplay={`${data.gpu.used}`}
+          totalDisplay={`${data.gpu.total}`}
           utilization={data.gpu.utilization}
         />
       </Col>
@@ -77,9 +76,8 @@ export default function ClusterOverviewCards({ data, loading }: Props) {
         <MetricCard
           title="CPU 使用率"
           icon={<DesktopOutlined />}
-          used={data.cpu.used}
-          total={data.cpu.total}
-          unit="核"
+          usedDisplay={`${data.cpu.used}`}
+          totalDisplay={`${data.cpu.total} 核`}
           utilization={data.cpu.utilization}
         />
       </Col>
@@ -87,14 +85,18 @@ export default function ClusterOverviewCards({ data, loading }: Props) {
         <MetricCard
           title="内存使用率"
           icon={<CloudOutlined />}
-          used={data.memory.used}
-          total={data.memory.total}
+          usedDisplay={formatKi(data.memory.used)}
+          totalDisplay={formatKi(data.memory.total)}
           utilization={data.memory.utilization}
         />
       </Col>
       <Col xs={24} sm={12} lg={6}>
         <Card hoverable>
-          <Statistic title="存储使用" prefix={<HddOutlined />} value={data.storage.used} />
+          <Statistic
+            title="存储使用"
+            prefix={<HddOutlined />}
+            value={formatKi(data.storage.used)}
+          />
         </Card>
       </Col>
     </Row>

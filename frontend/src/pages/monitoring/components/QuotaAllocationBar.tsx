@@ -1,22 +1,18 @@
 import { Progress, Space, Typography } from 'antd'
 import type { QuotaAllocationOverview } from '@/types/monitoring'
+import { formatKi } from '@/utils/format'
 
 interface Props {
   data: QuotaAllocationOverview | null
+  loading?: boolean
 }
 
 const RESOURCE_LABELS = [
   { key: 'gpu' as const, label: 'GPU', unit: '张', format: (v: number) => `${v}` },
   { key: 'cpu' as const, label: 'CPU', unit: '核', format: (v: number) => `${v}` },
-  { key: 'memory' as const, label: '内存', unit: '', format: formatMemory },
-  { key: 'storage' as const, label: '存储', unit: '', format: formatMemory },
+  { key: 'memory' as const, label: '内存', unit: '', format: formatKi },
+  { key: 'storage' as const, label: '存储', unit: '', format: formatKi },
 ]
-
-function formatMemory(ki: number): string {
-  if (ki >= 1024 ** 2) return `${(ki / 1024 ** 2).toFixed(0)} Gi`
-  if (ki >= 1024) return `${(ki / 1024).toFixed(0)} Mi`
-  return `${ki} Ki`
-}
 
 export default function QuotaAllocationBar({ data }: Props) {
   if (!data) return null

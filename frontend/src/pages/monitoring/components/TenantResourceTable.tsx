@@ -1,6 +1,7 @@
 import { Progress, Table } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { TenantResourceSummary as TenantSummary } from '@/types/monitoring'
+import { formatKi, parseK8sQuantity } from '@/utils/format'
 
 interface Props {
   data: TenantSummary[]
@@ -14,16 +15,33 @@ function getUtilColor(pct: number): string {
   return '#52c41a'
 }
 
-function toNum(v: number | string): number {
-  return typeof v === 'number' ? v : parseFloat(v) || 0
-}
-
-function renderQuotaProgress(used: number | string, quota: number | string) {
-  const u = toNum(used)
-  const q = toNum(quota)
+function renderQuotaProgress(
+  used: number | string,
+  quota: number | string,
+  type: 'gpu' | 'cpu' | 'memory' | 'storage',
+) {
+  const u = parseK8sQuantity(used)
+  const q = parseK8sQuantity(quota)
   const pct = q > 0 ? Math.round((u / q) * 100) : 0
+
+  let usedStr: string
+  let quotaStr: string
+  if (type === 'memory' || type === 'storage') {
+    usedStr = formatKi(u)
+    quotaStr = formatKi(q)
+  } else if (type === 'cpu') {
+    usedStr = `${u} 核`
+    quotaStr = `${q} 核`
+  } else {
+    usedStr = `${u}`
+    quotaStr = `${q}`
+  }
+
   return (
-    <div style={{ minWidth: 80 }}>
+    <div style={{ minWidth: 100 }}>
+      <div style={{ fontSize: 12, marginBottom: 2 }}>
+        {usedStr} / {quotaStr}
+      </div>
       <Progress percent={pct} strokeColor={getUtilColor(pct)} size="small" />
     </div>
   )
@@ -41,19 +59,19 @@ const columns: ColumnsType<TenantSummary> = [
     title: 'GPU',
     key: 'gpu',
     width: 120,
-    render: (_, record) => renderQuotaProgress(record.gpu.used, record.gpu.quota),
+    render: (_, record) => renderQuotaProgress(record.gpu.used, record.gpu.quota, 'gpu'),
   },
   {
     title: 'CPU',
     key: 'cpu',
     width: 120,
-    render: (_, record) => renderQuotaProgress(record.cpu.used, record.cpu.quota),
+    render: (_, record) => renderQuotaProgress(record.cpu.used, record.cpu.quota, 'cpu'),
   },
   {
     title: '内存',
     key: 'memory',
     width: 120,
-    render: (_, record) => renderQuotaProgress(record.memory.used, record.memory.quota),
+    render: (_, record) => renderQuotaProgress(record.memory.used, record.memory.quota, 'memory'),
   },
   {
     title: '任务',

@@ -37,6 +37,7 @@ import {
 } from '@/services/tenants'
 import { getAuditLogs } from '@/services/audit'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { formatKi } from '@/utils/format'
 import type { Tenant, TenantUpdateRequest, QuotaUsage, TenantMember } from '@/types/tenant'
 import type { AuditLog, AuditAction, ResourceType } from '@/types/audit'
 
@@ -75,6 +76,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   update_role: '变更角色',
   remove_member: '移除成员',
   update_quota: '调整配额',
+  transfer_quota: '配额调配',
 }
 const ACTION_COLORS: Record<string, string> = {
   create: 'green',
@@ -111,7 +113,7 @@ const RESOURCE_COLORS: Record<string, string> = {
 const ACTION_OPTIONS = Object.entries(ACTION_LABELS).map(([value, label]) => ({ label, value }))
 const RESOURCE_OPTIONS = Object.entries(RESOURCE_LABELS).map(([value, label]) => ({ label, value }))
 
-function parseK8sQuantity(val: string): number {
+function parseK8sQuantityLocal(val: string): number {
   if (!val) return 0
   if (val.endsWith('Gi')) return parseFloat(val) * 1024
   if (val.endsWith('Mi')) return parseFloat(val)
@@ -123,7 +125,9 @@ function parseK8sQuantity(val: string): number {
 }
 
 function formatQuotaValue(val: string | number): string {
-  if (typeof val === 'number') return `${val}`
+  if (typeof val === 'number') return formatKi(val)
+  const ki = parseK8sQuantityLocal(val)
+  if (ki > 0) return formatKi(ki)
   return val
 }
 
@@ -300,13 +304,16 @@ export default function TenantDetailPage() {
   const gpuPercent =
     usage && tenant.gpuLimit > 0 ? Math.round((usage.gpuUsed / tenant.gpuLimit) * 100) : 0
   const cpuPercent =
-    usage && parseK8sQuantity(tenant.cpuLimit) > 0
-      ? Math.round((parseK8sQuantity(usage.cpuUsed) / parseK8sQuantity(tenant.cpuLimit)) * 100)
+    usage && parseK8sQuantityLocal(tenant.cpuLimit) > 0
+      ? Math.round(
+          (parseK8sQuantityLocal(usage.cpuUsed) / parseK8sQuantityLocal(tenant.cpuLimit)) * 100,
+        )
       : 0
   const memPercent =
-    usage && parseK8sQuantity(tenant.memoryLimit) > 0
+    usage && parseK8sQuantityLocal(tenant.memoryLimit) > 0
       ? Math.round(
-          (parseK8sQuantity(usage.memoryUsed) / parseK8sQuantity(tenant.memoryLimit)) * 100,
+          (parseK8sQuantityLocal(usage.memoryUsed) / parseK8sQuantityLocal(tenant.memoryLimit)) *
+            100,
         )
       : 0
 

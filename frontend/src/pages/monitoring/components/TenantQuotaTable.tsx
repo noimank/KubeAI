@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Button, Progress, Table } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { TenantQuotaComparison as QuotaRow } from '@/types/monitoring'
+import { formatKi } from '@/utils/format'
 
 interface Props {
   data: QuotaRow[]
@@ -15,16 +16,10 @@ function getUtilColor(pct: number): string {
   return '#52c41a'
 }
 
-function formatMem(ki: number): string {
-  if (ki >= 1024 ** 2) return `${(ki / 1024 ** 2).toFixed(0)} Gi`
-  if (ki >= 1024) return `${(ki / 1024).toFixed(0)} Mi`
-  return `${ki} Ki`
-}
-
 function renderUtilColumn(used: number, quota: number, isMemory: boolean) {
   const pct = quota > 0 ? Math.round((used / quota) * 100) : 0
-  const usedStr = isMemory ? formatMem(used) : `${used}`
-  const quotaStr = isMemory ? formatMem(quota) : `${quota}`
+  const usedStr = isMemory ? formatKi(used) : `${used}`
+  const quotaStr = isMemory ? formatKi(quota) : `${quota}`
   return (
     <div style={{ minWidth: 100 }}>
       <div style={{ fontSize: 12, marginBottom: 2 }}>
