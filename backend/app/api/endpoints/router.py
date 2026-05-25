@@ -12,6 +12,7 @@ from app.api.endpoints.images import router as images_router
 from app.api.endpoints.inference_proxy import router as inference_proxy_router
 from app.api.endpoints.inference_services import router as inference_services_router
 from app.api.endpoints.model_registry import router as model_registry_router
+from app.api.endpoints.monitoring import router as monitoring_router
 from app.api.endpoints.notifications import router as notifications_router
 from app.api.endpoints.tenants import router as tenants_router
 from app.api.endpoints.training_jobs import router as training_jobs_router
@@ -39,6 +40,7 @@ api_router.include_router(images_router)
 api_router.include_router(inference_services_router)
 api_router.include_router(inference_proxy_router)
 api_router.include_router(model_registry_router)
+api_router.include_router(monitoring_router)
 api_router.include_router(notifications_router)
 api_router.include_router(tenants_router)
 api_router.include_router(training_jobs_router)

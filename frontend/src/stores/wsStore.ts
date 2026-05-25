@@ -100,5 +100,9 @@ function handleMessage(data: { event: string; payload: Record<string, unknown> }
         queryClient.invalidateQueries({ queryKey: ['devEnvironment', data.payload.id as string] })
       }
       break
+    case 'cluster_resource':
+      queryClient.invalidateQueries({ queryKey: ['clusterOverview'] })
+      queryClient.invalidateQueries({ queryKey: ['monitoringTenants'] })
+      break
   }
 }

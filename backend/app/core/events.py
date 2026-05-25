@@ -1,3 +1,5 @@
+import asyncio
+
 import structlog
 from sqlalchemy import select
 
@@ -28,6 +30,7 @@ prometheus_client: PrometheusClient | None = None
 labelstudio_client: LabelStudioClient | None = None
 mlflow_client: MLflowClient | None = None
 idle_checker: IdleChecker | None = None
+_metrics_push_task: asyncio.Task[None] | None = None
 
 
 def get_minio_client() -> MinIOClient:
@@ -114,6 +117,21 @@ async def _ensure_default_tenant_k8s(tenant: Tenant) -> None:
         logger.warning("default_tenant_namespace_failed", error=str(e))
 
 
+async def _metrics_push_loop() -> None:
+    """Periodically push cluster resource metrics via WebSocket (every 30s)."""
+    await asyncio.sleep(10)  # Wait for startup to complete
+    while True:
+        try:
+            from app.services.monitoring_service import push_cluster_metrics
+
+            await push_cluster_metrics()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("metrics_push_loop_error")
+        await asyncio.sleep(30)
+
+
 async def on_startup() -> None:
     global minio_client, prometheus_client, labelstudio_client
     global harbor_client, mlflow_client, idle_checker
@@ -141,12 +159,21 @@ async def on_startup() -> None:
         mlflow_client = MLflowClient()
     idle_checker = IdleChecker()
     idle_checker.start()
+
+    # Start cluster metrics push background task
+    global _metrics_push_task
+    _metrics_push_task = asyncio.create_task(_metrics_push_loop())
+
     logger.info("application_startup", app="KubeAI")
 
 
 async def on_shutdown() -> None:
     global prometheus_client, labelstudio_client, harbor_client, minio_client, mlflow_client
-    global idle_checker
+    global idle_checker, _metrics_push_task
+
+    if _metrics_push_task:
+        _metrics_push_task.cancel()
+        _metrics_push_task = None
 
     from app.core.ws_pubsub import get_ws_pubsub
 
