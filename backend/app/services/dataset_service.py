@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import NotFoundException
+from app.integrations.base import sanitize_k8s_name
+from app.integrations.storage.filesystem import FileSystemStorage
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.enums import AuditAction, ResourceType
 from app.models.tenant import Tenant
@@ -20,15 +21,13 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.integrations.minio.client import MinIOClient
-
 logger = logging.getLogger(__name__)
 
 
 class DatasetService:
-    def __init__(self, db: AsyncSession, minio_client: MinIOClient):
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
-        self.minio = minio_client
+        self.storage = FileSystemStorage()
 
     async def _get_tenant_name(self, tenant_id: uuid.UUID) -> str:
         result = await self.db.execute(select(Tenant.name).where(Tenant.id == tenant_id))
@@ -81,34 +80,21 @@ class DatasetService:
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
 
-        await self.minio.ensure_bucket(tenant_name)
-
         results: list[dict[str, Any]] = []
         total_size = 0
-        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
 
         for file in files:
-            object_name = f"{prefix}{file.filename}"
             content = await file.read()
-            size = len(content)
-
-            await self.minio.upload_stream(
-                tenant_name,
-                object_name,
-                BytesIO(content),
-                size,
-                file.content_type or "application/octet-stream",
+            info = await self.storage.upload_file(
+                tenant_name=tenant_name,
+                dataset_name=dataset.name,
+                version_number=version.version_number,
+                filename=file.filename,
+                content=content,
+                content_type=file.content_type or "application/octet-stream",
             )
-
-            results.append(
-                {
-                    "file_name": file.filename,
-                    "object_name": object_name,
-                    "size_bytes": size,
-                    "content_type": file.content_type or "application/octet-stream",
-                }
-            )
-            total_size += size
+            results.append(info)
+            total_size += info["size_bytes"]
 
         version.file_count += len(files)
         version.total_size_bytes += total_size
@@ -126,17 +112,20 @@ class DatasetService:
         description: str | None = None,
     ) -> DatasetVersion:
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
 
         max_ver = await self.db.execute(
             select(func.max(DatasetVersion.version_number)).where(DatasetVersion.dataset_id == dataset_id)
         )
         next_number = (max_ver.scalar() or 0) + 1
 
+        storage_path = f"datasets/{sanitize_k8s_name(tenant_name)}/{sanitize_k8s_name(dataset.name)}/v{next_number}/"
+
         version = DatasetVersion(
             dataset_id=dataset_id,
             version_number=next_number,
             description=description,
-            storage_path=f"datasets/{dataset.name}/v{next_number}/",
+            storage_path=storage_path,
             file_count=0,
             total_size_bytes=0,
             created_by=user_id,
@@ -187,10 +176,7 @@ class DatasetService:
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
 
-        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
-        objects = await self.minio.list_objects(tenant_name, prefix)
-        if objects:
-            await self.minio.delete_objects(tenant_name, [o["object_name"] for o in objects])
+        await self.storage.delete_version(tenant_name, dataset.name, version.version_number)
 
         if audit_context:
             await self._log_audit(
@@ -214,9 +200,7 @@ class DatasetService:
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         tenant_name = await self._get_tenant_name(tenant_id)
 
-        objects = await self.minio.list_objects(tenant_name, f"datasets/{dataset.name}/")
-        if objects:
-            await self.minio.delete_objects(tenant_name, [o["object_name"] for o in objects])
+        await self.storage.delete_dataset(tenant_name, dataset.name)
 
         if audit_context:
             await self._log_audit(
@@ -231,6 +215,31 @@ class DatasetService:
         await self.db.delete(dataset)
         await self.db.commit()
 
+    async def delete_file(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        file_name: str,
+        tenant_id: uuid.UUID,
+    ) -> None:
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
+        version = await self._get_version_or_fail(version_id, dataset_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
+
+        file_path = self.storage.get_file_path(tenant_name, dataset.name, version.version_number, file_name)
+        if not file_path.exists():
+            raise NotFoundException("文件不存在")
+
+        file_size = file_path.stat().st_size
+        deleted = await self.storage.delete_file(tenant_name, dataset.name, version.version_number, file_name)
+        if not deleted:
+            raise NotFoundException("文件删除失败")
+
+        version.file_count = max(0, version.file_count - 1)
+        version.total_size_bytes = max(0, version.total_size_bytes - file_size)
+        await self.db.flush()
+        await self.db.commit()
+
     async def list_version_files(
         self,
         dataset_id: uuid.UUID,
@@ -240,17 +249,7 @@ class DatasetService:
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
-        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
-        objects = await self.minio.list_objects(tenant_name, prefix)
-        return [
-            {
-                "file_name": obj["object_name"].removeprefix(prefix),
-                "size_bytes": obj["size"] or 0,
-                "content_type": obj["content_type"] or "application/octet-stream",
-                "last_modified": obj.get("last_modified"),
-            }
-            for obj in objects
-        ]
+        return await self.storage.list_files(tenant_name, dataset.name, version.version_number)
 
     async def get_version_stats(
         self,
@@ -277,11 +276,22 @@ class DatasetService:
         file_name: str,
         tenant_id: uuid.UUID,
     ) -> str:
+        # Validate access
+        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        await self._get_version_or_fail(version_id, dataset_id)
+        return f"/api/datasets/{dataset_id}/versions/{version_id}/files/{file_name}/download"
+
+    async def get_file_path(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        file_name: str,
+        tenant_id: uuid.UUID,
+    ) -> Path:
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
-        object_name = f"datasets/{dataset.name}/v{version.version_number}/{file_name}"
-        return await self.minio.presigned_get_url(tenant_name, object_name)
+        return self.storage.get_file_path(tenant_name, dataset.name, version.version_number, file_name)
 
     def _compute_file_type_distribution(self, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ext_counter: dict[str, dict[str, Any]] = {}
@@ -293,91 +303,6 @@ class DatasetService:
             ext_counter[ext]["count"] += 1
             ext_counter[ext]["total_size_bytes"] += f["size_bytes"]
         return sorted(ext_counter.values(), key=lambda x: x["count"], reverse=True)
-
-    async def ensure_dataset_pvc(
-        self,
-        dataset_id: uuid.UUID,
-        version_id: uuid.UUID,
-        tenant_id: uuid.UUID,
-    ) -> dict[str, Any]:
-        from app.integrations.k8s.namespace import make_namespace_name, namespace_exists
-        from app.integrations.k8s.pvc import create_pvc, make_dataset_pvc_name
-
-        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
-        version = await self._get_version_or_fail(version_id, dataset_id)
-        tenant_name = await self._get_tenant_name(tenant_id)
-
-        namespace = make_namespace_name(tenant_name)
-        if not await namespace_exists(namespace):
-            from app.core.exceptions import BadRequestException
-
-            raise BadRequestException("租户 K8s 命名空间不存在，请联系管理员")  # noqa: RUF001
-
-        pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
-        mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
-
-        size_bytes = version.total_size_bytes or 0
-        size_gb = max(1, -(-size_bytes // (1024**3)))
-        storage_request = f"{size_gb}Gi"
-
-        pvc = await create_pvc(namespace, pvc_name, storage_request)
-
-        return {
-            "pvc_name": pvc_name,
-            "mount_path": mount_path,
-            "access_mode": "ReadWriteMany",
-            "storage_request": storage_request,
-            "pvc_status": pvc.status.phase if pvc.status else "Unknown",
-        }
-
-    async def get_dataset_mount_info(
-        self,
-        dataset_id: uuid.UUID,
-        version_id: uuid.UUID,
-        tenant_id: uuid.UUID,
-    ) -> dict[str, Any]:
-        from app.integrations.k8s.namespace import make_namespace_name
-        from app.integrations.k8s.pvc import get_pvc, make_dataset_pvc_name, pvc_exists
-
-        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
-        version = await self._get_version_or_fail(version_id, dataset_id)
-        tenant_name = await self._get_tenant_name(tenant_id)
-
-        namespace = make_namespace_name(tenant_name)
-        pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
-        mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
-
-        if not await pvc_exists(namespace, pvc_name):
-            raise NotFoundException(message=f"版本 v{version.version_number} 尚未挂载")
-
-        pvc = await get_pvc(namespace, pvc_name)
-
-        return {
-            "pvc_name": pvc_name,
-            "mount_path": mount_path,
-            "access_mode": "ReadWriteMany",
-            "storage_request": pvc.spec.resources.requests.get("storage", "0Gi"),
-            "pvc_status": pvc.status.phase if pvc.status else "Unknown",
-            "minio_bucket": tenant_name,
-            "minio_prefix": version.storage_path,
-        }
-
-    async def delete_dataset_pvc(
-        self,
-        dataset_id: uuid.UUID,
-        version_id: uuid.UUID,
-        tenant_id: uuid.UUID,
-    ) -> None:
-        from app.integrations.k8s.namespace import make_namespace_name
-        from app.integrations.k8s.pvc import delete_pvc, make_dataset_pvc_name
-
-        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
-        version = await self._get_version_or_fail(version_id, dataset_id)
-        tenant_name = await self._get_tenant_name(tenant_id)
-
-        namespace = make_namespace_name(tenant_name)
-        pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
-        await delete_pvc(namespace, pvc_name)
 
     async def _get_dataset_or_fail(self, dataset_id: uuid.UUID, tenant_id: uuid.UUID) -> Dataset:
         result = await self.db.execute(

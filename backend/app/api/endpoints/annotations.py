@@ -5,10 +5,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
-from app.core.events import get_labelstudio_client, get_minio_client
+from app.core.events import get_labelstudio_client
 from app.integrations.labelstudio.client import LabelStudioClient
 from app.integrations.labelstudio.templates import LABELING_TEMPLATES
-from app.integrations.minio import MinIOClient
 from app.schemas.annotation import (
     AnnotationBatchAssignRequest,
     AnnotationProjectCreateRequest,
@@ -29,7 +28,6 @@ from app.services.annotation_service import AnnotationService
 router = APIRouter(prefix="/annotations", tags=["annotations"])
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
-MinioDep = Annotated[MinIOClient, Depends(lambda: get_minio_client())]
 LabelStudioDep = Annotated[LabelStudioClient, Depends(lambda: get_labelstudio_client())]
 _keyword_query = Query(None)
 _status_query: str | None = Query(None)
@@ -101,13 +99,12 @@ async def get_templates(
 async def create_project(
     req: AnnotationProjectCreateRequest,
     db: DbDep,
-    minio: MinioDep,
     ls: LabelStudioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
 ) -> BaseResponse[AnnotationProjectDetailResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     project = await service.create_project(
         tenant_id=tenant_id,
         user_id=user.id,
@@ -131,14 +128,13 @@ async def create_project(
 async def list_projects(
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     keyword: str | None = _keyword_query,
 ) -> PageResponse[AnnotationProjectResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     items, total = await service.list_projects(tenant_id=tenant_id, page=page, page_size=page_size, keyword=keyword)
     project_list = [_build_project_response(p) for p in items]
     page_data = PageData(items=project_list, total=total, page=page, page_size=page_size)
@@ -150,11 +146,10 @@ async def get_project(
     project_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
 ) -> BaseResponse[AnnotationProjectDetailResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     project = await service.get_project(project_id=project_id, tenant_id=tenant_id)
     base = _build_project_response(project)
     detail = AnnotationProjectDetailResponse(
@@ -170,12 +165,11 @@ async def delete_project(
     project_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
 ) -> BaseResponse[None]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     await service.delete_project(
         project_id=project_id,
         tenant_id=tenant_id,
@@ -205,7 +199,6 @@ async def list_project_tasks(
     project_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -213,7 +206,7 @@ async def list_project_tasks(
     assigned_to: uuid.UUID | None = _assigned_to_query,
 ) -> PageResponse[AnnotationTaskResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     tasks, total = await service.list_project_tasks(
         project_id=project_id,
         tenant_id=tenant_id,
@@ -233,12 +226,11 @@ async def assign_tasks(
     req: AnnotationTaskAssignRequest,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
 ) -> BaseResponse[None]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     count = await service.assign_tasks(
         project_id=project_id,
         tenant_id=tenant_id,
@@ -254,12 +246,11 @@ async def unassign_tasks(
     req: AnnotationTaskUnassignRequest,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
 ) -> BaseResponse[None]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     count = await service.unassign_tasks(
         project_id=project_id,
         tenant_id=tenant_id,
@@ -275,12 +266,11 @@ async def batch_assign_tasks(
     req: AnnotationBatchAssignRequest,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
 ) -> BaseResponse[None]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     count = await service.batch_assign(
         project_id=project_id,
         tenant_id=tenant_id,
@@ -294,13 +284,12 @@ async def batch_assign_tasks(
 async def list_my_tasks(
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ) -> PageResponse[AnnotationTaskResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     tasks, total = await service.list_my_tasks(
         tenant_id=tenant_id,
         user_id=user.id,
@@ -316,11 +305,10 @@ async def list_my_tasks(
 async def get_my_task_summary(
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
 ) -> BaseResponse[list[AnnotationTaskSummaryResponse]]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     rows = await service.get_my_task_summary(tenant_id=tenant_id, user_id=user.id)
     summary_list = [AnnotationTaskSummaryResponse(**row) for row in rows]
     return BaseResponse(data=summary_list, message="获取成功")
@@ -331,11 +319,10 @@ async def start_annotation(
     task_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "write"))],
 ) -> BaseResponse[AnnotationTaskResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     task = await service.start_annotation(
         task_id=task_id,
         tenant_id=tenant_id,
@@ -350,12 +337,11 @@ async def submit_annotation(
     req: AnnotationSubmitRequest,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "write"))],
 ) -> BaseResponse[AnnotationTaskResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     task = await service.submit_annotation(
         task_id=task_id,
         tenant_id=tenant_id,
@@ -371,11 +357,10 @@ async def get_next_annotation_task(
     project_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "write"))],
 ) -> BaseResponse[AnnotationTaskResponse | None]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     task = await service.get_next_task(
         project_id=project_id,
         tenant_id=tenant_id,
@@ -391,11 +376,10 @@ async def get_annotation_task_detail(
     task_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
 ) -> BaseResponse[AnnotationTaskResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     task = await service.get_task_detail(
         task_id=task_id,
         tenant_id=tenant_id,
@@ -408,11 +392,10 @@ async def retry_callback(
     project_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
 ) -> BaseResponse[CallbackRetryResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     project = await service.retry_callback(
         project_id=project_id,
         tenant_id=tenant_id,
@@ -429,12 +412,11 @@ async def sync_project_tasks(
     project_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    minio: MinioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
 ) -> BaseResponse[SyncTasksResponse]:
     tenant_id = _require_tenant_id(user)
-    service = AnnotationService(db, ls, minio)
+    service = AnnotationService(db, ls)
     count = await service.sync_project_tasks(
         project_id=project_id,
         tenant_id=tenant_id,

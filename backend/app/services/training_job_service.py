@@ -19,11 +19,9 @@ from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.pod import get_pod_failure_info, get_pod_log, list_vcjob_pods, stream_pod_logs
 from app.integrations.k8s.pvc import (
-    create_pvc,
-    make_dataset_pvc_name,
+    make_dataset_host_path,
     make_user_home_host_path,
     make_workspace_host_path,
-    pvc_exists,
 )
 from app.integrations.k8s.resource_quota import get_quota_used
 from app.integrations.volcano.client import (
@@ -83,8 +81,9 @@ class TrainingJobService:
     ) -> TrainingJob:
         image = await self._get_image_or_fail(image_id)
 
-        pvc_name: str | None = None
+        dataset_host_path: str | None = None
         mount_path: str | None = None
+        tenant = await self._get_tenant_or_fail(tenant_id)
         if dataset_id:
             dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
             if dataset_version_id:
@@ -92,10 +91,9 @@ class TrainingJobService:
             else:
                 version = await self._get_latest_version(dataset_id)
                 dataset_version_id = version.id
-            pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
+            dataset_host_path = make_dataset_host_path(tenant.name, dataset.name, version.version_number)
             mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
 
-        tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
         user = await self._get_user_or_fail(user_id)
 
@@ -140,11 +138,6 @@ class TrainingJobService:
 
         vcjob_name = f"training-{sanitize_k8s_name(job.name)}"
 
-        if pvc_name and not await pvc_exists(namespace, pvc_name):
-            size_bytes = version.total_size_bytes or 0
-            size_gb = max(1, -(-size_bytes // (1024**3)))
-            await create_pvc(namespace, pvc_name, f"{size_gb}Gi")
-
         mlflow_tracking_uri = settings.MLFLOW_TRACKING_URI if settings.MLFLOW_ENABLED else None
         mlflow_experiment_name = None
         mlflow_run_name = None
@@ -166,7 +159,7 @@ class TrainingJobService:
             worker_count=worker_count,
             hyperparameters=hp_dict,
             priority=priority,
-            dataset_pvc_name=pvc_name,
+            dataset_host_path=dataset_host_path,
             dataset_mount_path=mount_path,
             workspace_host_path=workspace_host_path,
             user_home_host_path=user_home_host_path,

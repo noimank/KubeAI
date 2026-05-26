@@ -58,19 +58,8 @@ def mock_db():
 
 
 @pytest.fixture
-def mock_minio():
-    m = MagicMock()
-    m.ensure_bucket = AsyncMock(return_value="kubeai-default-tenant")
-    m.upload_stream = AsyncMock(return_value="object_name")
-    m.list_objects = AsyncMock(return_value=[])
-    m.delete_objects = AsyncMock()
-    m.presigned_get_url = AsyncMock(return_value="https://minio.example.com/presigned-url")
-    return m
-
-
-@pytest.fixture
-def service(mock_db, mock_minio):
-    svc = DatasetService(mock_db, mock_minio)
+def service(mock_db):
+    svc = DatasetService(mock_db)
     svc._get_tenant_name = AsyncMock(return_value="default-tenant")
     return svc
 
@@ -110,7 +99,8 @@ class TestCreateDataset:
 
 
 class TestUploadFilesToVersion:
-    async def test_upload_files(self, service, mock_db, mock_minio):
+    @patch.object(DatasetService, "_get_tenant_name", return_value="default-tenant")
+    async def test_upload_files(self, _mock_tn, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id)
         dataset.versions = [version]
@@ -122,18 +112,18 @@ class TestUploadFilesToVersion:
         file1.content_type = "text/csv"
         file1.read.return_value = b"hello world"
 
-        result = await service.upload_files_to_version(
-            tenant_id=dataset.tenant_id,
-            dataset_id=dataset.id,
-            version_id=version.id,
-            files=[file1],
-        )
+        with patch.object(service.storage, "upload_file", new_callable=AsyncMock) as mock_upload:
+            mock_upload.return_value = {"file_name": "test.csv", "size_bytes": 11}
+            result = await service.upload_files_to_version(
+                tenant_id=dataset.tenant_id,
+                dataset_id=dataset.id,
+                version_id=version.id,
+                files=[file1],
+            )
 
         assert len(result) == 1
         assert result[0]["file_name"] == "test.csv"
         assert result[0]["size_bytes"] == 11
-        mock_minio.ensure_bucket.assert_awaited_once()
-        mock_minio.upload_stream.assert_awaited_once()
 
     async def test_upload_dataset_not_found(self, service, mock_db):
         mock_db.execute.return_value = _sync_result(None)
@@ -303,17 +293,14 @@ class TestDatasetAggregation:
 
 
 class TestDeleteDataset:
-    async def test_delete_dataset_success(self, service, mock_db, mock_minio):
+    async def test_delete_dataset_success(self, service, mock_db):
         dataset = _make_dataset()
         mock_db.execute.return_value = _sync_result(dataset)
         mock_db.delete = AsyncMock()
 
-        mock_minio.list_objects.return_value = [{"object_name": "obj1"}]
+        with patch.object(service.storage, "delete_dataset", new_callable=AsyncMock):
+            await service.delete_dataset(dataset.id, dataset.tenant_id)
 
-        await service.delete_dataset(dataset.id, dataset.tenant_id)
-
-        mock_minio.list_objects.assert_awaited_once()
-        mock_minio.delete_objects.assert_awaited_once()
         mock_db.delete.assert_called_once_with(dataset)
         mock_db.commit.assert_called()
 
@@ -323,12 +310,15 @@ class TestDeleteDataset:
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.delete_dataset(uuid.uuid4(), uuid.uuid4())
 
-    async def test_delete_with_audit(self, service, mock_db, mock_minio):
+    async def test_delete_with_audit(self, service, mock_db):
         dataset = _make_dataset()
         mock_db.execute.return_value = _sync_result(dataset)
         mock_db.delete = AsyncMock()
 
-        with patch("app.services.dataset_service.AuditService") as mock_audit_cls:
+        with (
+            patch.object(service.storage, "delete_dataset", new_callable=AsyncMock),
+            patch("app.services.dataset_service.AuditService") as mock_audit_cls,
+        ):
             mock_audit = AsyncMock()
             mock_audit_cls.return_value = mock_audit
 
@@ -342,20 +332,15 @@ class TestDeleteDataset:
 
 
 class TestDeleteVersion:
-    async def test_delete_version_success(self, service, mock_db, mock_minio):
+    async def test_delete_version_success(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
         mock_db.delete = AsyncMock()
 
-        mock_minio.list_objects.return_value = [
-            {"object_name": f"datasets/{dataset.name}/v{version.version_number}/file.csv"}
-        ]
+        with patch.object(service.storage, "delete_version", new_callable=AsyncMock):
+            await service.delete_version(dataset.id, version.id, dataset.tenant_id)
 
-        await service.delete_version(dataset.id, version.id, dataset.tenant_id)
-
-        mock_minio.list_objects.assert_awaited_once()
-        mock_minio.delete_objects.assert_awaited_once()
         mock_db.delete.assert_called_once_with(version)
         mock_db.commit.assert_called()
 
@@ -372,24 +357,16 @@ class TestDeleteVersion:
         with pytest.raises(NotFoundException, match="数据集版本不存在"):
             await service.delete_version(dataset.id, uuid.uuid4(), dataset.tenant_id)
 
-    async def test_delete_version_no_objects(self, service, mock_db, mock_minio):
-        dataset = _make_dataset()
-        version = _make_version(dataset_id=dataset.id, version_number=1)
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
-        mock_db.delete = AsyncMock()
-
-        await service.delete_version(dataset.id, version.id, dataset.tenant_id)
-
-        mock_minio.delete_objects.assert_not_awaited()
-        mock_db.delete.assert_called_once_with(version)
-
-    async def test_delete_version_with_audit(self, service, mock_db, mock_minio):
+    async def test_delete_version_with_audit(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=2)
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
         mock_db.delete = AsyncMock()
 
-        with patch("app.services.dataset_service.AuditService") as mock_audit_cls:
+        with (
+            patch.object(service.storage, "delete_version", new_callable=AsyncMock),
+            patch("app.services.dataset_service.AuditService") as mock_audit_cls,
+        ):
             mock_audit = AsyncMock()
             mock_audit_cls.return_value = mock_audit
 
@@ -404,29 +381,19 @@ class TestDeleteVersion:
 
 
 class TestListVersionFiles:
-    async def test_list_version_files_success(self, service, mock_db, mock_minio):
+    async def test_list_version_files_success(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=2)
         dataset.versions = [version]
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
 
-        prefix = f"datasets/{dataset.name}/v2/"
-        mock_minio.list_objects.return_value = [
-            {
-                "object_name": f"{prefix}data.csv",
-                "size": 1024,
-                "content_type": "text/csv",
-                "last_modified": _NOW,
-            },
-            {
-                "object_name": f"{prefix}image.png",
-                "size": 2048,
-                "content_type": "image/png",
-                "last_modified": _NOW,
-            },
-        ]
+        with patch.object(service.storage, "list_files", new_callable=AsyncMock) as mock_list:
+            mock_list.return_value = [
+                {"file_name": "data.csv", "size_bytes": 1024, "content_type": "text/csv"},
+                {"file_name": "image.png", "size_bytes": 2048, "content_type": "image/png"},
+            ]
 
-        files = await service.list_version_files(dataset.id, version.id, dataset.tenant_id)
+            files = await service.list_version_files(dataset.id, version.id, dataset.tenant_id)
 
         assert len(files) == 2
         assert files[0]["file_name"] == "data.csv"
@@ -447,19 +414,20 @@ class TestListVersionFiles:
         with pytest.raises(NotFoundException, match="数据集版本不存在"):
             await service.list_version_files(dataset.id, uuid.uuid4(), dataset.tenant_id)
 
-    async def test_list_version_files_empty(self, service, mock_db, mock_minio):
+    async def test_list_version_files_empty(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
         dataset.versions = [version]
         mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
 
-        files = await service.list_version_files(dataset.id, version.id, dataset.tenant_id)
+        with patch.object(service.storage, "list_files", new_callable=AsyncMock, return_value=[]):
+            files = await service.list_version_files(dataset.id, version.id, dataset.tenant_id)
 
         assert files == []
 
 
 class TestGetVersionStats:
-    async def test_get_version_stats_success(self, service, mock_db, mock_minio):
+    async def test_get_version_stats_success(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
         dataset.versions = [version]
@@ -469,29 +437,15 @@ class TestGetVersionStats:
             _sync_result(dataset),
             _sync_result(version),
         ]
-        prefix = f"datasets/{dataset.name}/v1/"
-        mock_minio.list_objects.return_value = [
-            {
-                "object_name": f"{prefix}data.csv",
-                "size": 100,
-                "content_type": "text/csv",
-                "last_modified": _NOW,
-            },
-            {
-                "object_name": f"{prefix}config.json",
-                "size": 200,
-                "content_type": "application/json",
-                "last_modified": _NOW,
-            },
-            {
-                "object_name": f"{prefix}report.csv",
-                "size": 300,
-                "content_type": "text/csv",
-                "last_modified": _NOW,
-            },
-        ]
 
-        stats = await service.get_version_stats(dataset.id, version.id, dataset.tenant_id)
+        with patch.object(service.storage, "list_files", new_callable=AsyncMock) as mock_list:
+            mock_list.return_value = [
+                {"file_name": "data.csv", "size_bytes": 100},
+                {"file_name": "config.json", "size_bytes": 200},
+                {"file_name": "report.csv", "size_bytes": 300},
+            ]
+
+            stats = await service.get_version_stats(dataset.id, version.id, dataset.tenant_id)
 
         assert stats["version_id"] == str(version.id)
         assert stats["version_number"] == 1
@@ -515,7 +469,7 @@ class TestGetVersionStats:
 
 
 class TestGetFileDownloadUrl:
-    async def test_get_download_url_success(self, service, mock_db, mock_minio):
+    async def test_get_download_url_success(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=3)
         dataset.versions = [version]
@@ -523,11 +477,7 @@ class TestGetFileDownloadUrl:
 
         url = await service.get_file_download_url(dataset.id, version.id, "data.csv", dataset.tenant_id)
 
-        assert url == "https://minio.example.com/presigned-url"
-        mock_minio.presigned_get_url.assert_awaited_once_with(
-            "default-tenant",
-            f"datasets/{dataset.name}/v3/data.csv",
-        )
+        assert f"/api/datasets/{dataset.id}/versions/{version.id}/files/data.csv/download" == url
 
     async def test_get_download_url_dataset_not_found(self, service, mock_db):
         mock_db.execute.return_value = _sync_result(None)
@@ -569,112 +519,3 @@ class TestComputeFileTypeDistribution:
     def test_distribution_empty(self, service):
         result = service._compute_file_type_distribution([])
         assert result == []
-
-
-class TestEnsureDatasetPvc:
-    @patch("app.integrations.k8s.pvc.create_pvc", new_callable=AsyncMock)
-    @patch("app.integrations.k8s.namespace.namespace_exists", new_callable=AsyncMock, return_value=True)
-    async def test_ensure_pvc_creates_new(self, mock_ns_exists, mock_create_pvc, service, mock_db):
-        dataset = _make_dataset(name="mnist")
-        version = _make_version(dataset_id=dataset.id, version_number=1)
-        version.total_size_bytes = 0
-        dataset.versions = [version]
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
-
-        mock_pvc = MagicMock()
-        mock_pvc.status.phase = "Bound"
-        mock_create_pvc.return_value = mock_pvc
-
-        result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
-
-        assert result["pvc_name"] == f"dataset-{dataset.name}-v{version.version_number}"
-        assert result["mount_path"] == "/data/datasets/mnist/v1"
-        assert result["access_mode"] == "ReadWriteMany"
-        assert result["storage_request"] == "1Gi"
-        assert result["pvc_status"] == "Bound"
-
-    @patch("app.integrations.k8s.pvc.create_pvc", new_callable=AsyncMock)
-    @patch("app.integrations.k8s.namespace.namespace_exists", new_callable=AsyncMock, return_value=True)
-    async def test_ensure_pvc_storage_size_rounds_up(self, mock_ns_exists, mock_create_pvc, service, mock_db):
-        dataset = _make_dataset()
-        version = _make_version(dataset_id=dataset.id, version_number=2)
-        version.total_size_bytes = 1_500_000_000  # ~1.5 GB → 2Gi
-        dataset.versions = [version]
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
-
-        mock_pvc = MagicMock()
-        mock_pvc.status.phase = "Bound"
-        mock_create_pvc.return_value = mock_pvc
-
-        result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
-        assert result["storage_request"] == "2Gi"
-
-    @patch("app.integrations.k8s.pvc.create_pvc", new_callable=AsyncMock)
-    @patch("app.integrations.k8s.namespace.namespace_exists", new_callable=AsyncMock, return_value=True)
-    async def test_ensure_pvc_zero_bytes(self, mock_ns_exists, mock_create_pvc, service, mock_db):
-        dataset = _make_dataset()
-        version = _make_version(dataset_id=dataset.id, version_number=1)
-        version.total_size_bytes = 0
-        dataset.versions = [version]
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
-
-        mock_pvc = MagicMock()
-        mock_pvc.status.phase = "Pending"
-        mock_create_pvc.return_value = mock_pvc
-
-        result = await service.ensure_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
-        assert result["storage_request"] == "1Gi"
-
-    async def test_ensure_pvc_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
-
-        with pytest.raises(NotFoundException, match="数据集不存在"):
-            await service.ensure_dataset_pvc(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
-
-
-class TestGetDatasetMountInfo:
-    @patch("app.integrations.k8s.pvc.get_pvc", new_callable=AsyncMock)
-    @patch("app.integrations.k8s.pvc.pvc_exists", new_callable=AsyncMock, return_value=True)
-    async def test_get_mount_info_success(self, mock_pvc_exists, mock_get_pvc, service, mock_db):
-        dataset = _make_dataset(name="cifar10")
-        version = _make_version(dataset_id=dataset.id, version_number=3)
-        dataset.versions = [version]
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
-
-        mock_pvc = MagicMock()
-        mock_pvc.status.phase = "Bound"
-        mock_pvc.spec.resources.requests = {"storage": "5Gi"}
-        mock_get_pvc.return_value = mock_pvc
-
-        result = await service.get_dataset_mount_info(dataset.id, version.id, dataset.tenant_id)
-
-        assert result["mount_path"] == "/data/datasets/cifar10/v3"
-        assert result["pvc_status"] == "Bound"
-        assert result["storage_request"] == "5Gi"
-        assert result["minio_bucket"] == "default-tenant"
-        assert result["minio_prefix"] == version.storage_path
-
-    async def test_get_mount_info_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
-
-        with pytest.raises(NotFoundException, match="数据集不存在"):
-            await service.get_dataset_mount_info(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
-
-
-class TestDeleteDatasetPvc:
-    @patch("app.integrations.k8s.pvc.delete_pvc", new_callable=AsyncMock)
-    async def test_delete_pvc_success(self, mock_delete_pvc, service, mock_db):
-        dataset = _make_dataset()
-        version = _make_version(dataset_id=dataset.id, version_number=1)
-        dataset.versions = [version]
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
-        mock_delete_pvc.return_value = None
-
-        await service.delete_dataset_pvc(dataset.id, version.id, dataset.tenant_id)
-        mock_delete_pvc.assert_called_once()
-
-    async def test_delete_pvc_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
-
-        with pytest.raises(NotFoundException, match="数据集不存在"):
-            await service.delete_dataset_pvc(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())

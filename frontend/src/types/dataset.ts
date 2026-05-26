@@ -56,11 +56,3 @@ export interface DatasetCreateParams {
   displayName?: string
   description?: string
 }
-
-export interface DatasetMountInfo {
-  pvcName: string
-  mountPath: string
-  accessMode: string
-  storageRequest: string
-  pvcStatus: string
-}

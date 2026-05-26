@@ -576,8 +576,7 @@ def _make_version(**overrides):
 
 class TestCreateEnvironmentWithDatasets:
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.pvc_exists", return_value=True)
-    async def test_create_with_single_dataset(self, mock_pvc_exists, mock_jh_client, service, mock_db):
+    async def test_create_with_single_dataset(self, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
         dev_image = _make_dev_env_image()
         dataset = _make_dataset(tenant_id=tenant.id)
@@ -614,14 +613,13 @@ class TestCreateEnvironmentWithDatasets:
         call_kwargs = jh_mock.start_server.call_args[1]
         assert call_kwargs["extra_volumes"] is not None
         assert call_kwargs["extra_volume_mounts"] is not None
-        # 3 volumes: workspace hostPath + home hostPath + dataset PVC
+        # 3 volumes: workspace hostPath + home hostPath + dataset hostPath
         assert len(call_kwargs["extra_volumes"]) == 3
         assert len(call_kwargs["extra_volume_mounts"]) == 3
         assert call_kwargs["extra_volume_mounts"][2]["readOnly"] is True
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.pvc_exists", return_value=True)
-    async def test_create_with_multiple_datasets(self, mock_pvc_exists, mock_jh_client, service, mock_db):
+    async def test_create_with_multiple_datasets(self, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
         dev_image = _make_dev_env_image()
         ds1 = _make_dataset(name="dataset-a", tenant_id=tenant.id)
@@ -661,7 +659,7 @@ class TestCreateEnvironmentWithDatasets:
         names = {md["dataset_name"] for md in env.mounted_datasets}
         assert names == {"dataset-a", "dataset-b"}
         call_kwargs = jh_mock.start_server.call_args[1]
-        # 4 volumes: workspace hostPath + home hostPath + 2 dataset PVCs
+        # 4 volumes: workspace hostPath + home hostPath + 2 dataset hostPaths
         assert len(call_kwargs["extra_volumes"]) == 4
         assert len(call_kwargs["extra_volume_mounts"]) == 4
 
@@ -696,10 +694,7 @@ class TestCreateEnvironmentWithDatasets:
         assert call_kwargs["env_vars"]["KUBEAI_WORKSPACE_PATH"] == "/kubeai/workspace"
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.pvc_exists", return_value=True)
-    async def test_create_uses_latest_version_when_no_version_id(
-        self, mock_pvc_exists, mock_jh_client, service, mock_db
-    ):
+    async def test_create_uses_latest_version_when_no_version_id(self, mock_jh_client, service, mock_db):
         tenant = _make_tenant()
         dev_image = _make_dev_env_image()
         dataset = _make_dataset(tenant_id=tenant.id)
@@ -774,46 +769,10 @@ class TestCreateEnvironmentWithDatasets:
                 datasets=datasets,
             )
 
-    @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
-    @patch("app.services.dev_environment_service.pvc_exists", return_value=False)
-    async def test_create_creates_pvc_when_not_exists(
-        self, mock_pvc_exists, mock_create_pvc, mock_jh_client, service, mock_db
-    ):
-        tenant = _make_tenant()
-        dev_image = _make_dev_env_image()
-        dataset = _make_dataset(tenant_id=tenant.id)
-        version = _make_version(dataset_id=dataset.id, version_number=1, total_size_bytes=5 * 1024**3)
-
-        jh_mock = AsyncMock()
-        jh_mock.ensure_user = AsyncMock()
-        jh_mock.start_server = AsyncMock()
-        mock_jh_client.return_value = jh_mock
-
-        mock_db.execute.side_effect = [
-            _sync_result(dev_image),
-            _sync_result(tenant),
-            _sync_result(dataset),
-            _sync_result(version),
-        ]
-
-        datasets = [DatasetMountRequest(dataset_id=dataset.id, version_id=version.id)]
-        await service.create_environment(
-            tenant_id=tenant.id,
-            user_id=uuid.uuid4(),
-            username="testuser",
-            name="new-pvc",
-            environment_image_id=dev_image.id,
-            datasets=datasets,
-        )
-
-        # create_pvc called once for dataset only (workspace uses hostPath now)
-        assert mock_create_pvc.call_count == 1
-
 
 class TestStartEnvironmentRemount:
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    async def test_start_remounts_dataset_pvc(self, mock_jh_client, service, mock_db):
+    async def test_start_remounts_dataset_host_path(self, mock_jh_client, service, mock_db):
         dataset_id = uuid.uuid4()
         version_id = uuid.uuid4()
         mounted_datasets = [
@@ -822,7 +781,7 @@ class TestStartEnvironmentRemount:
                 "dataset_name": "my-data",
                 "version_id": str(version_id),
                 "version_number": 2,
-                "pvc_name": "dataset-my-data-v2",
+                "host_path": "/data/kubeai/datasets/default-tenant/my-data/v2",
                 "mount_path": "/kubeai/datasets/my-data/v2",
             }
         ]
@@ -841,11 +800,11 @@ class TestStartEnvironmentRemount:
         assert result.status == DevEnvironmentStatus.CREATING
         call_kwargs = jh_mock.start_server.call_args[1]
         assert call_kwargs["extra_volumes"] is not None
-        # 3 volumes: workspace hostPath + home hostPath + dataset PVC
+        # 3 volumes: workspace hostPath + home hostPath + dataset hostPath
         assert len(call_kwargs["extra_volumes"]) == 3
-        # Dataset PVC is the last one
+        # Dataset hostPath is the last one
         dataset_vol = call_kwargs["extra_volumes"][2]
-        assert "persistentVolumeClaim" in dataset_vol
+        assert "hostPath" in dataset_vol
         assert call_kwargs["extra_volume_mounts"][2]["readOnly"] is True
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")

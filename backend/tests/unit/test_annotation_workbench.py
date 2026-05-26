@@ -101,15 +101,8 @@ def mock_ls():
 
 
 @pytest.fixture
-def mock_minio():
-    m = MagicMock()
-    m.presigned_get_url = AsyncMock(return_value="https://minio.example.com/fresh-presigned-url")
-    return m
-
-
-@pytest.fixture
-def service(mock_db, mock_ls, mock_minio):
-    svc = AnnotationService(mock_db, mock_ls, mock_minio)
+def service(mock_db, mock_ls):
+    svc = AnnotationService(mock_db, mock_ls)
     svc._get_tenant_name = AsyncMock(return_value="default-tenant")
     return svc
 

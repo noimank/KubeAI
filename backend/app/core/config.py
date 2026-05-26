@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool = False
     MINIO_BUCKET_PREFIX: str = "kubeai-datasets-"
 
+    DATASET_BASE_PATH: str = "/data/kubeai/datasets"
+
     HARBOR_URL: str = "http://harbor.kubeai.local"
     HARBOR_USERNAME: str = "admin"
     HARBOR_PASSWORD: str = "Harbor12345"

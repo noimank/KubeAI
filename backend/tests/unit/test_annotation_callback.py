@@ -84,18 +84,8 @@ def mock_ls():
 
 
 @pytest.fixture
-def mock_minio():
-    m = MagicMock()
-    m.list_objects = AsyncMock(return_value=[{"object_name": "datasets/test-dataset/v1/img.jpg", "size": 100}])
-    m.copy_object = AsyncMock()
-    m.upload_stream = AsyncMock(return_value="datasets/test-dataset/v2/annotations.json")
-    m.presigned_get_url = AsyncMock(return_value="https://minio.example.com/fresh-url")
-    return m
-
-
-@pytest.fixture
-def service(mock_db, mock_ls, mock_minio):
-    svc = AnnotationService(mock_db, mock_ls, mock_minio)
+def service(mock_db, mock_ls):
+    svc = AnnotationService(mock_db, mock_ls)
     svc._get_tenant_name = AsyncMock(return_value="default-tenant")
     return svc
 
@@ -195,7 +185,7 @@ class TestAutoTriggerCallback:
 
 
 class TestTriggerCallback:
-    async def test_callback_success(self, service, mock_db, mock_ls, mock_minio):
+    async def test_callback_success(self, service, mock_db, mock_ls):
         """Full successful callback flow."""
         project = _make_project(total_tasks=2, completed_tasks=2)
         tenant_id = project.tenant_id
@@ -213,7 +203,12 @@ class TestTriggerCallback:
         mock_ds = MagicMock()
         mock_ds.create_version = AsyncMock(return_value=new_version)
 
-        with patch("app.services.dataset_service.DatasetService", return_value=mock_ds):
+        with (
+            patch("app.services.dataset_service.DatasetService", return_value=mock_ds),
+            patch.object(service.storage, "copy_file", new_callable=AsyncMock),
+            patch.object(service.storage, "write_file", new_callable=AsyncMock),
+            patch.object(service.storage, "list_files", new_callable=AsyncMock, return_value=[]),
+        ):
             await service._trigger_callback(project, tenant_id)
 
         assert project.callback_status == "succeeded"
@@ -221,10 +216,8 @@ class TestTriggerCallback:
         assert project.callback_version_id == new_version.id
         assert project.status == "completed"
         mock_ls.export_project_annotations.assert_called_once_with(42)
-        mock_minio.copy_object.assert_called_once()
-        mock_minio.upload_stream.assert_called_once()
 
-    async def test_callback_fails_on_labelstudio_error(self, service, mock_db, mock_ls, mock_minio):
+    async def test_callback_fails_on_labelstudio_error(self, service, mock_db, mock_ls):
         """When LabelStudio export fails, callback should be marked as failed."""
         project = _make_project(total_tasks=2, completed_tasks=2)
         tenant_id = project.tenant_id

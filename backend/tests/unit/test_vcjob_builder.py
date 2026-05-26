@@ -50,14 +50,14 @@ class TestBuildVcjobSingle:
             gpu_count=1,
             gpu_mode="exclusive",
             job_id="abc-789",
-            dataset_pvc_name="dataset-pvc",
+            dataset_host_path="/data/kubeai/datasets/default-tenant/my-set/v1",
             dataset_mount_path="/data/datasets/my-set/v1",
         )
 
         container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
         assert container["volumeMounts"][0]["mountPath"] == "/data/datasets/my-set/v1"
         pod_spec = result["spec"]["tasks"][0]["template"]["spec"]
-        assert pod_spec["volumes"][0]["persistentVolumeClaim"]["claimName"] == "dataset-pvc"
+        assert pod_spec["volumes"][0]["hostPath"]["path"] == "/data/kubeai/datasets/default-tenant/my-set/v1"
 
     def test_single_task_with_hyperparameters(self):
         result = build_vcjob(
@@ -247,7 +247,7 @@ class TestBuildVcjobDistributed:
             assert resources["limits"]["memory"] == "16Gi"
             assert resources["limits"]["nvidia.com/gpu"] == "4"
 
-    def test_distributed_with_dataset_pvc(self):
+    def test_distributed_with_dataset_host_path(self):
         result = build_vcjob(
             vcjob_name="dist-job",
             namespace="kubeai-default",
@@ -257,9 +257,9 @@ class TestBuildVcjobDistributed:
             memory="8Gi",
             gpu_count=1,
             gpu_mode="exclusive",
-            job_id="dist-pvc",
+            job_id="dist-hp",
             worker_count=3,
-            dataset_pvc_name="my-dataset-pvc",
+            dataset_host_path="/data/kubeai/datasets/default-tenant/my-set/v2",
             dataset_mount_path="/data/my-set",
         )
 
@@ -267,7 +267,7 @@ class TestBuildVcjobDistributed:
             container = task["template"]["spec"]["containers"][0]
             assert container["volumeMounts"][0]["mountPath"] == "/data/my-set"
             volumes = task["template"]["spec"]["volumes"]
-            assert volumes[0]["persistentVolumeClaim"]["claimName"] == "my-dataset-pvc"
+            assert volumes[0]["hostPath"]["path"] == "/data/kubeai/datasets/default-tenant/my-set/v2"
 
     def test_distributed_priority(self):
         result = build_vcjob(

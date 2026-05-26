@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -41,16 +41,6 @@ def admin_headers(client):
 
     token = asyncio.get_event_loop().run_until_complete(_get_admin_token(client))
     return {"Authorization": f"Bearer {token}"}
-
-
-def _mock_minio():
-    m = MagicMock()
-    m.ensure_bucket = AsyncMock(return_value="kubeai-test-bucket")
-    m.upload_stream = AsyncMock(return_value="object_name")
-    m.list_objects = AsyncMock(return_value=[])
-    m.delete_objects = AsyncMock()
-    m.presigned_get_url = AsyncMock(return_value="https://minio.example.com/presigned-url")
-    return m
 
 
 async def _create_tenant_with_user(client: AsyncClient, headers: dict) -> tuple[dict, str]:
@@ -97,10 +87,8 @@ async def _create_tenant_with_user(client: AsyncClient, headers: dict) -> tuple[
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_create_dataset(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
+async def test_create_dataset(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -118,10 +106,8 @@ async def test_create_dataset(mock_enforce, mock_get_minio, client, admin_header
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_list_datasets(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
+async def test_list_datasets(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -140,10 +126,8 @@ async def test_list_datasets(mock_enforce, mock_get_minio, client, admin_headers
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_get_dataset_detail(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
+async def test_get_dataset_detail(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -162,10 +146,8 @@ async def test_get_dataset_detail(mock_enforce, mock_get_minio, client, admin_he
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_create_version(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
+async def test_create_version(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -188,10 +170,8 @@ async def test_create_version(mock_enforce, mock_get_minio, client, admin_header
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_delete_dataset(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
+async def test_delete_dataset(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -210,10 +190,8 @@ async def test_delete_dataset(mock_enforce, mock_get_minio, client, admin_header
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_list_datasets_with_keyword(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
+async def test_list_datasets_with_keyword(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -236,10 +214,8 @@ async def test_list_datasets_with_keyword(mock_enforce, mock_get_minio, client, 
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_delete_version(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
+async def test_delete_version(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -270,10 +246,8 @@ async def test_delete_version(mock_enforce, mock_get_minio, client, admin_header
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_delete_version_not_found(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
+async def test_delete_version_not_found(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -293,19 +267,8 @@ async def test_delete_version_not_found(mock_enforce, mock_get_minio, client, ad
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_list_version_files(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_minio = _mock_minio()
-    mock_minio.list_objects.return_value = [
-        {
-            "object_name": "datasets/files-ds/v1/data.csv",
-            "size": 1024,
-            "content_type": "text/csv",
-            "last_modified": "2026-05-01T00:00:00Z",
-        },
-    ]
-    mock_get_minio.return_value = mock_minio
+async def test_list_version_files_empty(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -330,17 +293,12 @@ async def test_list_version_files(mock_enforce, mock_get_minio, client, admin_he
     assert response.status_code == 200
     body = response.json()
     assert body["success"] is True
-    assert len(body["data"]) == 1
-    assert body["data"][0]["file_name"] == "data.csv"
-    assert body["data"][0]["size_bytes"] == 1024
+    assert len(body["data"]) == 0
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_get_version_stats(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_minio = _mock_minio()
-    mock_get_minio.return_value = mock_minio
+async def test_get_version_stats_empty(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -358,40 +316,19 @@ async def test_get_version_stats(mock_enforce, mock_get_minio, client, admin_hea
     )
     version_id = version_resp.json()["data"]["id"]
 
-    mock_minio.list_objects.return_value = [
-        {
-            "object_name": f"datasets/{dataset_id}/v1/a.csv",
-            "size": 100,
-            "content_type": "text/csv",
-            "last_modified": "2026-05-01T00:00:00Z",
-        },
-        {
-            "object_name": f"datasets/{dataset_id}/v1/b.csv",
-            "size": 200,
-            "content_type": "text/csv",
-            "last_modified": "2026-05-01T00:00:00Z",
-        },
-    ]
-
     response = await client.get(
         f"/api/datasets/{dataset_id}/versions/{version_id}/stats",
         headers=user_headers,
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["data"]["file_count"] == 2
-    assert body["data"]["total_size_bytes"] == 300
-    assert len(body["data"]["file_type_distribution"]) == 1
-    assert body["data"]["file_type_distribution"][0]["extension"] == ".csv"
+    assert body["data"]["file_count"] == 0
+    assert body["data"]["total_size_bytes"] == 0
 
 
 @pytest.mark.asyncio(loop_scope="session")
-@patch("app.api.endpoints.datasets.get_minio_client")
 @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_get_file_download_url(mock_enforce, mock_get_minio, client, admin_headers):
-    mock_minio = _mock_minio()
-    mock_minio.presigned_get_url.return_value = "https://minio.example.com/download-url"
-    mock_get_minio.return_value = mock_minio
+async def test_get_file_download_url(mock_enforce, client, admin_headers):
     _tenant, token = await _create_tenant_with_user(client, admin_headers)
     user_headers = {"Authorization": f"Bearer {token}"}
 
@@ -417,122 +354,4 @@ async def test_get_file_download_url(mock_enforce, mock_get_minio, client, admin
     assert response.status_code == 200
     body = response.json()
     assert body["success"] is True
-    assert body["data"] == "https://minio.example.com/download-url"
-
-
-@pytest.mark.asyncio(loop_scope="session")
-@patch("app.integrations.k8s.pvc.create_pvc", new_callable=AsyncMock)
-@patch("app.integrations.k8s.namespace.namespace_exists", new_callable=AsyncMock, return_value=True)
-@patch("app.api.endpoints.datasets.get_minio_client")
-@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_mount_dataset_version(
-    mock_enforce, mock_get_minio, mock_ns_exists, mock_create_pvc, client, admin_headers
-):
-    mock_get_minio.return_value = _mock_minio()
-    _tenant, token = await _create_tenant_with_user(client, admin_headers)
-    user_headers = {"Authorization": f"Bearer {token}"}
-
-    create_resp = await client.post(
-        "/api/datasets",
-        json={"name": "mount-ds", "description": "Mount test"},
-        headers=user_headers,
-    )
-    dataset_id = create_resp.json()["data"]["id"]
-
-    version_resp = await client.post(
-        f"/api/datasets/{dataset_id}/versions",
-        json={"description": "v1"},
-        headers=user_headers,
-    )
-    version_id = version_resp.json()["data"]["id"]
-
-    mock_pvc = MagicMock()
-    mock_pvc.status.phase = "Bound"
-    mock_create_pvc.return_value = mock_pvc
-
-    response = await client.post(
-        f"/api/datasets/{dataset_id}/versions/{version_id}/mount",
-        headers=user_headers,
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["success"] is True
-    assert body["data"]["pvc_name"].startswith("dataset-")
-    assert body["data"]["mount_path"] == "/data/datasets/mount-ds/v1"
-    assert body["data"]["access_mode"] == "ReadWriteMany"
-    assert body["data"]["storage_request"] == "1Gi"
-    assert body["data"]["pvc_status"] == "Bound"
-
-
-@pytest.mark.asyncio(loop_scope="session")
-@patch("app.integrations.k8s.pvc.get_pvc", new_callable=AsyncMock)
-@patch("app.integrations.k8s.pvc.pvc_exists", new_callable=AsyncMock, return_value=True)
-@patch("app.api.endpoints.datasets.get_minio_client")
-@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_get_mount_info(mock_enforce, mock_get_minio, mock_pvc_exists, mock_get_pvc, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
-    _tenant, token = await _create_tenant_with_user(client, admin_headers)
-    user_headers = {"Authorization": f"Bearer {token}"}
-
-    create_resp = await client.post(
-        "/api/datasets",
-        json={"name": "mount-info-ds", "description": "Mount info test"},
-        headers=user_headers,
-    )
-    dataset_id = create_resp.json()["data"]["id"]
-
-    version_resp = await client.post(
-        f"/api/datasets/{dataset_id}/versions",
-        json={"description": "v1"},
-        headers=user_headers,
-    )
-    version_id = version_resp.json()["data"]["id"]
-
-    mock_pvc = MagicMock()
-    mock_pvc.status.phase = "Bound"
-    mock_pvc.spec.resources.requests = {"storage": "2Gi"}
-    mock_get_pvc.return_value = mock_pvc
-
-    response = await client.get(
-        f"/api/datasets/{dataset_id}/versions/{version_id}/mount",
-        headers=user_headers,
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["success"] is True
-    assert body["data"]["storage_request"] == "2Gi"
-
-
-@pytest.mark.asyncio(loop_scope="session")
-@patch("app.integrations.k8s.pvc.delete_pvc", new_callable=AsyncMock)
-@patch("app.api.endpoints.datasets.get_minio_client")
-@patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-async def test_unmount_dataset_version(mock_enforce, mock_get_minio, mock_delete_pvc, client, admin_headers):
-    mock_get_minio.return_value = _mock_minio()
-    _tenant, token = await _create_tenant_with_user(client, admin_headers)
-    user_headers = {"Authorization": f"Bearer {token}"}
-
-    create_resp = await client.post(
-        "/api/datasets",
-        json={"name": "unmount-ds", "description": "Unmount test"},
-        headers=user_headers,
-    )
-    dataset_id = create_resp.json()["data"]["id"]
-
-    version_resp = await client.post(
-        f"/api/datasets/{dataset_id}/versions",
-        json={"description": "v1"},
-        headers=user_headers,
-    )
-    version_id = version_resp.json()["data"]["id"]
-
-    mock_delete_pvc.return_value = None
-
-    response = await client.delete(
-        f"/api/datasets/{dataset_id}/versions/{version_id}/mount",
-        headers=user_headers,
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["success"] is True
-    assert body["message"] == "卸载成功"
+    assert f"/api/datasets/{dataset_id}/versions/{version_id}/files/data.csv/download" in body["data"]

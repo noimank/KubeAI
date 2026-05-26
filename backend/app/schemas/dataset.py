@@ -48,7 +48,7 @@ class DatasetDetailResponse(DatasetResponse):
 
 class FileUploadResponse(BaseModel):
     file_name: str
-    object_name: str
+    storage_path: str
     size_bytes: int
     content_type: str
 
@@ -81,17 +81,3 @@ class FileDownloadRequest(BaseModel):
 class DatasetMountRequest(BaseModel):
     dataset_id: uuid.UUID
     version_id: uuid.UUID
-
-
-class DatasetMountInfoResponse(BaseModel):
-    pvc_name: str
-    mount_path: str
-    access_mode: str
-    storage_request: str
-    pvc_status: str
-
-
-class InitContainerSyncInfo(BaseModel):
-    minio_bucket: str
-    minio_prefix: str
-    pvc_mount_path: str

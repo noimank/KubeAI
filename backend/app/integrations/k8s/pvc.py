@@ -84,6 +84,10 @@ async def delete_pvc(namespace: str, pvc_name: str) -> None:
         raise
 
 
+def make_dataset_host_path(tenant_name: str, dataset_name: str, version_number: int) -> str:
+    return f"{KUBEAI_DATA_DIR}/datasets/{sanitize_k8s_name(tenant_name)}/{sanitize_k8s_name(dataset_name)}/v{version_number}"
+
+
 def make_dataset_pvc_name(dataset_name: str, version_number: int) -> str:
     return f"dataset-{sanitize_k8s_name(dataset_name)}-v{version_number}"
 

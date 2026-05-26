@@ -25,6 +25,7 @@ dependencies = [
     "minio>=7.2.20",
     "python-multipart>=0.0.27",
     "label-studio-sdk>=2.0.0",
+    "aiofiles>=25.1.0",
 ]
 
 [dependency-groups]
@@ -36,6 +37,7 @@ dev = [
     "httpx",
     "pre-commit",
     "types-requests>=2.33.0.20260503",
+    "types-aiofiles>=25.1.0.20260518",
 ]
 
 [tool.pytest.ini_options]

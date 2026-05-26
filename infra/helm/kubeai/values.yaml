@@ -24,6 +24,10 @@ backend:
       memory: 512Mi
   migration:
     enabled: true
+  persistence:
+    enabled: true
+    hostPath: /data/kubeai
+    mountPath: /data/kubeai
   env:
     APP_NAME: KubeAI
     APP_VERSION: "0.1.0"
@@ -39,6 +43,7 @@ backend:
     OIDC_ENABLED: "false"
     MINIO_SECURE: "false"
     MINIO_BUCKET_PREFIX: "kubeai-datasets-"
+    DATASET_BASE_PATH: "/data/kubeai/datasets"
     HARBOR_PROJECT_PREFIX: "kubeai-"
     FRONTEND_URL: "http://localhost:30000"
     PROMETHEUS_URL: "http://kubeai-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"

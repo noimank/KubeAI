@@ -22,11 +22,9 @@ from app.integrations.jupyterhub.client import get_jupyterhub_client
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.network_policy import create_tenant_network_policy
 from app.integrations.k8s.pvc import (
-    create_pvc,
-    make_dataset_pvc_name,
+    make_dataset_host_path,
     make_user_home_host_path,
     make_workspace_host_path,
-    pvc_exists,
 )
 from app.integrations.k8s.resource_quota import get_quota_used
 from app.integrations.k8s.secret import ensure_registry_pull_secret
@@ -84,6 +82,7 @@ class DevEnvironmentService:
         extra_volumes, extra_volume_mounts, mounted_datasets_info = await self._build_volumes(
             datasets=datasets,
             tenant_id=tenant_id,
+            tenant_name=tenant.name,
             namespace=namespace,
             workspace_host_path=workspace_host_path,
             user_home_host_path=user_home_host_path,
@@ -246,6 +245,7 @@ class DevEnvironmentService:
         extra_volumes, extra_volume_mounts, _ = await self._build_volumes(
             datasets=None,
             tenant_id=tenant_id,
+            tenant_name=tenant.name,
             namespace=namespace,
             workspace_host_path=workspace_host_path,
             user_home_host_path=user_home_host_path,
@@ -388,6 +388,7 @@ class DevEnvironmentService:
         *,
         datasets: list[DatasetMountRequest] | None,
         tenant_id: uuid.UUID,
+        tenant_name: str,
         namespace: str,
         workspace_host_path: str,
         user_home_host_path: str,
@@ -415,16 +416,11 @@ class DevEnvironmentService:
         if datasets:
             for dm in datasets:
                 dataset, version = await self._resolve_dataset_mount(dm.dataset_id, dm.version_id, tenant_id)
-                ds_pvc_name = make_dataset_pvc_name(dataset.name, version.version_number)
+                host_path = make_dataset_host_path(tenant_name, dataset.name, version.version_number)
                 mount_path = self._dataset_mount_path(dataset.name, version.version_number)
 
-                if not await pvc_exists(namespace, ds_pvc_name):
-                    size_bytes = version.total_size_bytes or 0
-                    size_gb = max(1, -(-size_bytes // (1024**3)))
-                    await create_pvc(namespace, ds_pvc_name, f"{size_gb}Gi")
-
                 vol_name = f"dataset-{sanitize_k8s_name(dataset.name)}-v{version.version_number}"
-                extra_volumes.append({"name": vol_name, "persistentVolumeClaim": {"claimName": ds_pvc_name}})
+                extra_volumes.append({"name": vol_name, "hostPath": {"path": host_path, "type": "DirectoryOrCreate"}})
                 extra_volume_mounts.append({"name": vol_name, "mountPath": mount_path, "readOnly": True})
 
                 mounted_datasets_info.append(
@@ -433,7 +429,7 @@ class DevEnvironmentService:
                         "dataset_name": dataset.name,
                         "version_id": str(version.id),
                         "version_number": version.version_number,
-                        "pvc_name": ds_pvc_name,
+                        "host_path": host_path,
                         "mount_path": mount_path,
                     }
                 )
@@ -442,8 +438,9 @@ class DevEnvironmentService:
                 version_number = int(md["version_number"])
                 mount_path = self._dataset_mount_path(md["dataset_name"], version_number)
                 md["mount_path"] = mount_path
+                host_path = make_dataset_host_path(tenant_name, md["dataset_name"], version_number)
                 vol_name = f"dataset-{sanitize_k8s_name(md['dataset_name'])}-v{version_number}"
-                extra_volumes.append({"name": vol_name, "persistentVolumeClaim": {"claimName": md["pvc_name"]}})
+                extra_volumes.append({"name": vol_name, "hostPath": {"path": host_path, "type": "DirectoryOrCreate"}})
                 extra_volume_mounts.append({"name": vol_name, "mountPath": mount_path, "readOnly": True})
 
         return extra_volumes, extra_volume_mounts, mounted_datasets_info or None

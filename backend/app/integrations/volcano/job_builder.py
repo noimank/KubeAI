@@ -18,7 +18,7 @@ def build_vcjob(
     worker_count: int = 1,
     hyperparameters: dict[str, str] | None = None,
     priority: str = "normal",
-    dataset_pvc_name: str | None = None,
+    dataset_host_path: str | None = None,
     dataset_mount_path: str | None = None,
     workspace_host_path: str | None = None,
     user_home_host_path: str | None = None,
@@ -60,7 +60,7 @@ def build_vcjob(
     priority_class_map = {"low": "low", "normal": "normal", "high": "high"}
 
     mounts: list[dict[str, Any]] = []
-    if dataset_pvc_name and dataset_mount_path:
+    if dataset_host_path and dataset_mount_path:
         mounts.append({"name": "dataset-volume", "mountPath": dataset_mount_path, "readOnly": True})
     if workspace_host_path:
         mounts.append({"name": "workspace-volume", "mountPath": "/workspace"})
@@ -82,8 +82,8 @@ def build_vcjob(
         container["ports"] = [{"containerPort": metrics_port}]
 
     volumes: list[dict[str, Any]] = []
-    if dataset_pvc_name:
-        volumes.append({"name": "dataset-volume", "persistentVolumeClaim": {"claimName": dataset_pvc_name}})
+    if dataset_host_path:
+        volumes.append({"name": "dataset-volume", "hostPath": {"path": dataset_host_path, "type": "DirectoryOrCreate"}})
     if workspace_host_path:
         volumes.append(
             {"name": "workspace-volume", "hostPath": {"path": workspace_host_path, "type": "DirectoryOrCreate"}}

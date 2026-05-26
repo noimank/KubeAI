@@ -20,6 +20,7 @@ data:
   OIDC_ENABLED: {{ .Values.backend.env.OIDC_ENABLED | quote }}
   MINIO_SECURE: {{ .Values.backend.env.MINIO_SECURE | quote }}
   MINIO_BUCKET_PREFIX: {{ .Values.backend.env.MINIO_BUCKET_PREFIX | quote }}
+  DATASET_BASE_PATH: {{ .Values.backend.env.DATASET_BASE_PATH | quote }}
   HARBOR_PROJECT_PREFIX: {{ .Values.backend.env.HARBOR_PROJECT_PREFIX | quote }}
   FRONTEND_URL: {{ .Values.backend.env.FRONTEND_URL | quote }}
   K8S_PLATFORM_NAMESPACE: {{ .Release.Namespace | quote }}

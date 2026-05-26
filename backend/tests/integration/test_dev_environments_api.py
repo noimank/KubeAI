@@ -81,10 +81,9 @@ class TestDevEnvironmentCRUD:
     @patch("app.services.dev_environment_service.ensure_registry_pull_secret", new_callable=AsyncMock)
     @patch("app.services.dev_environment_service.create_tenant_network_policy", new_callable=AsyncMock)
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
-    @patch("app.services.dev_environment_service.create_pvc")
     @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
     async def test_create_and_get_environment(
-        self, _, mock_create_pvc, mock_jh_client, mock_net_pol, mock_pull_secret, client: AsyncClient, admin_headers
+        self, _, mock_jh_client, mock_net_pol, mock_pull_secret, client: AsyncClient, admin_headers
     ):
         from app.core.database import async_session_factory
         from app.models.tenant import Tenant

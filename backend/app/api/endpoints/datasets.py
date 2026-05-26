@@ -3,19 +3,17 @@ from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
-from app.core.events import get_minio_client
-from app.integrations.minio import MinIOClient
 from app.models.dataset import Dataset
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.dataset import (
     DatasetCreateRequest,
     DatasetDetailResponse,
-    DatasetMountInfoResponse,
     DatasetResponse,
     DatasetVersionCreateRequest,
     DatasetVersionResponse,
@@ -29,7 +27,6 @@ from app.services.dataset_service import DatasetService
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
-MinioDep = Annotated[MinIOClient, Depends(lambda: get_minio_client())]
 _files_default = File(...)
 _keyword_query = Query(None)
 _start_date_query = Query(None)
@@ -86,12 +83,11 @@ def _build_dataset_response(
 async def create_dataset(
     req: DatasetCreateRequest,
     db: DbDep,
-    minio: MinioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "write"))],
 ) -> BaseResponse[DatasetResponse]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     dataset = await service.create_dataset(
         tenant_id=tenant_id,
         user_id=user.id,
@@ -107,7 +103,6 @@ async def create_dataset(
 @router.get("", response_model=PageResponse[DatasetResponse])
 async def list_datasets(
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -116,7 +111,7 @@ async def list_datasets(
     end_date: date | None = _end_date_query,
 ) -> PageResponse[DatasetResponse]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     items, total = await service.list_datasets(
         tenant_id=tenant_id,
         page=page,
@@ -135,11 +130,10 @@ async def list_datasets(
 async def get_dataset(
     dataset_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
 ) -> BaseResponse[DatasetDetailResponse]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     dataset = await service.get_dataset(dataset_id=dataset_id, tenant_id=tenant_id)
     user_name_map = await _resolve_user_names(db, [dataset])
     base = _build_dataset_response(dataset, user_name_map)
@@ -169,11 +163,10 @@ async def create_version(
     dataset_id: uuid.UUID,
     req: DatasetVersionCreateRequest,
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "write"))],
 ) -> BaseResponse[DatasetVersionResponse]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     version = await service.create_version(
         tenant_id=tenant_id,
         dataset_id=dataset_id,
@@ -199,12 +192,11 @@ async def upload_files(
     dataset_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "write"))],
     files: list[UploadFile] = _files_default,
 ) -> BaseResponse[list[FileUploadResponse]]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     results = await service.upload_files_to_version(
         tenant_id=tenant_id,
         dataset_id=dataset_id,
@@ -220,12 +212,11 @@ async def delete_version(
     dataset_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "manage"))],
 ) -> BaseResponse[None]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     await service.delete_version(
         dataset_id=dataset_id,
         version_id=version_id,
@@ -239,12 +230,11 @@ async def delete_version(
 async def delete_dataset(
     dataset_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "manage"))],
 ) -> BaseResponse[None]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     await service.delete_dataset(
         dataset_id=dataset_id,
         tenant_id=tenant_id,
@@ -261,11 +251,10 @@ async def list_version_files(
     dataset_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
 ) -> BaseResponse[list[FileVersionFileResponse]]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     files = await service.list_version_files(dataset_id, version_id, tenant_id)
     data = [FileVersionFileResponse(**f) for f in files]
     return BaseResponse(data=data, message="查询成功")
@@ -279,11 +268,10 @@ async def get_version_stats(
     dataset_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
 ) -> BaseResponse[VersionStatsResponse]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     stats = await service.get_version_stats(dataset_id, version_id, tenant_id)
     data = VersionStatsResponse(**stats)
     return BaseResponse(data=data, message="查询成功")
@@ -298,64 +286,44 @@ async def get_file_download_url(
     version_id: uuid.UUID,
     body: FileDownloadRequest,
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
 ) -> BaseResponse[str]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
+    service = DatasetService(db)
     url = await service.get_file_download_url(dataset_id, version_id, body.file_name, tenant_id)
     return BaseResponse(data=url, message="获取成功")
 
 
-@router.post(
-    "/{dataset_id}/versions/{version_id}/mount",
-    response_model=BaseResponse[DatasetMountInfoResponse],
-)
-async def mount_dataset_version(
+@router.get("/{dataset_id}/versions/{version_id}/files/{file_name:path}/download")
+async def download_file(
     dataset_id: uuid.UUID,
     version_id: uuid.UUID,
+    file_name: str,
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
-) -> BaseResponse[DatasetMountInfoResponse]:
+) -> FileResponse:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
-    mount_info = await service.ensure_dataset_pvc(dataset_id, version_id, tenant_id)
-    return BaseResponse(data=DatasetMountInfoResponse(**mount_info), message="挂载成功")
+    service = DatasetService(db)
+    file_path = await service.get_file_path(dataset_id, version_id, file_name, tenant_id)
+    if not file_path.exists():
+        from app.core.exceptions import NotFoundException
+
+        raise NotFoundException("文件不存在")
+    return FileResponse(path=str(file_path), filename=file_name)
 
 
-@router.get(
-    "/{dataset_id}/versions/{version_id}/mount",
-    response_model=BaseResponse[DatasetMountInfoResponse],
-)
-async def get_mount_info(
+@router.delete("/{dataset_id}/versions/{version_id}/files/{file_name:path}", response_model=BaseResponse[None])
+async def delete_file(
     dataset_id: uuid.UUID,
     version_id: uuid.UUID,
+    file_name: str,
     db: DbDep,
-    minio: MinioDep,
-    user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
-) -> BaseResponse[DatasetMountInfoResponse]:
-    tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
-    mount_info = await service.get_dataset_mount_info(dataset_id, version_id, tenant_id)
-    return BaseResponse(data=DatasetMountInfoResponse(**mount_info), message="查询成功")
-
-
-@router.delete(
-    "/{dataset_id}/versions/{version_id}/mount",
-    response_model=BaseResponse[None],
-)
-async def unmount_dataset_version(
-    dataset_id: uuid.UUID,
-    version_id: uuid.UUID,
-    db: DbDep,
-    minio: MinioDep,
-    user: Annotated[CurrentUser, Depends(require_permission("datasets", "manage"))],
+    user: Annotated[CurrentUser, Depends(require_permission("datasets", "write"))],
 ) -> BaseResponse[None]:
     tenant_id = _require_tenant_id(user)
-    service = DatasetService(db, minio)
-    await service.delete_dataset_pvc(dataset_id, version_id, tenant_id)
-    return BaseResponse(message="卸载成功")
+    service = DatasetService(db)
+    await service.delete_file(dataset_id, version_id, file_name, tenant_id)
+    return BaseResponse(message="文件删除成功")
 
 
 def _require_tenant_id(user: Any) -> uuid.UUID:

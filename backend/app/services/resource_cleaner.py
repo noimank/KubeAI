@@ -16,14 +16,12 @@ from app.integrations.k8s.pvc import (
     delete_pvc,
     list_namespace_pods_by_pvc,
     list_namespace_pvcs,
-    make_dataset_pvc_name,
 )
 from app.integrations.volcano.client import (
     delete_vcjob,
     extract_vcjob_phase,
     list_vcjobs,
 )
-from app.models.dataset import Dataset, DatasetVersion
 from app.models.enums import AuditAction, ResourceType, TrainingJobStatus
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
@@ -186,55 +184,41 @@ class ResourceCleaner:
         return cleaned
 
     async def detect_orphan_pvcs(self) -> list[OrphanPVCInfo]:
+        """Detect orphan PVCs. Since datasets no longer use PVCs, any PVC with
+        the kubeai.io/type=dataset label is considered a legacy orphan."""
         namespaces = await list_tenant_namespaces()
         orphans: list[OrphanPVCInfo] = []
 
-        async with async_session_factory() as db:
-            # Build set of known dataset PVC names
-            dv_result = await db.execute(select(DatasetVersion))
-            dataset_versions = list(dv_result.scalars().all())
+        for namespace in namespaces:
+            async with self._semaphore:
+                try:
+                    pvcs = await list_namespace_pvcs(namespace)
+                except Exception:
+                    logger.exception("detect_orphan_pvcs_list_failed", namespace=namespace)
+                    continue
 
-            ds_result = await db.execute(select(Dataset))
-            datasets_map: dict[uuid.UUID, Dataset] = {ds.id: ds for ds in ds_result.scalars().all()}
-
-            known_pvc_names: set[str] = set()
-            for dv in dataset_versions:
-                ds = datasets_map.get(dv.dataset_id)
-                if ds:
-                    known_pvc_names.add(make_dataset_pvc_name(ds.name, dv.version_number))
-
-            for namespace in namespaces:
-                async with self._semaphore:
-                    try:
-                        pvcs = await list_namespace_pvcs(namespace)
-                    except Exception:
-                        logger.exception("detect_orphan_pvcs_list_failed", namespace=namespace)
+                for pvc in pvcs:
+                    if pvc.labels.get("kubeai.io/type") != "dataset":
                         continue
 
-                    for pvc in pvcs:
-                        if "kubeai.io/type" not in pvc.labels:
-                            continue
-                        if pvc.name in known_pvc_names:
-                            continue
+                    try:
+                        mounted_pods = await list_namespace_pods_by_pvc(namespace, pvc.name)
+                    except Exception:
+                        logger.exception("detect_orphan_pvcs_pods_failed", namespace=namespace, pvc=pvc.name)
+                        continue
 
-                        try:
-                            mounted_pods = await list_namespace_pods_by_pvc(namespace, pvc.name)
-                        except Exception:
-                            logger.exception("detect_orphan_pvcs_pods_failed", namespace=namespace, pvc=pvc.name)
-                            continue
+                    if mounted_pods:
+                        continue
 
-                        if mounted_pods:
-                            continue
-
-                        orphans.append(
-                            OrphanPVCInfo(
-                                name=pvc.name,
-                                namespace=namespace,
-                                storage=pvc.storage,
-                                created_at=pvc.creation_timestamp,
-                                orphan_reason="未被任何 Pod 挂载且不属于已知数据集版本",
-                            )
+                    orphans.append(
+                        OrphanPVCInfo(
+                            name=pvc.name,
+                            namespace=namespace,
+                            storage=pvc.storage,
+                            created_at=pvc.creation_timestamp,
+                            orphan_reason="数据集已迁移至 hostPath 存储，此 PVC 为遗留资源",  # noqa: RUF001
                         )
+                    )
 
         return orphans
 

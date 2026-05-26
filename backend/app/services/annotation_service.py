@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequestException, ExternalServiceException, ForbiddenException, NotFoundException
+from app.integrations.base import sanitize_k8s_name
 from app.integrations.labelstudio.templates import (
     TEXT_OBJECT_TAGS,
     URL_OBJECT_TAGS,
     get_primary_data_object,
     parse_label_config,
 )
+from app.integrations.storage.filesystem import FileSystemStorage
 from app.models.annotation import AnnotationProject
 from app.models.annotation_task import AnnotationTask
 from app.models.dataset import Dataset, DatasetVersion
@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.integrations.labelstudio.client import LabelStudioClient
-    from app.integrations.minio.client import MinIOClient
     from app.schemas.annotation import (
         AnnotationBatchAssignRequest,
         AnnotationTaskAssignRequest,
@@ -40,15 +39,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_MINIO_CONCURRENCY = 20
 _LS_BATCH_SIZE = 250
 
 
 class AnnotationService:
-    def __init__(self, db: AsyncSession, labelstudio_client: LabelStudioClient, minio_client: MinIOClient):
+    def __init__(self, db: AsyncSession, labelstudio_client: LabelStudioClient) -> None:
         self.db = db
         self.ls_client = labelstudio_client
-        self.minio = minio_client
+        self.storage = FileSystemStorage()
 
     async def _get_tenant_name(self, tenant_id: uuid.UUID) -> str:
         result = await self.db.execute(select(Tenant.name).where(Tenant.id == tenant_id))
@@ -56,6 +54,9 @@ class AnnotationService:
         if not name:
             raise NotFoundException("租户不存在")
         return name
+
+    def _build_download_url(self, dataset_id: uuid.UUID, version_id: uuid.UUID, file_name: str) -> str:
+        return f"/api/datasets/{dataset_id}/versions/{version_id}/files/{file_name}/download"
 
     async def create_project(
         self,
@@ -75,15 +76,16 @@ class AnnotationService:
         config_info = parse_label_config(label_config)
         annotation_type = config_info.annotation_type
 
-        # Enumerate MinIO objects
+        # Enumerate files from filesystem
         tenant_name = await self._get_tenant_name(tenant_id)
-        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
-        objects = await self.minio.list_objects(tenant_name, prefix)
-        if not objects:
+        files = await self.storage.list_files(tenant_name, dataset.name, version.version_number)
+        if not files:
             raise BadRequestException("数据集版本没有可标注文件")
 
-        # Prepare task data with concurrent MinIO operations
-        tasks = await self._prepare_task_data(objects, prefix, config_info, tenant_name)
+        # Prepare task data
+        tasks = await self._prepare_task_data(
+            files, dataset_id, dataset_version_id, config_info, tenant_name, dataset.name, version.version_number
+        )
 
         # Create project in LabelStudio
         try:
@@ -173,11 +175,10 @@ class AnnotationService:
         dataset = project.dataset
         version = project.dataset_version
         tenant_name = await self._get_tenant_name(tenant_id)
-        prefix = f"datasets/{dataset.name}/v{version.version_number}/"
 
-        # List current MinIO objects
-        objects = await self.minio.list_objects(tenant_name, prefix)
-        if not objects:
+        # List current files from filesystem
+        files = await self.storage.list_files(tenant_name, dataset.name, version.version_number)
+        if not files:
             return 0
 
         # Get existing object names for deduplication
@@ -186,14 +187,22 @@ class AnnotationService:
         )
         existing_names = set(existing_result.scalars().all())
 
-        # Filter to only new objects
-        new_objects = [obj for obj in objects if obj["object_name"] not in existing_names]
-        if not new_objects:
+        # Filter to only new files
+        new_files = [f for f in files if f["file_name"] not in existing_names]
+        if not new_files:
             return 0
 
         # Prepare and import new tasks
         config_info = parse_label_config(project.label_config)
-        tasks = await self._prepare_task_data(new_objects, prefix, config_info, tenant_name)
+        tasks = await self._prepare_task_data(
+            new_files,
+            dataset.id,
+            version.id,
+            config_info,
+            tenant_name,
+            dataset.name,
+            version.version_number,
+        )
         ls_tasks = await self._import_tasks_batched(ls_project_id, tasks)
 
         self.db.add_all(
@@ -228,33 +237,37 @@ class AnnotationService:
 
     async def _prepare_task_data(
         self,
-        objects: list[dict[str, Any]],
-        prefix: str,
+        files: list[dict[str, Any]],
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
         config_info: Any,
         tenant_name: str,
+        dataset_name: str,
+        version_number: int,
     ) -> list[dict[str, Any]]:
-        """Build task data dicts with concurrent MinIO operations."""
+        """Build task data dicts from filesystem files."""
         data_object = get_primary_data_object(config_info)
-        semaphore = asyncio.Semaphore(_MINIO_CONCURRENCY)
 
-        async def _build_one(obj: dict[str, Any]) -> dict[str, Any]:
-            object_name = obj["object_name"]
-            file_name = object_name.removeprefix(prefix)
+        results: list[dict[str, Any]] = []
+        for f in files:
+            file_name = f["file_name"]
+            object_name = f"datasets/{sanitize_k8s_name(tenant_name)}/{sanitize_k8s_name(dataset_name)}/v{version_number}/{file_name}"
             data: dict[str, Any] = {
                 "kubeai_object_name": object_name,
                 "kubeai_file_name": file_name,
-                "kubeai_content_type": obj.get("content_type", "application/octet-stream"),
+                "kubeai_content_type": f.get("content_type", "application/octet-stream"),
             }
-            async with semaphore:
-                if data_object.tag in URL_OBJECT_TAGS:
-                    data[data_object.field] = await self.minio.presigned_get_url(tenant_name, object_name)
-                elif data_object.tag in TEXT_OBJECT_TAGS:
-                    content = await self.minio.get_object_content(tenant_name, object_name)
-                    data[data_object.field] = content.decode("utf-8", errors="replace")
-            return {"data": data}
 
-        results = await asyncio.gather(*[_build_one(obj) for obj in objects])
-        return list(results)
+            if data_object.tag in URL_OBJECT_TAGS:
+                data[data_object.field] = self._build_download_url(dataset_id, version_id, file_name)
+            elif data_object.tag in TEXT_OBJECT_TAGS:
+                file_path = self.storage.get_file_path(tenant_name, dataset_name, version_number, file_name)
+                content = await self.storage.get_file_content(file_path)
+                data[data_object.field] = content.decode("utf-8", errors="replace")
+
+            results.append({"data": data})
+
+        return results
 
     async def _import_tasks_batched(self, ls_project_id: int, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Import tasks to LabelStudio in batches and return all LS task records."""
@@ -623,11 +636,11 @@ class AnnotationService:
         if task.assigned_to != user_id:
             raise ForbiddenException("只能标注分配给自己的任务")
         if task.status == "in_progress":
-            return await self._refresh_presigned_url(task)
+            return await self._refresh_download_url(task)
         if task.status != "assigned":
             raise ForbiddenException("任务状态不是「已分配」，无法开始标注")  # noqa: RUF001
         task.status = "in_progress"
-        task = await self._refresh_presigned_url(task)
+        task = await self._refresh_download_url(task)
         await self.db.flush()
         task = await self._reload_task_for_response(task.id, tenant_id)
         await self.db.commit()
@@ -709,7 +722,7 @@ class AnnotationService:
         task = result.scalar_one_or_none()
         if task is None:
             return None
-        return await self._refresh_presigned_url(task)
+        return await self._refresh_download_url(task)
 
     async def get_task_detail(
         self,
@@ -717,7 +730,7 @@ class AnnotationService:
         tenant_id: uuid.UUID,
     ) -> AnnotationTask:
         task = await self._get_task_with_project(task_id, tenant_id)
-        return await self._refresh_presigned_url(task)
+        return await self._refresh_download_url(task)
 
     async def retry_callback(
         self, project_id: uuid.UUID, tenant_id: uuid.UUID, user_id: uuid.UUID
@@ -767,7 +780,7 @@ class AnnotationService:
             # 3. Create new dataset version
             from app.services.dataset_service import DatasetService
 
-            ds_service = DatasetService(self.db, self.minio)
+            ds_service = DatasetService(self.db)
             description = f"v{source_version.version_number}-annotated"
             new_version = await ds_service.create_version(
                 tenant_id=tenant_id,
@@ -779,23 +792,18 @@ class AnnotationService:
             await self.db.flush()
 
             # 4. Copy original files from source version to new version
-            src_prefix = f"datasets/{dataset.name}/v{source_version.version_number}/"
-            dst_prefix = f"datasets/{dataset.name}/v{new_version.version_number}/"
-
-            objects = await self.minio.list_objects(tenant_name, src_prefix)
-            total_objects = len(objects)
-            for i, obj in enumerate(objects):
-                src_name = obj["object_name"]
-                file_name = src_name.removeprefix(src_prefix)
+            src_files = await self.storage.list_files(tenant_name, dataset.name, source_version.version_number)
+            total_files = len(src_files)
+            for i, f in enumerate(src_files):
+                file_name = f["file_name"]
                 if not file_name:
                     continue
-                await self.minio.copy_object(
-                    src_tenant=tenant_name,
-                    src_object=src_name,
-                    dst_tenant=tenant_name,
-                    dst_object=f"{dst_prefix}{file_name}",
+                src_path = self.storage.get_file_path(
+                    tenant_name, dataset.name, source_version.version_number, file_name
                 )
-                progress = 20 + int((i + 1) / max(total_objects, 1) * 70)
+                dst_path = self.storage.get_file_path(tenant_name, dataset.name, new_version.version_number, file_name)
+                await self.storage.copy_file(src_path, dst_path)
+                progress = 20 + int((i + 1) / max(total_files, 1) * 70)
                 project.callback_progress = min(progress, 90)
                 await self.db.flush()
 
@@ -810,18 +818,15 @@ class AnnotationService:
                 "annotations": annotations,
             }
             annotations_bytes = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
-            await self.minio.upload_stream(
-                tenant_name,
-                f"{dst_prefix}annotations.json",
-                BytesIO(annotations_bytes),
-                len(annotations_bytes),
-                "application/json",
+            annotations_path = self.storage.get_file_path(
+                tenant_name, dataset.name, new_version.version_number, "annotations.json"
             )
+            await self.storage.write_file(annotations_path, annotations_bytes)
 
             # 6. Update new version file count and size
-            new_objects = await self.minio.list_objects(tenant_name, dst_prefix)
-            new_version.file_count = len(new_objects)
-            new_version.total_size_bytes = sum(o.get("size", 0) for o in new_objects)
+            new_files = await self.storage.list_files(tenant_name, dataset.name, new_version.version_number)
+            new_version.file_count = len(new_files)
+            new_version.total_size_bytes = sum(f.get("size_bytes", 0) for f in new_files)
 
             # 7. Mark callback succeeded
             project.callback_status = "succeeded"
@@ -839,6 +844,28 @@ class AnnotationService:
             await self.db.flush()
             await self.db.commit()
             raise
+
+    async def _refresh_download_url(self, task: AnnotationTask) -> AnnotationTask:
+        """Refresh download URLs in task data for URL-based annotation types."""
+        project = task.project
+        if not project or not project.dataset or not project.dataset_version:
+            return task
+
+        config_info = parse_label_config(project.label_config)
+        data = dict(task.data)
+        object_name = data.get("kubeai_object_name")
+
+        if object_name:
+            for data_object in config_info.objects:
+                if data_object.tag in URL_OBJECT_TAGS:
+                    # Extract file_name from object_name path
+                    file_name = object_name.rsplit("/", 1)[-1] if "/" in object_name else object_name
+                    data[data_object.field] = self._build_download_url(
+                        project.dataset.id, project.dataset_version.id, file_name
+                    )
+
+        task.data = data
+        return task
 
     async def _get_task_with_project(self, task_id: uuid.UUID, tenant_id: uuid.UUID) -> AnnotationTask:
         result = await self.db.execute(
@@ -870,24 +897,6 @@ class AnnotationService:
         task = result.scalar_one_or_none()
         if not task:
             raise NotFoundException("标注任务不存在")
-        return task
-
-    async def _refresh_presigned_url(self, task: AnnotationTask) -> AnnotationTask:
-        project = task.project
-        if not project or not project.dataset or not project.dataset_version:
-            return task
-
-        tenant_name = await self._get_tenant_name(task.tenant_id)
-        config_info = parse_label_config(project.label_config)
-        data = dict(task.data)
-        object_name = data.get("kubeai_object_name")
-
-        if object_name:
-            for data_object in config_info.objects:
-                if data_object.tag in URL_OBJECT_TAGS:
-                    data[data_object.field] = await self.minio.presigned_get_url(tenant_name, object_name)
-
-        task.data = data
         return task
 
     async def _validate_project_membership(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> AnnotationProject:

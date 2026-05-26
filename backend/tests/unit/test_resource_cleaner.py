@@ -74,7 +74,7 @@ class TestStaleJobDetection:
 
 class TestOrphanPVCDetection:
     @pytest.mark.asyncio
-    async def test_detect_orphan_pvcs_excludes_known_dataset_pvcs(self, cleaner: ResourceCleaner) -> None:
+    async def test_detect_orphan_pvcs_excludes_dataset_pvc_with_active_pods(self, cleaner: ResourceCleaner) -> None:
         from app.integrations.k8s.pvc import PVCInfo
 
         mock_pvc = PVCInfo(
@@ -85,98 +85,54 @@ class TestOrphanPVCDetection:
             creation_timestamp="2026-01-01T00:00:00Z",
         )
 
-        mock_dv = MagicMock()
-        mock_dv.dataset_id = uuid.uuid4()
-        mock_dv.version_number = 1
-
-        mock_ds = MagicMock()
-        mock_ds.id = mock_dv.dataset_id
-        mock_ds.name = "mydata"
-
-        dv_result = MagicMock()
-        dv_result.scalars.return_value.all.return_value = [mock_dv]
-        ds_result = MagicMock()
-        ds_result.scalars.return_value.all.return_value = [mock_ds]
-
-        mock_db = AsyncMock()
-        mock_db.execute.side_effect = [dv_result, ds_result]
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
         with (
-            patch("app.services.resource_cleaner.async_session_factory") as mock_factory,
             patch("app.services.resource_cleaner.list_tenant_namespaces", return_value=["kubeai-test"]),
             patch("app.services.resource_cleaner.list_namespace_pvcs", return_value=[mock_pvc]),
+            patch("app.services.resource_cleaner.list_namespace_pods_by_pvc", return_value=["pod-1"]),
         ):
-            mock_factory.return_value = mock_db
             orphans = await cleaner.detect_orphan_pvcs()
 
         assert len(orphans) == 0
 
     @pytest.mark.asyncio
-    async def test_detect_orphan_pvcs_finds_unmounted_pvc(self, cleaner: ResourceCleaner) -> None:
+    async def test_detect_orphan_pvcs_finds_unmounted_dataset_pvc(self, cleaner: ResourceCleaner) -> None:
         from app.integrations.k8s.pvc import PVCInfo
 
         mock_pvc = PVCInfo(
-            name="orphan-pvc",
+            name="dataset-legacy-v1",
             namespace="kubeai-test",
             storage="5Gi",
-            labels={"kubeai.io/type": "workspace"},
+            labels={"kubeai.io/type": "dataset"},
             creation_timestamp="2026-01-01T00:00:00Z",
         )
 
-        dv_result = MagicMock()
-        dv_result.scalars.return_value.all.return_value = []
-        ds_result = MagicMock()
-        ds_result.scalars.return_value.all.return_value = []
-
-        mock_db = AsyncMock()
-        mock_db.execute.side_effect = [dv_result, ds_result]
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
         with (
-            patch("app.services.resource_cleaner.async_session_factory") as mock_factory,
             patch("app.services.resource_cleaner.list_tenant_namespaces", return_value=["kubeai-test"]),
             patch("app.services.resource_cleaner.list_namespace_pvcs", return_value=[mock_pvc]),
             patch("app.services.resource_cleaner.list_namespace_pods_by_pvc", return_value=[]),
         ):
-            mock_factory.return_value = mock_db
             orphans = await cleaner.detect_orphan_pvcs()
 
         assert len(orphans) == 1
-        assert orphans[0].name == "orphan-pvc"
-        assert orphans[0].orphan_reason == "未被任何 Pod 挂载且不属于已知数据集版本"
+        assert orphans[0].name == "dataset-legacy-v1"
+        assert "遗留" in orphans[0].orphan_reason
 
     @pytest.mark.asyncio
-    async def test_detect_orphan_pvcs_excludes_pvc_with_active_pods(self, cleaner: ResourceCleaner) -> None:
+    async def test_detect_orphan_pvcs_ignores_non_dataset_pvc(self, cleaner: ResourceCleaner) -> None:
         from app.integrations.k8s.pvc import PVCInfo
 
         mock_pvc = PVCInfo(
-            name="in-use-pvc",
+            name="workspace-pvc",
             namespace="kubeai-test",
             storage="5Gi",
             labels={"kubeai.io/type": "workspace"},
             creation_timestamp="2026-01-01T00:00:00Z",
         )
 
-        dv_result = MagicMock()
-        dv_result.scalars.return_value.all.return_value = []
-        ds_result = MagicMock()
-        ds_result.scalars.return_value.all.return_value = []
-
-        mock_db = AsyncMock()
-        mock_db.execute.side_effect = [dv_result, ds_result]
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
         with (
-            patch("app.services.resource_cleaner.async_session_factory") as mock_factory,
             patch("app.services.resource_cleaner.list_tenant_namespaces", return_value=["kubeai-test"]),
             patch("app.services.resource_cleaner.list_namespace_pvcs", return_value=[mock_pvc]),
-            patch("app.services.resource_cleaner.list_namespace_pods_by_pvc", return_value=["pod-1"]),
         ):
-            mock_factory.return_value = mock_db
             orphans = await cleaner.detect_orphan_pvcs()
 
         assert len(orphans) == 0

@@ -1,12 +1,9 @@
-import axios, { type InternalAxiosRequestConfig } from 'axios'
-
 import { api } from './api'
 import type { BaseResponse, PageData } from '@/types/api'
 import type {
   Dataset,
   DatasetCreateParams,
   DatasetDetail,
-  DatasetMountInfo,
   DatasetVersion,
   VersionFile,
   VersionStats,
@@ -90,52 +87,51 @@ export async function getVersionStats(datasetId: string, versionId: string): Pro
   return res.data.data!
 }
 
-export async function getFileDownloadUrl(
+export function getFileDownloadUrl(datasetId: string, versionId: string, fileName: string): string {
+  return `/api/datasets/${datasetId}/versions/${versionId}/files/${encodeURIComponent(fileName)}/download`
+}
+
+export async function fetchFileBlob(
   datasetId: string,
   versionId: string,
   fileName: string,
-): Promise<string> {
-  const res = await api.post<BaseResponse<string>>(
-    `/datasets/${datasetId}/versions/${versionId}/files/download-url`,
-    { fileName },
-  )
-  return res.data.data!
+): Promise<Blob> {
+  const url = `/datasets/${datasetId}/versions/${versionId}/files/${encodeURIComponent(fileName)}/download`
+  const res = await api.get(url, { responseType: 'blob' })
+  return res.data as Blob
 }
 
-export async function mountDatasetVersion(
-  datasetId: string,
-  versionId: string,
-): Promise<DatasetMountInfo> {
-  const res = await api.post<BaseResponse<DatasetMountInfo>>(
-    `/datasets/${datasetId}/versions/${versionId}/mount`,
-  )
-  return res.data.data!
+export function createBlobUrl(blob: Blob): string {
+  return URL.createObjectURL(blob)
 }
 
-export async function getDatasetMountInfo(
-  datasetId: string,
-  versionId: string,
-): Promise<DatasetMountInfo | null> {
-  try {
-    const res = await api.get<BaseResponse<DatasetMountInfo>>(
-      `/datasets/${datasetId}/versions/${versionId}/mount`,
-      { _skipErrorHandler: true } as InternalAxiosRequestConfig,
-    )
-    return res.data.data!
-  } catch (e) {
-    if (axios.isAxiosError(e) && e.response?.status === 404) {
-      return null
-    }
-    throw e
-  }
+export function revokeBlobUrl(url: string): void {
+  URL.revokeObjectURL(url)
 }
 
-export async function unmountDatasetVersion(
+export async function downloadFile(
   datasetId: string,
   versionId: string,
+  fileName: string,
+): Promise<void> {
+  const blob = await fetchFileBlob(datasetId, versionId, fileName)
+  const url = createBlobUrl(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  revokeBlobUrl(url)
+}
+
+export async function deleteVersionFile(
+  datasetId: string,
+  versionId: string,
+  fileName: string,
 ): Promise<BaseResponse<null>> {
   const res = await api.delete<BaseResponse<null>>(
-    `/datasets/${datasetId}/versions/${versionId}/mount`,
+    `/datasets/${datasetId}/versions/${versionId}/files/${encodeURIComponent(fileName)}`,
   )
   return res.data
 }

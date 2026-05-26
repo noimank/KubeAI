@@ -119,7 +119,7 @@ class TestCreateFromEnvironmentSuccess:
                 "dataset_name": "mnist",
                 "version_id": str(ver_id),
                 "version_number": 1,
-                "pvc_name": "dataset-mnist-v1",
+                "host_path": "/data/kubeai/datasets/default-tenant/mnist/v1",
                 "mount_path": "/data/datasets/mnist/v1",
             }
         ]
@@ -142,24 +142,22 @@ class TestCreateFromEnvironmentSuccess:
             _sync_result(env),  # _get_environment_or_fail
             _sync_result(image),  # _resolve_image_from_env
             _sync_result(image),  # _get_image_or_fail (in create_training_job)
+            _sync_result(tenant),  # _get_tenant_or_fail
             _sync_result(dataset),  # _get_dataset_or_fail
             _sync_result(version),  # _get_version_or_fail
-            _sync_result(tenant),  # _get_tenant_or_fail
             _sync_result(user),  # _get_user_or_fail
         ]
         mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
         mock_build.return_value = {"metadata": {"name": "test"}}
         mock_create.return_value = None
 
-        # Need to mock pvc_exists for dataset PVC check
-        with patch("app.services.training_job_service.pvc_exists", return_value=True):
-            job = await service.create_from_environment(
-                tenant_id=tenant.id,
-                user_id=user.id,
-                environment_id=env.id,
-                name="from-env-job",
-                command="python train.py",
-            )
+        job = await service.create_from_environment(
+            tenant_id=tenant.id,
+            user_id=user.id,
+            environment_id=env.id,
+            name="from-env-job",
+            command="python train.py",
+        )
 
         assert job.source == "dev_environment"
         assert job.source_env_id == env.id
@@ -194,28 +192,27 @@ class TestCreateFromEnvironmentSuccess:
         mock_db.execute.side_effect = [
             _sync_result(env),  # _get_environment_or_fail
             _sync_result(_make_image(id=override_image_id)),  # _get_image_or_fail
+            _sync_result(tenant),  # _get_tenant_or_fail
             _sync_result(dataset),  # _get_dataset_or_fail
             _sync_result(version),  # _get_version_or_fail
-            _sync_result(tenant),  # _get_tenant_or_fail
             _sync_result(user),  # _get_user_or_fail
         ]
         mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
         mock_build.return_value = {"metadata": {"name": "test"}}
 
-        with patch("app.services.training_job_service.pvc_exists", return_value=True):
-            job = await service.create_from_environment(
-                tenant_id=tenant.id,
-                user_id=user.id,
-                environment_id=env.id,
-                name="override-job",
-                command="python train.py",
-                image_id=override_image_id,
-                dataset_id=override_dataset_id,
-                dataset_version_id=override_dataset_version_id,
-                gpu_count=4,
-                cpu="8",
-                memory="32Gi",
-            )
+        job = await service.create_from_environment(
+            tenant_id=tenant.id,
+            user_id=user.id,
+            environment_id=env.id,
+            name="override-job",
+            command="python train.py",
+            image_id=override_image_id,
+            dataset_id=override_dataset_id,
+            dataset_version_id=override_dataset_version_id,
+            gpu_count=4,
+            cpu="8",
+            memory="32Gi",
+        )
 
         assert job.image_id == override_image_id
         assert job.dataset_id == override_dataset_id

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useRef, useState, useEffect, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   Alert,
@@ -22,7 +22,9 @@ import {
   Upload,
 } from 'antd'
 import {
+  DeleteOutlined,
   DownloadOutlined,
+  EyeOutlined,
   FileOutlined,
   FileImageOutlined,
   FilePdfOutlined,
@@ -45,12 +47,13 @@ import {
   uploadVersionFiles,
   getVersionFiles,
   getVersionStats,
-  getFileDownloadUrl,
-  mountDatasetVersion,
-  getDatasetMountInfo,
-  unmountDatasetVersion,
+  fetchFileBlob,
+  createBlobUrl,
+  revokeBlobUrl,
+  downloadFile,
+  deleteVersionFile,
 } from '@/services/datasets'
-import type { DatasetVersion, VersionFile, DatasetMountInfo } from '@/types/dataset'
+import type { DatasetVersion, VersionFile } from '@/types/dataset'
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico'])
 
@@ -124,9 +127,9 @@ export default function DatasetDetailPage() {
   const [uploadingVersionId, setUploadingVersionId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedVersionId, setSelectedVersionId] = useState<string | undefined>()
-  const [mountInfoMap, setMountInfoMap] = useState<Record<string, DatasetMountInfo>>({})
-  const [mountingVersionId, setMountingVersionId] = useState<string | null>(null)
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({})
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewImageUrl, setPreviewImageUrl] = useState<string>('')
 
   const {
     data: detailRes,
@@ -165,7 +168,17 @@ export default function DatasetDetailPage() {
 
   const files: VersionFile[] = useMemo(() => filesData || [], [filesData])
 
-  // 批量获取图片缩略图 URL（限制并发，逐批请求）
+  // Batch load image thumbnails via authenticated API
+  const blobUrlsRef = useRef<Set<string>>(new Set())
+
+  // Revoke all blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      blobUrlsRef.current.forEach(revokeBlobUrl)
+      blobUrlsRef.current.clear()
+    }
+  }, [])
+
   useEffect(() => {
     if (!files.length || !id || !effectiveVersionId) return
 
@@ -175,65 +188,38 @@ export default function DatasetDetailPage() {
       return
     }
 
-    let cancelled = false
-    const BATCH_SIZE = 5
-    const batches: (typeof imageFiles)[] = []
-    for (let i = 0; i < imageFiles.length; i += BATCH_SIZE) {
-      batches.push(imageFiles.slice(i, i + BATCH_SIZE))
-    }
+    const cancelled = { value: false }
 
-    async function loadBatch(batchIdx: number) {
-      if (cancelled || batchIdx >= batches.length) return
-      const batch = batches[batchIdx]
-      const results = await Promise.allSettled(
-        batch.map(async (f) => {
-          const url = await getFileDownloadUrl(id!, effectiveVersionId!, f.fileName)
-          return { fileName: f.fileName, url }
-        }),
-      )
-      if (cancelled) return
-      const partial: Record<string, string> = {}
-      for (const r of results) {
-        if (r.status === 'fulfilled') {
-          partial[r.value.fileName] = r.value.url
+    async function loadImages() {
+      const urls: Record<string, string> = {}
+      for (const f of imageFiles) {
+        if (cancelled.value) return
+        try {
+          const blob = await fetchFileBlob(id!, effectiveVersionId!, f.fileName)
+          if (cancelled.value) return
+          const blobUrl = createBlobUrl(blob)
+          blobUrlsRef.current.add(blobUrl)
+          urls[f.fileName] = blobUrl
+        } catch {
+          // skip failed images
         }
       }
-      setImageUrls((prev) => ({ ...prev, ...partial }))
-      await loadBatch(batchIdx + 1)
+      if (!cancelled.value) {
+        setImageUrls((prev) => {
+          Object.values(prev).forEach((u) => {
+            blobUrlsRef.current.delete(u)
+            revokeBlobUrl(u)
+          })
+          return urls
+        })
+      }
     }
 
-    loadBatch(0)
-
+    loadImages()
     return () => {
-      cancelled = true
+      cancelled.value = true
     }
   }, [files, id, effectiveVersionId])
-
-  // 版本列表 Tab 挂载状态持久化
-  useEffect(() => {
-    if (activeTab !== 'versions' || !versions.length || !id) return
-
-    let cancelled = false
-    Promise.all(
-      versions.map(async (v) => {
-        const info = await getDatasetMountInfo(id!, v.id)
-        return { versionId: v.id, info }
-      }),
-    ).then((results) => {
-      if (cancelled) return
-      const map: Record<string, DatasetMountInfo> = {}
-      for (const r of results) {
-        if (r.info) {
-          map[r.versionId] = r.info
-        }
-      }
-      setMountInfoMap(map)
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeTab, versions, id])
 
   const deleteDatasetMutation = useMutation({
     mutationFn: () => deleteDataset(id!),
@@ -271,36 +257,22 @@ export default function DatasetDetailPage() {
     },
   })
 
-  const downloadMutation = useMutation({
-    mutationFn: (fileName: string) => getFileDownloadUrl(id!, effectiveVersionId!, fileName),
-    onSuccess: (url) => {
-      window.open(url, '_blank')
+  const deleteFileMutation = useMutation({
+    mutationFn: (fileName: string) => deleteVersionFile(id!, effectiveVersionId!, fileName),
+    onSuccess: () => {
+      getMessageInstance()?.success('文件删除成功')
+      queryClient.invalidateQueries({ queryKey: ['version-files', id, effectiveVersionId] })
+      queryClient.invalidateQueries({ queryKey: ['version-stats', id, effectiveVersionId] })
+      queryClient.invalidateQueries({ queryKey: ['dataset-detail', id] })
     },
   })
 
-  const mountMutation = useMutation({
-    mutationFn: (versionId: string) => mountDatasetVersion(id!, versionId),
-    onSuccess: (info, versionId) => {
-      getMessageInstance()?.success('挂载成功')
-      setMountInfoMap((prev) => ({ ...prev, [versionId]: info }))
-      setMountingVersionId(null)
-    },
-    onError: () => {
-      setMountingVersionId(null)
-    },
-  })
-
-  const unmountMutation = useMutation({
-    mutationFn: (versionId: string) => unmountDatasetVersion(id!, versionId),
-    onSuccess: (_, versionId) => {
-      getMessageInstance()?.success('卸载成功')
-      setMountInfoMap((prev) => {
-        const next = { ...prev }
-        delete next[versionId]
-        return next
-      })
-    },
-  })
+  const handlePreviewImage = async (fileName: string) => {
+    if (imageUrls[fileName]) {
+      setPreviewImageUrl(imageUrls[fileName])
+      setPreviewOpen(true)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -351,88 +323,46 @@ export default function DatasetDetailPage() {
       width: 180,
     },
     {
-      title: '挂载状态',
-      width: 100,
-      render: (_, record) => {
-        const info = mountInfoMap[record.id]
-        return info ? <Tag color="green">已挂载</Tag> : <Tag>未挂载</Tag>
-      },
-    },
-    {
       title: '操作',
-      width: 240,
-      render: (_, record) => {
-        const info = mountInfoMap[record.id]
-        return (
-          <Space size="small">
-            {hasPermission('datasets:read') && !info && (
+      width: 160,
+      render: (_, record) => (
+        <Space size="small">
+          {canWrite && (
+            <Upload
+              multiple
+              showUploadList={false}
+              beforeUpload={(file, fileList) => {
+                if (file !== fileList[0]) return false
+                uploadMutation.mutate({ versionId: record.id, files: [...fileList] })
+                return false
+              }}
+            >
               <Button
                 type="link"
                 size="small"
-                loading={mountMutation.isPending && mountingVersionId === record.id}
-                onClick={() => {
-                  setMountingVersionId(record.id)
-                  mountMutation.mutate(record.id)
-                }}
+                icon={<UploadOutlined />}
+                loading={uploadMutation.isPending && uploadingVersionId === record.id}
+                onClick={() => setUploadingVersionId(record.id)}
               >
-                挂载
+                上传文件
               </Button>
-            )}
-            {info && (
-              <>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{info.pvcName}</span>
-                {canManage && (
-                  <Popconfirm
-                    title="确认卸载？"
-                    description="卸载后 PVC 将被删除，正在使用的任务可能受影响。"
-                    onConfirm={() => unmountMutation.mutate(record.id)}
-                    okText="确认"
-                    cancelText="取消"
-                  >
-                    <Button type="link" size="small" danger>
-                      卸载
-                    </Button>
-                  </Popconfirm>
-                )}
-              </>
-            )}
-            {canWrite && (
-              <Upload
-                multiple
-                showUploadList={false}
-                beforeUpload={(file, fileList) => {
-                  if (file !== fileList[0]) return false
-                  uploadMutation.mutate({ versionId: record.id, files: [...fileList] })
-                  return false
-                }}
-              >
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<UploadOutlined />}
-                  loading={uploadMutation.isPending && uploadingVersionId === record.id}
-                  onClick={() => setUploadingVersionId(record.id)}
-                >
-                  上传文件
-                </Button>
-              </Upload>
-            )}
-            {canManage && (
-              <Popconfirm
-                title="确认删除该版本？"
-                description="删除后，版本内的所有文件将被永久清除。"
-                onConfirm={() => deleteVersionMutation.mutate(record.id)}
-                okText="确认"
-                cancelText="取消"
-              >
-                <Button type="link" size="small" danger>
-                  删除
-                </Button>
-              </Popconfirm>
-            )}
-          </Space>
-        )
-      },
+            </Upload>
+          )}
+          {canManage && (
+            <Popconfirm
+              title="确认删除该版本？"
+              description="删除后，版本内的所有文件将被永久清除。"
+              onConfirm={() => deleteVersionMutation.mutate(record.id)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button type="link" size="small" danger>
+                删除
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
+      ),
     },
   ]
 
@@ -440,6 +370,7 @@ export default function DatasetDetailPage() {
     {
       title: '文件名',
       dataIndex: 'fileName',
+      width: 260,
       ellipsis: true,
       render: (val: string) => {
         if (isImageFile(val) && imageUrls[val]) {
@@ -469,13 +400,13 @@ export default function DatasetDetailPage() {
     {
       title: '大小',
       dataIndex: 'sizeBytes',
-      width: 110,
+      width: 90,
       render: (val: number) => formatFileSize(val),
     },
     {
       title: '类型',
       dataIndex: 'contentType',
-      width: 140,
+      width: 100,
       ellipsis: true,
       render: (val: string) => (
         <Tooltip title={val}>
@@ -491,17 +422,41 @@ export default function DatasetDetailPage() {
     },
     {
       title: '操作',
-      width: 80,
+      width: 120,
       render: (_, record) => (
-        <Button
-          type="link"
-          size="small"
-          icon={<DownloadOutlined />}
-          loading={downloadMutation.isPending}
-          onClick={() => downloadMutation.mutate(record.fileName)}
-        >
-          下载
-        </Button>
+        <Space size={4}>
+          {isImageFile(record.fileName) && (
+            <Tooltip title="预览">
+              <Button
+                type="text"
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => handlePreviewImage(record.fileName)}
+              />
+            </Tooltip>
+          )}
+          <Tooltip title="下载">
+            <Button
+              type="text"
+              size="small"
+              icon={<DownloadOutlined />}
+              onClick={() => downloadFile(id!, effectiveVersionId!, record.fileName)}
+            />
+          </Tooltip>
+          {canWrite && (
+            <Popconfirm
+              title="确认删除该文件？"
+              description="删除后文件将无法恢复。"
+              onConfirm={() => deleteFileMutation.mutate(record.fileName)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Tooltip title="删除">
+                <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+              </Tooltip>
+            </Popconfirm>
+          )}
+        </Space>
       ),
     },
   ]
@@ -678,6 +633,18 @@ export default function DatasetDetailPage() {
           rows={3}
           style={{ marginTop: 16 }}
         />
+      </Modal>
+
+      <Modal
+        open={previewOpen}
+        footer={null}
+        onCancel={() => setPreviewOpen(false)}
+        destroyOnHidden
+        width="auto"
+        style={{ maxWidth: '90vw' }}
+        styles={{ body: { display: 'flex', justifyContent: 'center', padding: 0 } }}
+      >
+        <img src={previewImageUrl} alt="preview" style={{ maxWidth: '100%', maxHeight: '80vh' }} />
       </Modal>
     </div>
   )
