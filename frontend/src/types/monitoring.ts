@@ -118,24 +118,3 @@ export interface StaleJob {
   finishedAt: string | null
   daysAgo: number
 }
-
-export interface OrphanPVC {
-  name: string
-  namespace: string
-  storage: string
-  createdAt: string | null
-  orphanReason: string
-}
-
-export interface CleanupDetail {
-  namespace: string
-  pvcName: string
-  success: boolean
-  error?: string | null
-}
-
-export interface CleanupResult {
-  cleanedCount: number
-  failedCount: number
-  details: CleanupDetail[]
-}

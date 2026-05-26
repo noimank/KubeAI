@@ -64,7 +64,7 @@ def _make_task(project_id=None, tenant_id=None, assigned_to=None, status="assign
     task = AnnotationTask(
         project_id=project_id or uuid.uuid4(),
         label_studio_task_id=ls_task_id,
-        data={"image": "https://minio.example.com/bucket/datasets/test-dataset/v1/img.jpg?X-Amz-Signature=abc"},
+        data={"image": "/data/kubeai/datasets/test-tenant/test-dataset/v1/img.jpg"},
         assigned_to=assigned_to,
         status=status,
         tenant_id=tenant_id or uuid.uuid4(),

@@ -114,14 +114,6 @@ class QuotaTransferRequest(BaseModel):
     force: bool = False
 
 
-class OrphanPVCInfo(BaseModel):
-    name: str
-    namespace: str
-    storage: str
-    created_at: str | None = None
-    orphan_reason: str
-
-
 class StaleJobInfo(BaseModel):
     id: str
     name: str
@@ -131,20 +123,3 @@ class StaleJobInfo(BaseModel):
     status: str
     finished_at: str | None = None
     days_ago: int
-
-
-class CleanupPVCRequest(BaseModel):
-    items: list[tuple[str, str]]
-
-
-class CleanupDetail(BaseModel):
-    namespace: str
-    pvc_name: str
-    success: bool
-    error: str | None = None
-
-
-class CleanupResult(BaseModel):
-    cleaned_count: int
-    failed_count: int
-    details: list[CleanupDetail]

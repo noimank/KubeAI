@@ -12,11 +12,6 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.integrations.k8s.namespace import list_tenant_namespaces
-from app.integrations.k8s.pvc import (
-    delete_pvc,
-    list_namespace_pods_by_pvc,
-    list_namespace_pvcs,
-)
 from app.integrations.volcano.client import (
     delete_vcjob,
     extract_vcjob_phase,
@@ -35,23 +30,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 TERMINAL_STATUSES = {TrainingJobStatus.SUCCEEDED, TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED}
-
-
-@dataclass
-class OrphanPVCInfo:
-    name: str
-    namespace: str
-    storage: str
-    created_at: str | None
-    orphan_reason: str
-
-
-@dataclass
-class CleanupDetail:
-    namespace: str
-    pvc_name: str
-    success: bool
-    error: str | None = None
 
 
 @dataclass
@@ -183,45 +161,6 @@ class ResourceCleaner:
 
         return cleaned
 
-    async def detect_orphan_pvcs(self) -> list[OrphanPVCInfo]:
-        """Detect orphan PVCs. Since datasets no longer use PVCs, any PVC with
-        the kubeai.io/type=dataset label is considered a legacy orphan."""
-        namespaces = await list_tenant_namespaces()
-        orphans: list[OrphanPVCInfo] = []
-
-        for namespace in namespaces:
-            async with self._semaphore:
-                try:
-                    pvcs = await list_namespace_pvcs(namespace)
-                except Exception:
-                    logger.exception("detect_orphan_pvcs_list_failed", namespace=namespace)
-                    continue
-
-                for pvc in pvcs:
-                    if pvc.labels.get("kubeai.io/type") != "dataset":
-                        continue
-
-                    try:
-                        mounted_pods = await list_namespace_pods_by_pvc(namespace, pvc.name)
-                    except Exception:
-                        logger.exception("detect_orphan_pvcs_pods_failed", namespace=namespace, pvc=pvc.name)
-                        continue
-
-                    if mounted_pods:
-                        continue
-
-                    orphans.append(
-                        OrphanPVCInfo(
-                            name=pvc.name,
-                            namespace=namespace,
-                            storage=pvc.storage,
-                            created_at=pvc.creation_timestamp,
-                            orphan_reason="数据集已迁移至 hostPath 存储，此 PVC 为遗留资源",  # noqa: RUF001
-                        )
-                    )
-
-        return orphans
-
     async def detect_stale_jobs(self) -> list[StaleJobInfo]:
         async with async_session_factory() as db:
             threshold = datetime.now(UTC) - timedelta(days=settings.RESOURCE_CLEANUP_JOB_MAX_AGE_DAYS)
@@ -255,33 +194,6 @@ class ResourceCleaner:
                     )
                 )
             return stale_jobs
-
-    async def cleanup_pvcs(
-        self, pvc_items: list[tuple[str, str]], audit_context: dict[str, object]
-    ) -> list[CleanupDetail]:
-        results: list[CleanupDetail] = []
-        async with async_session_factory() as db:
-            audit_svc = AuditService(db)
-            for namespace, pvc_name in pvc_items:
-                try:
-                    await delete_pvc(namespace, pvc_name)
-                    results.append(CleanupDetail(namespace=namespace, pvc_name=pvc_name, success=True))
-                    await audit_svc.log_action(
-                        action=AuditAction.CLEANUP_PVC,
-                        resource_type=ResourceType.PVC,
-                        resource_id=pvc_name,
-                        ip_address=str(audit_context.get("ip_address", "")),
-                        user_id=audit_context.get("user_id"),  # type: ignore[arg-type]
-                        detail={
-                            "namespace": namespace,
-                            "pvc_name": pvc_name,
-                            "source": "manual_cleanup",
-                        },
-                    )
-                except Exception as e:
-                    results.append(CleanupDetail(namespace=namespace, pvc_name=pvc_name, success=False, error=str(e)))
-            await db.commit()
-        return results
 
     async def trigger_manual_cleanup(self) -> None:
         self._manual_task: asyncio.Task[None] | None = asyncio.create_task(self._run_cleanup())

@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getClusterOverview,
   getNodeDetails,
-  getOrphanPVCs,
   getQuotaAllocationOverview,
   getQuotaComparison,
   getStaleJobs,
@@ -20,7 +19,6 @@ import QuotaAllocationBar from './components/QuotaAllocationBar'
 import TenantQuotaTable from './components/TenantQuotaTable'
 import QuotaTransferModal from './components/QuotaTransferModal'
 import StaleJobTable from './components/StaleJobTable'
-import OrphanPVCTable from './components/OrphanPVCTable'
 
 export default function MonitoringPage() {
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null)
@@ -69,16 +67,6 @@ export default function MonitoringPage() {
     refetchInterval: 30_000,
   })
 
-  const {
-    data: orphanPVCsRes,
-    isLoading: orphanPVCsLoading,
-    refetch: refetchOrphanPVCs,
-  } = useQuery({
-    queryKey: ['orphanPVCs'],
-    queryFn: getOrphanPVCs,
-    refetchInterval: 30_000,
-  })
-
   const handleTransfer = (tenant?: TenantQuotaComparison) => {
     setTransferFrom(tenant)
     setTransferOpen(true)
@@ -95,7 +83,6 @@ export default function MonitoringPage() {
         message.success('清理任务已触发')
         setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ['staleJobs'] })
-          refetchOrphanPVCs()
         }, 3000)
       } else {
         message.error(res.message || '触发失败')
@@ -168,15 +155,8 @@ export default function MonitoringPage() {
                     立即清理
                   </Button>
                 </div>
-                <Card title="过期任务资源" size="small" style={{ marginBottom: 16 }}>
+                <Card title="过期任务资源" size="small">
                   <StaleJobTable data={staleJobsRes?.data ?? []} loading={staleJobsLoading} />
-                </Card>
-                <Card title="孤立 PVC" size="small">
-                  <OrphanPVCTable
-                    data={orphanPVCsRes?.data ?? []}
-                    loading={orphanPVCsLoading}
-                    onRefresh={refetchOrphanPVCs}
-                  />
                 </Card>
               </>
             ),

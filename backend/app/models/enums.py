@@ -41,7 +41,6 @@ class AuditAction(enum.StrEnum):
     BUILD = "build"
     REBUILD = "rebuild"
     CLEANUP_JOB = "cleanup_job"
-    CLEANUP_PVC = "cleanup_pvc"
 
 
 class ResourceType(enum.StrEnum):
@@ -57,7 +56,6 @@ class ResourceType(enum.StrEnum):
     TRAINING_JOB = "training_job"
     MODEL = "model"
     ANNOTATION_PROJECT = "annotation_project"
-    PVC = "pvc"
 
 
 class BuildStatus(enum.StrEnum):
