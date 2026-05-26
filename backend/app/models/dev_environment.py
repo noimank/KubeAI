@@ -46,7 +46,7 @@ class DevEnvironment(Base, TimestampMixin):
     mounted_datasets: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSON,
         nullable=True,
-        comment="挂载的数据集列表 [{dataset_id, dataset_name, version_id, version_number, pvc_name, mount_path}]",
+        comment="挂载的数据集列表 [{dataset_id, dataset_name, version_id, version_number, host_path, mount_path}]",
     )
 
     def __init__(self, **kwargs: object) -> None:

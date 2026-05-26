@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_SECURE: bool = False
-    MINIO_BUCKET_PREFIX: str = "kubeai-datasets-"
+    MINIO_BUCKET_PREFIX: str = "kubeai-models-"
 
     DATASET_BASE_PATH: str = "/data/kubeai/datasets"
 
