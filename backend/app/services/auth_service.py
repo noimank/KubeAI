@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.core.config import settings
 from app.core.exceptions import ConflictException, ForbiddenException, UnauthorizedException
@@ -73,7 +73,9 @@ class AuthService:
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
     async def login(self, req: LoginRequest, audit_context: dict[str, Any] | None = None) -> TokenResponse:
-        result = await self.db.execute(select(User).where(User.username == req.username))
+        result = await self.db.execute(
+            select(User).where(or_(User.username == req.username, User.email == req.username))
+        )
         user = result.scalar_one_or_none()
 
         if user is None:
