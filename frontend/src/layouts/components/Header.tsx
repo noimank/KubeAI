@@ -1,13 +1,7 @@
 import { useEffect } from 'react'
 import { Avatar, Dropdown, Tooltip } from 'antd'
 import type { CSSProperties, ReactNode } from 'react'
-import {
-  SearchOutlined,
-  UserOutlined,
-  LogoutOutlined,
-  SunOutlined,
-  MoonOutlined,
-} from '@ant-design/icons'
+import { UserOutlined, LogoutOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 
 import { useNavigate } from 'react-router-dom'
@@ -114,9 +108,6 @@ export function Header() {
         onClick={toggleTheme}
       >
         {themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />}
-      </HeaderAction>
-      <HeaderAction title="搜索">
-        <SearchOutlined />
       </HeaderAction>
       <NotificationDropdown unreadCount={unreadCount} />
       <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} placement="bottomRight">
