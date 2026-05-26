@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime  # noqa: TC003
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,6 +22,8 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    nickname: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    avatar: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     auth_provider: Mapped[str] = mapped_column(String(20), default="local", server_default="local", nullable=False)
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

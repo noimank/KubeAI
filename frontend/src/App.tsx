@@ -43,6 +43,7 @@ const TenantsPage = lazy(() => import('./pages/admin/tenants'))
 const TenantDetailPage = lazy(() => import('./pages/admin/tenants/detail'))
 const UsersPage = lazy(() => import('./pages/admin/users'))
 const AuditLogsPage = lazy(() => import('./pages/admin/audit-logs'))
+const ProfilePage = lazy(() => import('./pages/profile'))
 
 function LoadingFallback() {
   return (
@@ -303,6 +304,7 @@ export default function App() {
                         </PermissionGuard>
                       }
                     />
+                    <Route path="profile" element={<ProfilePage />} />
                     <Route path="403" element={<ForbiddenPage />} />
                   </Route>
                 </Route>

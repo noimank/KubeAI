@@ -23,6 +23,7 @@ const NAVIGATE_MAP: Record<string, string> = {
   '/admin/tenants': '租户管理',
   '/admin/users': '用户管理',
   '/admin/audit-logs': '审计日志',
+  '/profile': '个人设置',
 }
 
 export default function MainLayout() {

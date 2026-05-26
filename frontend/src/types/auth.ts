@@ -4,9 +4,10 @@ export interface User {
   id: string
   username: string
   email: string
+  nickname?: string
+  avatar?: string
   role: UserRole
   tenantId?: string
-  avatar?: string
 }
 
 export interface TokenPayload {

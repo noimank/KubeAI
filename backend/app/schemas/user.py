@@ -10,6 +10,8 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     username: str
     email: str
+    nickname: str | None = None
+    avatar: str | None = None
     role: UserRole
     is_active: bool
     auth_provider: str = "local"

@@ -1,20 +1,26 @@
+import base64
 from typing import Annotated, Any
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, OptionalCurrentUser, get_db
 from app.core.config import settings
+from app.core.exceptions import BadRequestException, ConflictException
 from app.core.redis import get_redis
-from app.core.security import decode_token, hash_password
+from app.core.security import decode_token, hash_password, verify_password
 from app.models.enums import AuditAction, ResourceType
+from app.models.user import User as UserModel
 from app.schemas.auth import (
     AuthConfigResponse,
     LoginRequest,
     LogoutRequest,
+    PasswordChangeRequest,
+    ProfileUpdateRequest,
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
@@ -116,17 +122,75 @@ async def logout(
     return BaseResponse(message="已退出登录")
 
 
-@router.get("/me", response_model=BaseResponse[UserResponse])
-async def me(user: CurrentUser) -> BaseResponse[UserResponse]:
-    user_response = UserResponse(
+def _build_user_response(user: UserModel) -> UserResponse:
+    return UserResponse(
         id=str(user.id),
         username=user.username,
         email=user.email,
+        nickname=user.nickname,
+        avatar=user.avatar,
         is_active=user.is_active,
         role=user.role,
         tenant_id=str(user.tenant_id) if user.tenant_id else None,
     )
-    return BaseResponse(data=user_response, message="获取成功")
+
+
+@router.get("/me", response_model=BaseResponse[UserResponse])
+async def me(user: CurrentUser) -> BaseResponse[UserResponse]:
+    return BaseResponse(data=_build_user_response(user), message="获取成功")
+
+
+@router.patch("/me/profile", response_model=BaseResponse[UserResponse])
+async def update_profile(
+    req: ProfileUpdateRequest,
+    user: CurrentUser,
+    db: DbDep,
+) -> BaseResponse[UserResponse]:
+    if req.email is not None and req.email != user.email:
+        existing = await db.execute(select(UserModel).where(UserModel.email == req.email, UserModel.id != user.id))
+        if existing.scalar_one_or_none() is not None:
+            raise ConflictException("该邮箱已被使用")
+        user.email = req.email
+
+    if req.nickname is not None:
+        user.nickname = req.nickname
+
+    await db.flush()
+    return BaseResponse(data=_build_user_response(user), message="更新成功")
+
+
+ALLOWED_AVATAR_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2 MB
+
+
+@router.post("/me/avatar", response_model=BaseResponse[UserResponse])
+async def upload_avatar(
+    user: CurrentUser,
+    db: DbDep,
+    file: UploadFile = File(...),  # noqa: B008
+) -> BaseResponse[UserResponse]:
+    if file.content_type not in ALLOWED_AVATAR_TYPES:
+        raise BadRequestException("仅支持 JPEG、PNG、GIF、WebP 格式的图片")
+    content = await file.read()
+    if len(content) > MAX_AVATAR_SIZE:
+        raise BadRequestException("头像文件大小不能超过 2MB")
+    b64 = base64.b64encode(content).decode()
+    user.avatar = f"data:{file.content_type};base64,{b64}"
+    await db.flush()
+    return BaseResponse(data=_build_user_response(user), message="头像上传成功")
+
+
+@router.post("/me/password", response_model=BaseResponse[None])
+async def change_password(
+    req: PasswordChangeRequest,
+    user: CurrentUser,
+    db: DbDep,
+) -> BaseResponse[None]:
+    if not await verify_password(req.current_password, user.hashed_password):
+        raise BadRequestException("当前密码错误")
+    user.hashed_password = await hash_password(req.new_password)
+    await db.flush()
+    return BaseResponse(message="密码修改成功")
 
 
 @router.get("/oauth/providers", response_model=BaseResponse[list[OAuthProviderResponse]])
@@ -200,11 +264,6 @@ async def accept_invitation(
 
     if req.username and req.password:
         # 场景 A: 新用户注册 + 接受邀请
-        from sqlalchemy import select
-
-        from app.core.exceptions import ConflictException
-        from app.models.user import User as UserModel
-
         inv_info = await inv_service.get_invitation_info(req.token)
 
         existing_email = await db.execute(select(UserModel).where(UserModel.email == inv_info["email"]))
@@ -244,8 +303,6 @@ async def accept_invitation(
         return BaseResponse(data=tokens, message="注册并加入租户成功")
     elif user:
         # 场景 B: 已登录用户接受邀请
-        from app.core.exceptions import BadRequestException, ConflictException
-
         if user.tenant_id and not req.force:
             raise ConflictException("您当前已属于一个租户, 接受邀请将转移到新租户, 请确认操作")
 
@@ -270,6 +327,4 @@ async def accept_invitation(
         )
         return BaseResponse(data=tokens, message="已加入租户")
     else:
-        from app.core.exceptions import BadRequestException
-
         raise BadRequestException("请提供注册信息或先登录")

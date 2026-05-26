@@ -48,9 +48,41 @@ class UserResponse(BaseModel):
     id: str
     username: str
     email: str
+    nickname: str | None = None
+    avatar: str | None = None
     is_active: bool
     role: UserRole
     tenant_id: str | None = None
+
+
+class ProfileUpdateRequest(BaseModel):
+    nickname: str | None = Field(None, max_length=100)
+    email: str | None = Field(None, pattern=r"^[\w.-]+@[\w.-]+\.\w+$")
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8)
+    confirm_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_policy(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("密码至少 8 个字符")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("密码需包含至少一个大写字母")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("密码需包含至少一个小写字母")
+        if not re.search(r"\d", v):
+            raise ValueError("密码需包含至少一个数字")
+        return v
+
+    @model_validator(mode="after")
+    def passwords_match(self) -> "PasswordChangeRequest":
+        if self.new_password != self.confirm_password:
+            raise ValueError("两次输入的密码不一致")
+        return self
 
 
 class AuthConfigResponse(BaseModel):
