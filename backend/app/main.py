@@ -33,4 +33,4 @@ app.add_exception_handler(AppException, app_exception_handler)  # type: ignore[a
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.include_router(api_router, prefix=settings.API_PREFIX)
-app.include_router(ws_router)
+app.include_router(ws_router, prefix=settings.API_PREFIX)
