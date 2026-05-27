@@ -48,8 +48,8 @@ export function useResourceQuota() {
   const quota: ResourceQuota | null = (() => {
     if (!data || !currentTenant) return null
 
-    const gpuUsed = data.gpuUsed
-    const gpuTotal = currentTenant.gpuLimit
+    const gpuUsed = data.gpuUsed ?? 0
+    const gpuTotal = currentTenant.gpuLimit ?? 0
     const cpuUsed = parseK8sQuantity(data.cpuUsed)
     const cpuTotal = parseK8sQuantity(currentTenant.cpuLimit)
     const memUsedMi = parseK8sQuantity(data.memoryUsed)
