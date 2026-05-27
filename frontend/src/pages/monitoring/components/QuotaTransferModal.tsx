@@ -177,7 +177,7 @@ export default function QuotaTransferModal({
       onOk={() => form.submit()}
       confirmLoading={loading}
       width={720}
-      destroyOnClose
+      destroyOnHidden
     >
       <Row gutter={16}>
         <Col span={14}>

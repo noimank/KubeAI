@@ -601,7 +601,7 @@ export default function TenantDetailPage() {
         open={editDrawerOpen}
         onClose={() => setEditDrawerOpen(false)}
         width={480}
-        destroyOnClose
+        destroyOnHidden
       >
         <TenantEditForm tenant={tenant} onFinish={handleEdit} />
       </Drawer>
@@ -611,7 +611,7 @@ export default function TenantDetailPage() {
         open={quotaDrawerOpen}
         onClose={() => setQuotaDrawerOpen(false)}
         width={480}
-        destroyOnClose
+        destroyOnHidden
       >
         <QuotaEditor
           tenant={tenant}

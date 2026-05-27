@@ -102,7 +102,7 @@ export default function ExperimentCompareDrawer({ open, experimentIds, onClose }
   }
 
   return (
-    <Drawer title="实验对比" open={open} onClose={onClose} width="90vw" destroyOnClose>
+    <Drawer title="实验对比" open={open} onClose={onClose} width="90vw" destroyOnHidden>
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: 80 }}>
           <Spin size="large" />

@@ -861,7 +861,7 @@ function CanaryStartModal({
       okText="启动金丝雀"
       cancelText="取消"
       width={520}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form form={form} layout="vertical" initialValues={{ canaryTrafficPercent: 10 }}>
         <Form.Item
@@ -955,7 +955,7 @@ function CanaryTrafficModal({
       confirmLoading={loading}
       okText="确认调整"
       cancelText="取消"
-      destroyOnClose
+      destroyOnHidden
     >
       <div style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>

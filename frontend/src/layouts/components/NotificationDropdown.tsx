@@ -346,7 +346,7 @@ export function NotificationDropdown({ unreadCount }: NotificationDropdownProps)
   return (
     <div className="notification-dropdown-shell">
       <Dropdown
-        dropdownRender={() => (
+        popupRender={() => (
           <ConfigProvider
             theme={{ algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm }}
           >

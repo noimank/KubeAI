@@ -340,7 +340,7 @@ function AutoScalingModal({
       okText="保存配置"
       cancelText="取消"
       width={520}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}
