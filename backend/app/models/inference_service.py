@@ -25,11 +25,19 @@ class InferenceService(Base, TimestampMixin):
         comment="创建者 ID",
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="服务名称")
-    model_version_id: Mapped[uuid.UUID] = mapped_column(
+    service_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="model", comment="服务类型: model/custom"
+    )
+    model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("model_versions.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
         comment="模型版本 ID",
     )
+    container_port: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="容器端口")
+    command: Mapped[str | None] = mapped_column(Text, nullable=True, comment="容器启动命令 (JSON)")
+    args: Mapped[str | None] = mapped_column(Text, nullable=True, comment="容器启动参数 (JSON)")
+    k8s_deployment_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="K8s Deployment 名称")
+    k8s_service_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="K8s Service 名称")
     image: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="推理镜像")
     gpu_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="GPU 数量")
     cpu: Mapped[str] = mapped_column(String(20), nullable=False, default="2", comment="CPU 核数")

@@ -32,6 +32,8 @@ import {
   getInferenceServiceEvents,
   regenerateToken,
   startCanary,
+  startInferenceService,
+  stopInferenceService,
   updateCanaryTraffic,
   promoteCanary,
   rollbackCanary,
@@ -95,8 +97,28 @@ export default function InferenceServiceDetailPage() {
   const { data: canaryStatusData } = useQuery({
     queryKey: ['canaryStatus', id],
     queryFn: () => getCanaryStatus(id!),
-    enabled: !!id && !!svc?.canaryKserveName && svc.canaryStatus !== 'none',
+    enabled:
+      !!id &&
+      svc?.serviceType !== 'custom' &&
+      !!svc?.canaryKserveName &&
+      svc.canaryStatus !== 'none',
     refetchInterval: svc?.canaryStatus === 'deploying' ? 5000 : 30000,
+  })
+
+  const startMutation = useMutation({
+    mutationFn: () => startInferenceService(id!),
+    onSuccess: () => {
+      getMessageInstance()?.success('推理服务启动中')
+      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+    },
+  })
+
+  const stopMutation = useMutation({
+    mutationFn: () => stopInferenceService(id!),
+    onSuccess: () => {
+      getMessageInstance()?.success('推理服务已停止')
+      queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+    },
   })
 
   const regenerateMutation = useMutation({
@@ -173,7 +195,7 @@ export default function InferenceServiceDetailPage() {
   const { data: events = [], isLoading: eventsLoading } = useQuery({
     queryKey: ['inferenceServiceEvents', id],
     queryFn: () => getInferenceServiceEvents(id!),
-    enabled: !!id && !!svc?.kserveName && svc.status !== 'pending' && svc.status !== 'stopped',
+    enabled: !!id && svc?.status !== 'pending' && svc?.status !== 'stopped',
     refetchInterval: svc?.status === 'running' || svc?.status === 'deploying' ? 30000 : false,
   })
 
@@ -381,16 +403,44 @@ print(response.json())`
           </Space>
         }
         extra={
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
-              queryClient.invalidateQueries({ queryKey: ['canaryStatus', id] })
-            }}
-          >
-            刷新
-          </Button>
+          <Space>
+            {canWrite && svc.status === 'stopped' && (
+              <Popconfirm
+                title="确认启动该服务？"
+                description="将恢复之前的副本配置并重新部署"
+                onConfirm={() => startMutation.mutate()}
+                okText="确认"
+                cancelText="取消"
+              >
+                <Button size="small" type="primary" loading={startMutation.isPending}>
+                  启动
+                </Button>
+              </Popconfirm>
+            )}
+            {canWrite && ['running', 'deploying', 'pending'].includes(svc.status) && (
+              <Popconfirm
+                title="确认停止该服务？"
+                description="停止后副本数将设为 0，配置保留"
+                onConfirm={() => stopMutation.mutate()}
+                okText="确认"
+                cancelText="取消"
+              >
+                <Button size="small" danger loading={stopMutation.isPending}>
+                  停止
+                </Button>
+              </Popconfirm>
+            )}
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ['inferenceService', id] })
+                queryClient.invalidateQueries({ queryKey: ['canaryStatus', id] })
+              }}
+            >
+              刷新
+            </Button>
+          </Space>
         }
       >
         {isAutoMode && svc.minReplicas === 0 && svc.status === 'stopped' && (
@@ -469,11 +519,26 @@ function OverviewTab({
       {/* 基本信息卡片 */}
       <Card size="small" title="基本信息">
         <Descriptions column={2} bordered size="small">
-          <Descriptions.Item label="模型版本">
-            {svc.modelVersion
-              ? `v${svc.modelVersion.versionNumber}`
-              : svc.modelVersionId.slice(0, 8)}
+          <Descriptions.Item label="服务类型">
+            <Tag color={svc.serviceType === 'custom' ? 'purple' : 'blue'}>
+              {svc.serviceType === 'custom' ? '自定义容器' : '模型推理'}
+            </Tag>
           </Descriptions.Item>
+          {svc.serviceType === 'model' ? (
+            <Descriptions.Item label="模型版本">
+              {svc.modelVersion
+                ? `v${svc.modelVersion.versionNumber}`
+                : (svc.modelVersionId?.slice(0, 8) ?? '—')}
+            </Descriptions.Item>
+          ) : (
+            <>
+              <Descriptions.Item label="容器端口">{svc.containerPort ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="启动命令">
+                {svc.command || <Tag>默认</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="启动参数">{svc.args || <Tag>默认</Tag>}</Descriptions.Item>
+            </>
+          )}
           <Descriptions.Item label="状态">
             <Tag color={statusCfg.color}>{statusCfg.text}</Tag>
           </Descriptions.Item>
@@ -481,9 +546,7 @@ function OverviewTab({
             {svc.gpuCount > 0 ? `${svc.gpuCount} 张` : '—'}
           </Descriptions.Item>
           <Descriptions.Item label="内存">{svc.memory}</Descriptions.Item>
-          <Descriptions.Item label="描述" span={2}>
-            {svc.description || '—'}
-          </Descriptions.Item>
+          <Descriptions.Item label="描述">{svc.description || '—'}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{svc.createdAt}</Descriptions.Item>
           <Descriptions.Item label="更新时间">{svc.updatedAt}</Descriptions.Item>
         </Descriptions>
@@ -570,20 +633,22 @@ function OverviewTab({
         )}
       </Card>
 
-      {/* 金丝雀发布卡片 */}
-      <CanarySection
-        svc={svc}
-        canaryStatusData={canaryStatusData}
-        canaryEvents={canaryEvents}
-        onStartCanary={onStartCanary}
-        onAdjustTraffic={onAdjustTraffic}
-        onPromote={onPromote}
-        onRollback={onRollback}
-        canWrite={canWrite}
-        canManage={canManage}
-        promoteLoading={promoteLoading}
-        rollbackLoading={rollbackLoading}
-      />
+      {/* 金丝雀发布卡片 - 仅模型推理服务 */}
+      {svc.serviceType !== 'custom' && (
+        <CanarySection
+          svc={svc}
+          canaryStatusData={canaryStatusData}
+          canaryEvents={canaryEvents}
+          onStartCanary={onStartCanary}
+          onAdjustTraffic={onAdjustTraffic}
+          onPromote={onPromote}
+          onRollback={onRollback}
+          canWrite={canWrite}
+          canManage={canManage}
+          promoteLoading={promoteLoading}
+          rollbackLoading={rollbackLoading}
+        />
+      )}
     </div>
   )
 }
@@ -819,7 +884,7 @@ function CanaryStartModal({
   onCancel: () => void
   onSubmit: (data: { canaryModelVersionId: string; canaryTrafficPercent: number }) => void
   loading: boolean
-  currentModelVersionId: string
+  currentModelVersionId?: string
   registeredModelId?: string
   gpuCount: number
   replicas: number

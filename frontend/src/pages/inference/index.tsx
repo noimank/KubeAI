@@ -8,6 +8,7 @@ import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
 import {
   getInferenceServices,
+  startInferenceService,
   stopInferenceService,
   deleteInferenceService,
 } from '@/services/inference'
@@ -56,6 +57,14 @@ export default function InferencePage() {
     },
   })
 
+  const startMutation = useMutation({
+    mutationFn: startInferenceService,
+    onSuccess: () => {
+      getMessageInstance()?.success('推理服务启动中')
+      queryClient.invalidateQueries({ queryKey: ['inferenceServices'] })
+    },
+  })
+
   const stopMutation = useMutation({
     mutationFn: stopInferenceService,
     onSuccess: () => {
@@ -92,9 +101,18 @@ export default function InferencePage() {
       ),
     },
     {
+      title: '类型',
+      dataIndex: 'serviceType',
+      width: 100,
+      render: (val: string) =>
+        val === 'custom' ? <Tag color="purple">自定义</Tag> : <Tag color="blue">模型</Tag>,
+    },
+    {
       title: '模型版本',
       width: 150,
       render: (_: unknown, record: InferenceService) => {
+        if (record.serviceType === 'custom')
+          return <Typography.Text type="secondary">—</Typography.Text>
         if (!record.modelVersion) return <Typography.Text type="secondary">—</Typography.Text>
         return (
           <Typography.Text>
@@ -182,6 +200,19 @@ export default function InferencePage() {
               详情
             </Button>
           </Link>
+          {canWrite && record.status === 'stopped' && (
+            <Popconfirm
+              title="确认启动该服务？"
+              description="将恢复之前的副本配置并重新部署"
+              onConfirm={() => startMutation.mutate(record.id)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button type="link" size="small">
+                启动
+              </Button>
+            </Popconfirm>
+          )}
           {canWrite && ['running', 'deploying', 'pending'].includes(record.status) && (
             <Popconfirm
               title="确认停止该服务？"

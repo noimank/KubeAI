@@ -272,11 +272,24 @@ export function ConfigTab({ service: svc, canWrite }: ConfigTabProps) {
             {svc.gpuCount > 0 && (
               <Descriptions.Item label="GPU">{svc.gpuCount} 张</Descriptions.Item>
             )}
-            <Descriptions.Item label="镜像">
-              <Typography.Text ellipsis style={{ maxWidth: 300 }}>
+            <Descriptions.Item label="镜像" span={svc.gpuCount > 0 ? 1 : 2}>
+              <Typography.Text ellipsis style={{ maxWidth: 400 }}>
                 {svc.image || '—'}
               </Typography.Text>
             </Descriptions.Item>
+            {svc.serviceType === 'custom' && (
+              <>
+                <Descriptions.Item label="容器端口">{svc.containerPort ?? '—'}</Descriptions.Item>
+                <Descriptions.Item label="启动命令">
+                  {svc.command || <Tag>默认</Tag>}
+                </Descriptions.Item>
+                {svc.args && (
+                  <Descriptions.Item label="启动参数" span={2}>
+                    {svc.args}
+                  </Descriptions.Item>
+                )}
+              </>
+            )}
           </Descriptions>
         </Card>
       </div>

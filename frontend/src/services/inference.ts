@@ -44,6 +44,11 @@ export async function createInferenceService(
   return res.data.data!
 }
 
+export async function startInferenceService(id: string): Promise<InferenceService> {
+  const res = await api.post(`/inference-services/${id}/start`)
+  return res.data.data!
+}
+
 export async function stopInferenceService(id: string): Promise<InferenceService> {
   const res = await api.post(`/inference-services/${id}/stop`)
   return res.data.data!

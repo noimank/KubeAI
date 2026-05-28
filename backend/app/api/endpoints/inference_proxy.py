@@ -61,11 +61,11 @@ async def proxy_inference_request(
             media_type="application/json",
         )
 
-    # Canary traffic routing
+    # Canary traffic routing (only for model services)
     is_canary = False
     target_base_url = svc.endpoint_url
 
-    if svc.canary_status == "running" and svc.canary_kserve_name:
+    if svc.service_type != "custom" and svc.canary_status == "running" and svc.canary_kserve_name:
         canary_url = await _get_canary_endpoint_url(svc, db)
         if canary_url:
             rand = random.randint(0, 99)

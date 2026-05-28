@@ -1,5 +1,5 @@
 export type InferenceServiceStatus = 'pending' | 'deploying' | 'running' | 'failed' | 'stopped'
-
+export type ServiceType = 'model' | 'custom'
 export type ScalingMode = 'fixed' | 'auto'
 export type MetricType = 'concurrency' | 'cpu'
 export type CanaryStatus = 'none' | 'deploying' | 'running' | 'failed'
@@ -37,8 +37,12 @@ export interface InferenceService {
   tenantId: string
   createdBy: string
   name: string
-  modelVersionId: string
+  serviceType: ServiceType
+  modelVersionId?: string
   image?: string
+  containerPort?: number
+  command?: string
+  args?: string
   gpuCount: number
   cpu: string
   memory: string
@@ -69,12 +73,17 @@ export interface InferenceService {
 
 export interface InferenceServiceCreate {
   name: string
-  modelVersionId: string
+  serviceType: ServiceType
+  modelVersionId?: string
   gpuCount?: number
   cpu?: string
   memory?: string
   replicas?: number
   image?: string
+  imageId?: string
+  containerPort?: number
+  command?: string[]
+  args?: string[]
   envVars?: Record<string, string>
   description?: string
   autoScaling?: AutoScalingConfig

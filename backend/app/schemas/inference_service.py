@@ -28,15 +28,32 @@ class AutoScalingConfig(BaseModel):
 
 class InferenceServiceCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    model_version_id: uuid.UUID
+    service_type: Literal["model", "custom"] = "model"
+    model_version_id: uuid.UUID | None = None
     gpu_count: int = Field(default=0, ge=0)
     cpu: str = Field(default="2")
     memory: str = Field(default="4Gi")
     replicas: int = Field(default=1, ge=1)
     image: str | None = None
+    image_id: uuid.UUID | None = None
+    container_port: int | None = Field(default=None, ge=1, le=65535)
+    command: list[str] | None = None
+    args: list[str] | None = None
     env_vars: dict[str, str] | None = None
     description: str | None = None
     auto_scaling: AutoScalingConfig | None = None
+
+    @model_validator(mode="after")
+    def _validate_service_type(self) -> "InferenceServiceCreateRequest":
+        if self.service_type == "model":
+            if self.model_version_id is None:
+                raise ValueError("模型推理服务必须指定模型版本")
+        elif self.service_type == "custom":
+            if self.image_id is None and not self.image:
+                raise ValueError("自定义容器服务必须选择镜像")
+            if self.container_port is None:
+                raise ValueError("自定义容器服务必须指定容器端口")
+        return self
 
 
 class ModelVersionSummary(BaseModel):
@@ -54,8 +71,12 @@ class InferenceServiceResponse(BaseModel):
     tenant_id: uuid.UUID
     created_by: uuid.UUID
     name: str
-    model_version_id: uuid.UUID
+    service_type: str = "model"
+    model_version_id: uuid.UUID | None = None
     image: str | None
+    container_port: int | None = None
+    command: str | None = None
+    args: str | None = None
     gpu_count: int
     cpu: str
     memory: str

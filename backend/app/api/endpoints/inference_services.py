@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.exceptions import ForbiddenException
+from app.integrations.k8s.deployment import list_deployment_events
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.kserve.client import list_inference_service_events
 from app.models.inference_service import InferenceService
@@ -52,6 +53,8 @@ def _to_response(svc: InferenceService) -> InferenceServiceResponse:
 
 
 async def _enrich_with_model_version(db: AsyncSession, svc: InferenceServiceResponse) -> InferenceServiceResponse:
+    if svc.model_version_id is None:
+        return svc
     result = await db.execute(select(ModelVersion).where(ModelVersion.id == svc.model_version_id))
     version = result.scalar_one_or_none()
     if version:
@@ -77,12 +80,17 @@ async def create_inference_service(
         tenant_id=tenant_id,
         user_id=user.id,
         name=req.name,
+        service_type=req.service_type,
         model_version_id=req.model_version_id,
         gpu_count=req.gpu_count,
         cpu=req.cpu,
         memory=req.memory,
         replicas=req.replicas,
         image=req.image,
+        image_id=req.image_id,
+        container_port=req.container_port,
+        command=req.command,
+        args=req.args,
         env_vars=req.env_vars,
         description=req.description,
         auto_scaling=req.auto_scaling,
@@ -133,6 +141,19 @@ async def get_inference_service(
     resp = _to_response(svc)
     resp = await _enrich_with_model_version(db, resp)
     return BaseResponse(data=resp, message="获取成功")
+
+
+@router.post("/{service_id}/start", response_model=BaseResponse[InferenceServiceResponse])
+async def start_inference_service(
+    service_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "write"))],
+) -> BaseResponse[InferenceServiceResponse]:
+    service = InferenceServiceService(db)
+    tenant_id = _require_tenant_id(user)
+    svc = await service.start_inference_service(service_id, tenant_id)
+    resp = _to_response(svc)
+    return BaseResponse(data=resp, message="推理服务启动中")
 
 
 @router.post("/{service_id}/stop", response_model=BaseResponse[InferenceServiceResponse])
@@ -214,13 +235,18 @@ async def get_inference_service_events(
     service = InferenceServiceService(db)
     svc = await service.get_inference_service(service_id, tenant_id)
 
-    if not svc.kserve_name or svc.status in ("pending", "stopped"):
+    if svc.status in ("pending", "stopped"):
         return BaseResponse(data=[], message="获取成功")
 
     tenant = await db.get(Tenant, tenant_id)
     namespace = (tenant.k8s_namespace_name or make_namespace_name(tenant.name)) if tenant else ""
 
-    raw_events = await list_inference_service_events(namespace, svc.kserve_name)
+    if svc.service_type == "custom" and svc.k8s_deployment_name:
+        raw_events = await list_deployment_events(namespace, svc.k8s_deployment_name)
+    elif svc.kserve_name:
+        raw_events = await list_inference_service_events(namespace, svc.kserve_name)
+    else:
+        return BaseResponse(data=[], message="获取成功")
     events = [
         InferenceServiceEventResponse(
             type=e["type"],
