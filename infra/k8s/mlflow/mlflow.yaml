@@ -1,0 +1,109 @@
+# MLflow Tracking Server - 实验追踪
+# 依赖: PostgreSQL (需 mlflow 数据库)
+# 部署: kubectl apply -k infra/k8s/mlflow/
+# 端口: ClusterIP 5000 | NodePort 30500 (dev)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/component: tracking
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mlflow
+      app.kubernetes.io/component: tracking
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mlflow
+        app.kubernetes.io/component: tracking
+    spec:
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v3.12.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              pip install --quiet psycopg2-binary && \
+              mlflow server \
+                --host 0.0.0.0 \
+                --port 5000 \
+                --backend-store-uri postgresql://postgres:postgres@postgresql.kubeai.svc.cluster.local:5432/mlflow \
+                --default-artifact-root /mlflow/artifacts
+          env:
+            - name: MLFLOW_SQLALCHEMYSTORE_POOL_SIZE
+              value: "10"
+            - name: MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW
+              value: "20"
+            - name: MLFLOW_SQLALCHEMYSTORE_POOL_RECYCLE
+              value: "3600"
+          ports:
+            - name: http
+              containerPort: 5000
+          volumeMounts:
+            - name: artifacts
+              mountPath: /mlflow/artifacts
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: mlflow
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/component: tracking
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+      nodePort: 30500
+  selector:
+    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/component: tracking
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/component: tracking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

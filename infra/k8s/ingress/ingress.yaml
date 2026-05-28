@@ -1,0 +1,29 @@
+# Ingress - 前端流量入口
+# 需要: nginx-ingress-controller + cert-manager (如需 TLS)
+# 部署: kubectl apply -f infra/k8s/ingress/
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubeai
+  namespace: kubeai
+  annotations:
+    # cert-manager 自动签发证书，如不需要 TLS 可注释
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - kubeai.example.com
+      secretName: kubeai-tls
+  rules:
+    - host: kubeai.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

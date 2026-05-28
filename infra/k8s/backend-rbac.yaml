@@ -1,0 +1,66 @@
+# Backend RBAC - 集群级权限
+# 管理: 租户命名空间、Volcano Job、KServe InferenceService、NetworkPolicy 等
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubeai-backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: api
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, create, delete, watch]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, create, delete]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, create, delete]
+  - apiGroups: [""]
+    resources: [resourcequotas]
+    verbs: [get, list, create, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, create, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, create, update, delete]
+  - apiGroups: [batch.volcano.sh]
+    resources: [jobs]
+    verbs: [get, list, create, delete, watch]
+  - apiGroups: [scheduling.volcano.sh]
+    resources: [queues, podgroups]
+    verbs: [get, list]
+  - apiGroups: [serving.kserve.io]
+    resources: [inferenceservices]
+    verbs: [get, list, create, delete, patch, watch]
+  - apiGroups: [""]
+    resources: [pods, events]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubeai-backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubeai-backend
+subjects:
+  - kind: ServiceAccount
+    name: backend
+    namespace: kubeai

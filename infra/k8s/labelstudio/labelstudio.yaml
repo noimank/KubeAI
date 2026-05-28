@@ -1,0 +1,86 @@
+# Label Studio - 数据标注服务
+# 依赖: PostgreSQL (需 labelstudio 数据库)
+# 部署: kubectl apply -k infra/k8s/labelstudio/
+# 端口: ClusterIP 8080 | NodePort 30800 (dev)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: labelstudio
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: labelstudio
+    app.kubernetes.io/component: annotation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: labelstudio
+      app.kubernetes.io/component: annotation
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: labelstudio
+        app.kubernetes.io/component: annotation
+    spec:
+      containers:
+        - name: labelstudio
+          image: heartexlabs/label-studio:1.23.0
+          env:
+            - name: DJANGO_DB
+              value: "default"
+            - name: POSTGRE_NAME
+              value: "labelstudio"
+            - name: POSTGRE_USER
+              value: "postgres"
+            - name: POSTGRE_PASSWORD
+              value: "postgres"
+            - name: POSTGRE_HOST
+              value: "postgresql.kubeai.svc.cluster.local"
+            - name: POSTGRE_PORT
+              value: "5432"
+            - name: LABEL_STUDIO_HOST
+              value: "0.0.0.0"
+            - name: LABEL_STUDIO_PORT
+              value: "8080"
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: labelstudio
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: labelstudio
+    app.kubernetes.io/component: annotation
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30800
+  selector:
+    app.kubernetes.io/name: labelstudio
+    app.kubernetes.io/component: annotation

@@ -1,0 +1,126 @@
+# KubeAI 后端配置 - ConfigMap + Secret
+# 部署: kubectl apply -f infra/k8s/backend-config.yaml
+# 注意: 部署前请修改 Secret 中的 SECRET_KEY 和密码
+#
+# 本文件与 backend/app/core/config.py 中的 Settings 字段对齐
+# 未列出的字段使用 config.py 中的默认值
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: api
+data:
+  # -- 应用基本配置
+  APP_NAME: "KubeAI"
+  APP_VERSION: "0.1.0"
+  DEBUG: "false"
+  API_PREFIX: "/api"
+
+  # -- 数据库连接池
+  DB_POOL_SIZE: "20"
+  DB_MAX_OVERFLOW: "10"
+
+  # -- Redis 连接池
+  REDIS_MAX_CONNECTIONS: "20"
+
+  # -- Token 过期时间
+  ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  REFRESH_TOKEN_EXPIRE_DAYS: "7"
+
+  # -- 账户锁定 (登录失败后锁定时长)
+  IDLE_TIMEOUT_MINUTES: "30"
+
+  # -- 开发环境空闲检测
+  DEV_ENV_IDLE_TIMEOUT_MINUTES: "60"
+  DEV_ENV_IDLE_CHECK_INTERVAL_SECONDS: "300"
+
+  # -- 资源清理 (已完成训练任务的 Pod 清理)
+  RESOURCE_CLEANUP_ENABLED: "true"
+  RESOURCE_CLEANUP_INTERVAL_SECONDS: "3600"
+  RESOURCE_CLEANUP_JOB_MAX_AGE_DAYS: "7"
+
+  # -- 用户注册
+  ALLOW_USER_REGISTRATION: "true"
+
+  # -- OIDC/SSO (启用后需配置 OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET)
+  OIDC_ENABLED: "false"
+  OIDC_SCOPES: "openid profile email"
+  OIDC_DISPLAY_NAME: "SSO 登录"
+
+  # -- 前端地址 (用于 OIDC 回调地址拼接)
+  FRONTEND_URL: "http://localhost:3000"
+
+  # -- MinIO (非敏感配置)
+  MINIO_SECURE: "false"
+  MINIO_BUCKET_PREFIX: "kubeai-models-"
+  DATASET_BASE_PATH: "/data/kubeai/datasets"
+
+  # -- Harbor (非敏感配置)
+  HARBOR_PROJECT_PREFIX: "kubeai-"
+
+  # -- K8s 命名空间
+  K8S_PLATFORM_NAMESPACE: "kubeai"
+
+  # -- 内部服务地址 (按部署的实际组件修改)
+  PROMETHEUS_URL: "http://kubeai-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+  API_BASE_URL: "http://backend.kubeai.svc.cluster.local:8000"
+
+  # -- MLflow 实验追踪 (部署 mlflow/ 后启用)
+  MLFLOW_ENABLED: "false"
+  MLFLOW_TRACKING_URI: "http://mlflow.kubeai.svc.cluster.local:5000"
+
+  # -- Label Studio 数据标注 (部署 labelstudio/ 后启用)
+  LABEL_STUDIO_URL: "http://labelstudio.kubeai.svc.cluster.local:8080"
+
+  # -- JupyterHub 开发环境 (部署 JupyterHub 后启用)
+  JUPYTERHUB_API_URL: "http://hub.kubeai.svc.cluster.local:8081/hub/api"
+  JUPYTERHUB_BASE_URL: "http://proxy.kubeai.svc.cluster.local:80"
+  JUPYTERHUB_HUB_SERVICE_ACCOUNT: "hub"
+  DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS: "60"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secret
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: api
+type: Opaque
+stringData:
+  # -- JWT 签名密钥 (部署时必须修改)
+  SECRET_KEY: "change-me-to-a-random-32-char-string"
+
+  # -- 数据库连接 (密码与 postgresql/postgresql.yaml 中一致)
+  DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgresql.kubeai.svc.cluster.local:5432/kubeai"
+
+  # -- Redis 连接
+  REDIS_URL: "redis://redis.kubeai.svc.cluster.local:6379/0"
+
+  # -- MinIO 凭证 (与 minio/minio.yaml 中 MINIO_ROOT_USER/PASSWORD 一致)
+  MINIO_ENDPOINT: "minio.kubeai.svc.cluster.local:9000"
+  MINIO_ACCESS_KEY: "minioadmin"
+  MINIO_SECRET_KEY: "minioadmin"
+
+  # -- Harbor 镜像仓库 (部署 Harbor 后修改)
+  HARBOR_URL: "http://harbor.kubeai.local"
+  HARBOR_USERNAME: "admin"
+  HARBOR_PASSWORD: "Harbor12345"
+
+  # -- Label Studio API Token (部署 Label Studio 后配置)
+  LABEL_STUDIO_API_TOKEN: ""
+
+  # -- JupyterHub API Token (部署 JupyterHub 后配置)
+  JUPYTERHUB_API_TOKEN: ""
+
+  # -- OIDC (启用 SSO 时配置)
+  OIDC_ISSUER: ""
+  OIDC_CLIENT_ID: ""
+  OIDC_CLIENT_SECRET: ""
+
+  # -- 后端对外访问地址 (用于推理代理回调，留空则使用 API_BASE_URL)
+  BACKEND_API_URL: ""
