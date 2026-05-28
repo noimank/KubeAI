@@ -30,6 +30,9 @@ _bmad-output
 frontend/node_modules
 frontend/dist
 
+# MkDocs
+site/
+
 # Infrastructure
 infra/helm/kubeai/charts/
 infra/helm/kubeai/Chart.lock

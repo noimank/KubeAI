@@ -1,0 +1,168 @@
+site_name: KubeAI 文档
+site_url: https://noimank.github.io/KubeAI/
+site_description: KubeAI - Kubernetes 原生 AI/ML 平台
+site_author: noimank
+copyright: Copyright &copy; 2025 KubeAI
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - toc.follow
+    - content.code.copy
+    - content.code.select
+    - content.code.annotate
+    - content.tabs.link
+    - content.tooltips
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换到暗色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换到亮色模式
+  font:
+    text: Noto Sans SC
+    code: JetBrains Mono
+  icon:
+    logo: material/kubernetes
+    repo: fontawesome/brands/github
+  favicon: assets/favicon.png
+
+repo_url: https://github.com/noimank/KubeAI
+repo_name: noimank/KubeAI
+edit_uri: edit/main/docs/
+
+not_in_nav: |
+  includes/**
+
+plugins:
+  - search:
+      lang:
+        - zh
+        - en
+      separator: '[\s\-,:!=\[\]()"''/、。？！，：；…（）《》【】​　]'
+  - minify:
+      minify_html: true
+  - git-revision-date-localized:
+      enabled: !ENV [ENABLE_GIT_DATES, false]
+      enable_creation_date: true
+      enable_git_follow: false
+      fallback_to_build_date: true
+      type: datetime
+      timezone: Asia/Shanghai
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      auto_append:
+        - includes/abbreviations.md
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/noimank/KubeAI
+  version:
+    provider: mike
+
+nav:
+  - 首页: index.md
+  - 快速开始:
+      - getting-started/index.md
+      - 环境要求: getting-started/prerequisites.md
+      - 开发环境搭建: getting-started/development.md
+  - 架构设计:
+      - architecture/index.md
+      - 系统架构总览: architecture/overview.md
+      - 后端架构: architecture/backend.md
+      - 前端架构: architecture/frontend.md
+      - 多租户设计: architecture/multi-tenancy.md
+      - RBAC 权限模型: architecture/rbac.md
+      - 数据模型: architecture/database.md
+  - 功能模块:
+      - features/index.md
+      - 用户认证: features/authentication.md
+      - 数据集管理: features/datasets.md
+      - 训练任务: features/training-jobs.md
+      - 模型注册与推理: features/model-inference.md
+      - 实验跟踪: features/experiments.md
+      - 数据标注: features/annotations.md
+      - 开发环境: features/dev-environments.md
+      - 镜像管理: features/images.md
+      - 监控告警: features/monitoring.md
+  - API 参考:
+      - api/index.md
+      - 认证接口: api/auth.md
+      - 用户管理: api/users.md
+      - 租户管理: api/tenants.md
+      - 数据集接口: api/datasets.md
+      - 训练任务接口: api/training-jobs.md
+      - 推理服务接口: api/inference.md
+      - 模型注册接口: api/models.md
+      - 实验接口: api/experiments.md
+      - 标注接口: api/annotations.md
+      - 开发环境接口: api/dev-environments.md
+      - 镜像接口: api/images.md
+      - 监控接口: api/monitoring.md
+  - 部署运维:
+      - deployment/index.md
+      - Helm Chart 配置: deployment/helm-chart.md
+      - 生产环境部署: deployment/production.md
+      - CI/CD 流水线: deployment/cicd.md
+  - 开发指南:
+      - development-guide/index.md
+      - 编码规范: development-guide/conventions.md
+      - 测试指南: development-guide/testing.md
+      - 数据库迁移: development-guide/migrations.md
+      - 集成开发: development-guide/integrations.md

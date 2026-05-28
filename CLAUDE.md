@@ -74,6 +74,23 @@ helm install kubeai infra/helm/kubeai/ \
 # Docker build (from project root)
 docker build -t kubeai-backend -f infra/images/backend/Dockerfile .
 docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
+docker build -t kubeai-docs -f infra/images/docs/Dockerfile .
+```
+
+### Documentation (from `backend/`)
+
+```bash
+# Install docs dependencies (first time)
+uv sync --group docs
+
+# Preview docs locally (hot reload)
+uv run mkdocs serve --config-file ../mkdocs.yml
+
+# Build static docs (zero warnings)
+NO_MKDOCS_2_WARNING=1 uv run mkdocs build --config-file ../mkdocs.yml
+
+# Build with git revision dates (requires committed docs)
+NO_MKDOCS_2_WARNING=1 ENABLE_GIT_DATES=true uv run mkdocs build --config-file ../mkdocs.yml
 ```
 
 ## Architecture
