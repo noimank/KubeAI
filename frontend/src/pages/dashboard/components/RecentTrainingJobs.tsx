@@ -1,4 +1,4 @@
-import { Table, Tag, Typography } from 'antd'
+import { Table, Tag } from 'antd'
 import { Link } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
@@ -66,11 +66,7 @@ export default function RecentTrainingJobs({ data, loading }: Props) {
       rowKey="id"
       size="small"
       pagination={false}
-      footer={() => (
-        <Typography.Link>
-          <Link to="/training-jobs">查看全部</Link>
-        </Typography.Link>
-      )}
+      footer={() => <Link to="/training-jobs">查看全部</Link>}
     />
   )
 }

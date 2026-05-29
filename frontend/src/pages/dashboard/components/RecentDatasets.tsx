@@ -1,4 +1,4 @@
-import { List, Typography } from 'antd'
+import { List } from 'antd'
 import { Link } from 'react-router-dom'
 import { DatabaseOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -28,11 +28,7 @@ export default function RecentDatasets({ data, loading }: Props) {
           />
         </List.Item>
       )}
-      footer={
-        <Typography.Link>
-          <Link to="/datasets">查看全部</Link>
-        </Typography.Link>
-      }
+      footer={<Link to="/datasets">查看全部</Link>}
     />
   )
 }
