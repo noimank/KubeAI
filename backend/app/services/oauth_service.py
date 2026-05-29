@@ -106,11 +106,16 @@ class OAuthService:
         external_id = str(sub)
         email = str(userinfo.get("email") or "")
         preferred_username = str(userinfo.get("preferred_username") or (email.split("@")[0] if email else external_id))
+        nickname = (
+            str(v) if (v := userinfo.get("displayName") or userinfo.get("nickname") or userinfo.get("name")) else None
+        )
 
-        user = await self._find_or_create_user(external_id, preferred_username, email)
+        user = await self._find_or_create_user(external_id, preferred_username, email, nickname)
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
-    async def _find_or_create_user(self, external_id: str, username: str, email: str) -> User:
+    async def _find_or_create_user(
+        self, external_id: str, username: str, email: str, nickname: str | None = None
+    ) -> User:
         username = self._normalize_username(username or external_id)
         email = email.strip()
 
@@ -119,7 +124,7 @@ class OAuthService:
         )
         user = result.scalar_one_or_none()
         if user:
-            await self._sync_oauth_profile(user, username, email)
+            await self._sync_oauth_profile(user, username, email, nickname)
             return user
 
         if email:
@@ -127,7 +132,7 @@ class OAuthService:
             if existing_email:
                 existing_email.auth_provider = "oidc"
                 existing_email.external_id = external_id
-                await self._sync_oauth_profile(existing_email, username, email)
+                await self._sync_oauth_profile(existing_email, username, email, nickname)
                 logger.info("oauth_user_bound", user_id=str(existing_email.id), username=existing_email.username)
                 return existing_email
 
@@ -139,6 +144,7 @@ class OAuthService:
         user = User(
             username=username,
             email=email,
+            nickname=nickname,
             hashed_password=await hash_password(secrets.token_urlsafe(32)),
             auth_provider="oidc",
             external_id=external_id,
@@ -195,7 +201,7 @@ class OAuthService:
             candidate = f"{local_part}{suffix}@oauth.local"
             counter += 1
 
-    async def _sync_oauth_profile(self, user: User, username: str, email: str) -> None:
+    async def _sync_oauth_profile(self, user: User, username: str, email: str, nickname: str | None = None) -> None:
         if username and user.username != username:
             user.username = await self._make_unique_username(username, current_user=user)
 
@@ -204,6 +210,9 @@ class OAuthService:
             existing_user = await self._find_user_by_email(email)
             if existing_user is None or existing_user.id == user.id:
                 user.email = email
+
+        if nickname:
+            user.nickname = nickname[:100]
 
     async def _get_default_tenant_id(self) -> uuid.UUID | None:
         result = await self.db.execute(select(Tenant).where(Tenant.name == "default"))
