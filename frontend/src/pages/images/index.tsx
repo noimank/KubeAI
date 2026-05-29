@@ -184,6 +184,12 @@ function BusinessImagesTab({
         keyword,
         source: sourceFilter === 'all' ? undefined : sourceFilter,
       }),
+    refetchInterval: (query) =>
+      query.state.data?.items?.some(
+        (img) => img.buildStatus && ['pending', 'building', 'pushing'].includes(img.buildStatus),
+      )
+        ? 5000
+        : false,
   })
 
   const createMutation = useMutation({

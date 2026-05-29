@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
+from app.models.enums import BuildStatus
 from app.models.image import Image
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.image import (
@@ -43,8 +44,6 @@ async def _require_tenant_id(user: Any) -> uuid.UUID:
 
 
 def _to_response(img: Image) -> ImageResponse:
-    from app.models.enums import BuildStatus
-
     build_status = BuildStatus(img.build_status) if img.build_status else None
     return ImageResponse(
         id=img.id,
@@ -80,6 +79,10 @@ async def list_images(
         page=page,
         page_size=page_size,
     )
+    # Sync active builds with K8s so the list reflects real-time status
+    for i, img in enumerate(items):
+        if img.build_status and img.build_status not in (BuildStatus.SUCCEEDED, BuildStatus.FAILED):
+            items[i] = await service.sync_build_status(img)
     image_list = [_to_response(img) for img in items]
     page_data = PageData(items=image_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
@@ -166,7 +169,6 @@ async def get_build_log(
     image = await service.get_image(image_id)
     image = await service.sync_build_status(image)
     log = await service.get_build_log(image_id)
-    from app.models.enums import BuildStatus
 
     build_status = BuildStatus(image.build_status) if image.build_status else None
     return BaseResponse(

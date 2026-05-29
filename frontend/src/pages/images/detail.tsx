@@ -26,6 +26,10 @@ export default function ImageDetailPage() {
     queryKey: ['image-detail', id],
     queryFn: () => getImage(id!),
     enabled: !!id,
+    refetchInterval: (query) =>
+      query.state.data?.buildStatus && ACTIVE_BUILD_STATUSES.has(query.state.data.buildStatus)
+        ? 5000
+        : false,
   })
 
   const isCustom = image?.source === 'custom'
