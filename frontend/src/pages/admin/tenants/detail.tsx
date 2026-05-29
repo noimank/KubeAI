@@ -287,7 +287,9 @@ export default function TenantDetailPage() {
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
-        <Spin spinning tip="加载中..." />
+        <Spin spinning tip="加载中...">
+          <div />
+        </Spin>
       </div>
     )
   }

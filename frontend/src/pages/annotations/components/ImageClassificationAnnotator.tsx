@@ -57,7 +57,9 @@ export default function ImageClassificationAnnotator({
         {imageUrl ? (
           <Image src={imageUrl} style={{ maxWidth: '100%', maxHeight: 500 }} preview={false} />
         ) : (
-          <Spin tip="加载图片中..." />
+          <Spin tip="加载图片中...">
+            <div />
+          </Spin>
         )}
       </div>
       <div style={{ width: '100%', maxWidth: 600 }}>

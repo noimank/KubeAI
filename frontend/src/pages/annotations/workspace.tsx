@@ -124,7 +124,9 @@ export default function AnnotationWorkspacePage() {
       <div
         style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}
       >
-        <Spin tip="加载中..." />
+        <Spin tip="加载中...">
+          <div />
+        </Spin>
       </div>
     )
   }
@@ -220,7 +222,9 @@ export default function AnnotationWorkspacePage() {
           )}
           {!currentTask && taskLoading && (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-              <Spin tip="加载任务中..." />
+              <Spin tip="加载任务中...">
+                <div />
+              </Spin>
             </div>
           )}
         </div>

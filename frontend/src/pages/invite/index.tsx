@@ -96,7 +96,9 @@ export default function InvitePage() {
       <div
         style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}
       >
-        <Spin size="large" tip="加载邀请信息..." />
+        <Spin size="large" tip="加载邀请信息...">
+          <div />
+        </Spin>
       </div>
     )
   }

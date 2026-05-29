@@ -79,7 +79,9 @@ export default function TextClassificationAnnotator({
           title={fileName || '文本内容'}
         >
           {loading ? (
-            <Spin tip="加载文本中..." />
+            <Spin tip="加载文本中...">
+              <div />
+            </Spin>
           ) : (
             <Typography.Paragraph
               style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', marginBottom: 0 }}

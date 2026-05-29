@@ -51,7 +51,9 @@ export default function OAuthCallbackPage() {
     <div
       style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}
     >
-      <Spin size="large" tip="正在处理登录..." />
+      <Spin size="large" tip="正在处理登录...">
+        <div />
+      </Spin>
     </div>
   )
 }
