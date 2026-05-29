@@ -23,6 +23,7 @@ spec:
       containers:
         - name: frontend
           image: kubeai-frontend:0.1.0
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 80
