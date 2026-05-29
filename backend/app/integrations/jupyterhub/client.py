@@ -205,7 +205,7 @@ class JupyterHubClient:
         quoted_paths = " ".join(f"'{path}'" for path in paths)
         return {
             "name": "prepare-jupyter-storage",
-            "image": image or "busybox:1.36",
+            "image": image or settings.BUSYBOX_IMAGE,
             "command": ["sh", "-c"],
             "args": [f"mkdir -p {quoted_paths} && chown -R {JUPYTER_UID}:{JUPYTER_GID} {quoted_paths}"],
             "resources": {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from app.core.config import settings
 from app.integrations.k8s.client import get_k8s_clients
 
 if TYPE_CHECKING:
@@ -45,7 +46,7 @@ def build_upload_job(
                     containers=[
                         k8s_client.V1Container(
                             name="uploader",
-                            image="minio/mc:latest",
+                            image=settings.MINIO_MC_IMAGE,
                             resources=k8s_client.V1ResourceRequirements(
                                 requests={"cpu": "100m", "memory": "128Mi"},
                                 limits={"cpu": "500m", "memory": "256Mi"},

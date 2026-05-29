@@ -3,12 +3,13 @@ import logging
 from kubernetes_asyncio import client
 from kubernetes_asyncio.client.rest import ApiException
 
+from app.core.config import settings
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = logging.getLogger(__name__)
 
-KANIKO_IMAGE = "gcr.io/kaniko-project/executor:latest"
+KANIKO_IMAGE = settings.KANIKO_IMAGE
 HARBOR_SECRET_NAME = "harbor-credentials"
 KANIKO_CPU_REQUEST = "500m"
 KANIKO_MEMORY_REQUEST = "1Gi"

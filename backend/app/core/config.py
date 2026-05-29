@@ -70,6 +70,10 @@ class Settings(BaseSettings):
 
     K8S_PLATFORM_NAMESPACE: str = "kubeai"
 
+    KANIKO_IMAGE: str = "gcr.io/kaniko-project/executor:latest"
+    MINIO_MC_IMAGE: str = "minio/mc:latest"
+    BUSYBOX_IMAGE: str = "busybox:1.36"
+
     BACKEND_API_URL: str = ""
 
 
