@@ -180,11 +180,14 @@ async def start_environment(
 async def delete_environment(
     env_id: uuid.UUID,
     db: DbDep,
-    user: Annotated[CurrentUser, Depends(require_permission("dev_environments", "manage"))],
+    user: Annotated[CurrentUser, Depends(require_permission("dev_environments", "write"))],
 ) -> BaseResponse[DevEnvironmentResponse]:
     tenant_id = _require_tenant_id(user)
     service = DevEnvironmentService(db)
-    env = await service.delete_environment(env_id, tenant_id)
+    env = await service.get_environment(env_id, tenant_id)
+    if env.created_by != user.id and user.role not in (UserRole.ADMIN, UserRole.MLOPS):
+        raise ForbiddenException("只能删除自己创建的开发环境")
+    await service.delete_environment(env_id, tenant_id)
     return BaseResponse(data=_to_response(env), message="开发环境已删除")
 
 

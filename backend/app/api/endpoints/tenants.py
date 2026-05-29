@@ -176,7 +176,7 @@ async def update_tenant_quota(
 async def get_tenant_quota_usage(
     tenant_id: uuid.UUID,
     db: DbDep,
-    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
+    _user: Annotated[CurrentUser, Depends(require_permission("tenants", "read"))],
 ) -> BaseResponse[QuotaUsageResponse]:
     service = TenantService(db)
     usage = await service.get_quota_usage(tenant_id)

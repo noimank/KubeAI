@@ -50,6 +50,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("engineer", "dev_environments", "write"),
     ("engineer", "dev_environment_images", "read"),
     ("engineer", "inference_services", "read"),
+    ("engineer", "tenants", "read"),
     # mlops (inherits engineer + additional)
     ("mlops", "dashboard", "read"),
     ("mlops", "annotations", "manage"),

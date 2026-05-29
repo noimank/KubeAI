@@ -19,6 +19,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
+import { useAuthStore } from '@/stores/authStore'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
 import { getSelectableDevEnvironmentImages } from '@/services/dev-environment-images'
 import {
@@ -84,6 +85,7 @@ export default function DevEnvironmentsPage() {
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const canWrite = hasPermission('dev_environments:write')
   const canManage = hasPermission('dev_environments:manage')
+  const currentUserId = useAuthStore((s) => s.user?.id)
 
   const { data, isLoading } = useQuery({
     queryKey: ['devEnvironments', page, pageSize, statusFilter, keyword],
@@ -356,7 +358,7 @@ export default function DevEnvironmentsPage() {
               {record.errorMessage || '启动失败'}
             </span>
           )}
-          {canManage && (
+          {canWrite && (canManage || record.createdBy === currentUserId) && (
             <Popconfirm
               title="确认删除该环境？"
               description="删除后不可恢复，请谨慎操作。"
