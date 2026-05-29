@@ -113,6 +113,14 @@ class OAuthService:
         user = await self._find_or_create_user(external_id, preferred_username, email, nickname)
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
+    async def _restore_if_deleted(self, user: User) -> bool:
+        if user.deleted_at is None:
+            return False
+        user.deleted_at = None
+        user.is_active = True
+        logger.info("oauth_user_restored", user_id=str(user.id), username=user.username)
+        return True
+
     async def _find_or_create_user(
         self, external_id: str, username: str, email: str, nickname: str | None = None
     ) -> User:
@@ -124,6 +132,7 @@ class OAuthService:
         )
         user = result.scalar_one_or_none()
         if user:
+            await self._restore_if_deleted(user)
             await self._sync_oauth_profile(user, username, email, nickname)
             return user
 
@@ -132,6 +141,7 @@ class OAuthService:
             if existing_email:
                 existing_email.auth_provider = "oidc"
                 existing_email.external_id = external_id
+                await self._restore_if_deleted(existing_email)
                 await self._sync_oauth_profile(existing_email, username, email, nickname)
                 logger.info("oauth_user_bound", user_id=str(existing_email.id), username=existing_email.username)
                 return existing_email
@@ -145,7 +155,7 @@ class OAuthService:
             username=username,
             email=email,
             nickname=nickname,
-            hashed_password=await hash_password(secrets.token_urlsafe(32)),
+            hashed_password=await hash_password("Kubeai#123456"),
             auth_provider="oidc",
             external_id=external_id,
             tenant_id=default_tenant_id,

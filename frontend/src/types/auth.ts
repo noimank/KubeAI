@@ -7,6 +7,7 @@ export interface User {
   nickname?: string
   avatar?: string
   role: UserRole
+  authProvider: string
   tenantId?: string
 }
 

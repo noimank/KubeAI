@@ -16,6 +16,7 @@ import {
   LockOutlined,
   MailOutlined,
   SafetyCertificateOutlined,
+  InfoCircleOutlined,
   IdcardOutlined,
   CheckCircleFilled,
 } from '@ant-design/icons'
@@ -338,6 +339,43 @@ export default function ProfilePage() {
               定期更新密码有助于保护您的账户安全。密码需包含大小写字母和数字，至少 8 个字符。
             </span>
           </div>
+          {user?.authProvider === 'oidc' && (
+            <div
+              style={{
+                padding: '14px 18px',
+                borderRadius: 8,
+                background: isDark ? 'rgba(250,173,20,0.08)' : 'rgba(250,173,20,0.04)',
+                border: `1px solid ${isDark ? 'rgba(250,173,20,0.15)' : 'rgba(250,173,20,0.08)'}`,
+                marginBottom: 28,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}
+            >
+              <InfoCircleOutlined style={{ fontSize: 16, color: '#faad14', flexShrink: 0 }} />
+              <span
+                style={{
+                  fontSize: 13,
+                  color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)',
+                  lineHeight: 1.5,
+                }}
+              >
+                您通过第三方账号登录，系统初始密码为{' '}
+                <code
+                  style={{
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                    fontFamily: "'SFMono-Regular', Consolas, monospace",
+                    fontSize: 13,
+                  }}
+                >
+                  Kubeai#123456
+                </code>
+                ，请及时修改。
+              </span>
+            </div>
+          )}
 
           <Form
             form={passwordForm}

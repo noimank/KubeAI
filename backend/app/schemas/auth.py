@@ -52,6 +52,7 @@ class UserResponse(BaseModel):
     avatar: str | None = None
     is_active: bool
     role: UserRole
+    auth_provider: str = "local"
     tenant_id: str | None = None
 
 
