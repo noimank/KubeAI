@@ -1,3 +1,4 @@
+import http.cookiejar
 import logging
 from typing import Any, cast
 
@@ -7,6 +8,19 @@ from app.core.config import settings
 from app.integrations.base import sanitize_k8s_name
 
 logger = logging.getLogger(__name__)
+
+
+class _DiscardingCookieJar(http.cookiejar.CookieJar):
+    """CookieJar that silently discards all cookies.
+
+    Harbor v2.x CSRF middleware validates POST/PUT/DELETE requests when it
+    detects a session cookie (``sid``).  With basic-auth only (no cookies)
+    the middleware skips CSRF validation entirely.  By discarding all cookies
+    we ensure every request is treated as a pure API call.
+    """
+
+    def set_cookie(self, cookie: Any, *args: Any, **kwargs: Any) -> None:
+        pass
 
 
 class HarborClient:
@@ -20,6 +34,9 @@ class HarborClient:
             timeout=httpx.Timeout(10.0, connect=5.0),
             verify=False,
         )
+        # AsyncClient creates its own Cookies internally, so we must replace
+        # the jar *after* construction for the discarding behaviour to take effect.
+        self._client.cookies.jar = _DiscardingCookieJar()
 
     async def close(self) -> None:
         await self._client.aclose()
