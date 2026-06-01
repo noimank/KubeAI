@@ -2,9 +2,9 @@
 # docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
 
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 
