@@ -9,7 +9,7 @@
 # Build:
 #   docker build -t kubeai-rstudio-ml -f Dockerfile.ml .
 
-FROM rocker/ml:4.4.3-cuda12.4
+FROM rocker/ml:4.4
 
 ENV CRAN_REPO=https://cloud.r-project.org
 
