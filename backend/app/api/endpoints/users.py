@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
+from app.core.exceptions import ForbiddenException
 from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
@@ -87,6 +88,8 @@ async def update_user(
     user: Annotated[CurrentUser, Depends(require_permission("users", "manage"))],
 ) -> BaseResponse[UserDetailResponse]:
     data = req.model_dump(exclude_unset=True)
+    if user_id == user.id:
+        raise ForbiddenException("不能修改自身账户的角色或租户")
     service = UserService(db)
     detail = await service.update_user(user_id, data, audit_context=_audit_ctx(request, user))
     return BaseResponse(data=UserDetailResponse(**detail), message="用户更新成功")
@@ -101,6 +104,8 @@ async def toggle_user_status(
     user: Annotated[CurrentUser, Depends(require_permission("users", "manage"))],
 ) -> BaseResponse[UserDetailResponse]:
     service = UserService(db)
+    if user_id == user.id:
+        raise ForbiddenException("不能禁用自身账户")
     detail = await service.toggle_user_status(user_id, req.is_active, audit_context=_audit_ctx(request, user))
     label = "启用" if req.is_active else "禁用"
     return BaseResponse(data=UserDetailResponse(**detail), message=f"用户{label}成功")
@@ -114,5 +119,7 @@ async def delete_user(
     user: Annotated[CurrentUser, Depends(require_permission("users", "manage"))],
 ) -> BaseResponse[None]:
     service = UserService(db)
+    if user_id == user.id:
+        raise ForbiddenException("不能删除自身账户")
     await service.delete_user(user_id, audit_context=_audit_ctx(request, user))
     return BaseResponse(message="用户删除成功")

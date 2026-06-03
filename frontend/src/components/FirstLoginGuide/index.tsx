@@ -148,5 +148,5 @@ export default function FirstLoginGuide() {
 
   const steps = GUIDE_STEPS[role] || GUIDE_STEPS.engineer
 
-  return <Tour open={open} onClose={handleClose} steps={steps} />
+  return <Tour open={open} onClose={handleClose} steps={steps} gap={{ offset: 0 }} />
 }

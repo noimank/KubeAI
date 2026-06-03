@@ -12,6 +12,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
 } from 'antd'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -20,6 +21,7 @@ import type { Dayjs } from 'dayjs'
 import { getUsers, getUser, updateUser, toggleUserStatus, deleteUser } from '@/services/users'
 import { getTenants } from '@/services/tenants'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { useAuthStore } from '@/stores/authStore'
 import type { UserDetail, UserRole } from '@/types/user'
 import type { Tenant } from '@/types/tenant'
 import {
@@ -52,6 +54,7 @@ function getUserStatus(user: UserDetail): string {
 }
 
 export default function UsersPage() {
+  const currentUser = useAuthStore((s) => s.user)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -60,6 +63,8 @@ export default function UsersPage() {
   const [detailUser, setDetailUser] = useState<UserDetail | null>(null)
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [form] = Form.useForm()
+
+  const isSelf = (userId: string) => currentUser?.id === userId
 
   // Filter input states
   const [filterUsername, setFilterUsername] = useState<string>()
@@ -151,6 +156,10 @@ export default function UsersPage() {
 
   const handleEdit = async (values: { role: UserRole; tenantId?: string }) => {
     if (!editingUser) return
+    if (isSelf(editingUser.id)) {
+      getMessageInstance()?.error('不能修改自身账户的角色或租户')
+      return
+    }
     try {
       await updateUser(editingUser.id, values)
       getMessageInstance()?.success('用户更新成功')
@@ -163,6 +172,10 @@ export default function UsersPage() {
   }
 
   const handleToggleStatus = async (record: UserDetail) => {
+    if (isSelf(record.id)) {
+      getMessageInstance()?.error('不能禁用自身账户')
+      return
+    }
     try {
       await toggleUserStatus(record.id, { isActive: !record.isActive })
       getMessageInstance()?.success(record.isActive ? '用户已禁用' : '用户已启用')
@@ -173,6 +186,10 @@ export default function UsersPage() {
   }
 
   const handleDelete = async (record: UserDetail) => {
+    if (isSelf(record.id)) {
+      getMessageInstance()?.error('不能删除自身账户')
+      return
+    }
     try {
       await deleteUser(record.id)
       getMessageInstance()?.success('用户删除成功')
@@ -225,41 +242,68 @@ export default function UsersPage() {
     {
       title: '操作',
       width: 260,
-      render: (_, record) => (
-        <Space size="small">
-          <Button type="link" size="small" onClick={() => openDetail(record)}>
-            详情
-          </Button>
-          <Button type="link" size="small" onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          <Popconfirm
-            title={record.isActive ? '确认禁用该用户？' : '确认启用该用户？'}
-            description={
-              record.isActive ? '禁用后，该用户将无法登录系统' : '启用后，用户可正常登录'
-            }
-            onConfirm={() => handleToggleStatus(record)}
-            okText="确认"
-            cancelText="取消"
-          >
-            <Button type="link" size="small" danger={record.isActive}>
-              {record.isActive ? '禁用' : '启用'}
+      render: (_, record) => {
+        const self = isSelf(record.id)
+        return (
+          <Space size="small">
+            <Button type="link" size="small" onClick={() => openDetail(record)}>
+              详情
             </Button>
-          </Popconfirm>
-          <Popconfirm
-            title="确认删除该用户？"
-            description="删除后该用户将不再出现在用户列表中，但其关联数据会保留"
-            onConfirm={() => handleDelete(record)}
-            okText="确认删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button type="link" size="small" danger>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
+            {self ? (
+              <Tooltip title="不能修改自身账户">
+                <Button type="link" size="small" disabled>
+                  编辑
+                </Button>
+              </Tooltip>
+            ) : (
+              <Button type="link" size="small" onClick={() => openEdit(record)}>
+                编辑
+              </Button>
+            )}
+            {self ? (
+              <Tooltip title="不能禁用自身账户">
+                <Button type="link" size="small" danger={record.isActive} disabled>
+                  {record.isActive ? '禁用' : '启用'}
+                </Button>
+              </Tooltip>
+            ) : (
+              <Popconfirm
+                title={record.isActive ? '确认禁用该用户？' : '确认启用该用户？'}
+                description={
+                  record.isActive ? '禁用后，该用户将无法登录系统' : '启用后，用户可正常登录'
+                }
+                onConfirm={() => handleToggleStatus(record)}
+                okText="确认"
+                cancelText="取消"
+              >
+                <Button type="link" size="small" danger={record.isActive}>
+                  {record.isActive ? '禁用' : '启用'}
+                </Button>
+              </Popconfirm>
+            )}
+            {self ? (
+              <Tooltip title="不能删除自身账户">
+                <Button type="link" size="small" danger disabled>
+                  删除
+                </Button>
+              </Tooltip>
+            ) : (
+              <Popconfirm
+                title="确认删除该用户？"
+                description="删除后该用户将不再出现在用户列表中，但其关联数据会保留"
+                onConfirm={() => handleDelete(record)}
+                okText="确认删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+              >
+                <Button type="link" size="small" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
+        )
+      },
     },
   ]
 
