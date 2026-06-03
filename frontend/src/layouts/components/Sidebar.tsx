@@ -7,7 +7,6 @@ import {
   AppstoreOutlined,
   EditOutlined,
   MonitorOutlined,
-  SettingOutlined,
   TeamOutlined,
   FileSearchOutlined,
   SafetyCertificateOutlined,
@@ -88,8 +87,8 @@ const MENU_CONFIG: MenuGroup[] = [
     ],
   },
   {
-    key: 'group-system',
-    name: '系统',
+    key: 'group-admin',
+    name: '管理',
     children: [
       {
         path: '/monitoring',
@@ -98,35 +97,34 @@ const MENU_CONFIG: MenuGroup[] = [
         permission: 'monitoring:read',
       },
       {
+        path: '/admin/tenants',
+        name: '租户管理',
+        icon: <TeamOutlined />,
+        permission: 'tenants:manage',
+      },
+      {
+        path: '/admin/users',
+        name: '用户管理',
+        icon: <TeamOutlined />,
+        permission: 'users:manage',
+      },
+      {
+        path: '/admin/audit-logs',
+        name: '审计日志',
+        icon: <FileSearchOutlined />,
+        permission: 'audit_logs:read',
+      },
+    ],
+  },
+  {
+    key: 'group-system',
+    name: '系统',
+    children: [
+      {
         path: '/notifications',
         name: '通知中心',
         icon: <BellOutlined />,
         permission: 'notifications:read',
-      },
-      {
-        path: '/admin',
-        name: '管理',
-        icon: <SettingOutlined />,
-        children: [
-          {
-            path: '/admin/tenants',
-            name: '租户管理',
-            icon: <TeamOutlined />,
-            permission: 'tenants:manage',
-          },
-          {
-            path: '/admin/users',
-            name: '用户管理',
-            icon: <TeamOutlined />,
-            permission: 'users:manage',
-          },
-          {
-            path: '/admin/audit-logs',
-            name: '审计日志',
-            icon: <FileSearchOutlined />,
-            permission: 'audit_logs:read',
-          },
-        ],
       },
     ],
   },
