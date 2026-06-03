@@ -12,12 +12,13 @@ interface WsState {
 }
 
 function getWsUrl(): string {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  if (baseUrl) {
+  if (baseUrl.startsWith('http')) {
     return baseUrl.replace(/^http/, 'ws') + '/ws'
   }
-  return `${wsProtocol}//${window.location.host}/ws`
+  // Relative path — build absolute URL from current location
+  return `${wsProtocol}//${window.location.host}${baseUrl}/ws`
 }
 
 export const useWsStore = create<WsState>((set, get) => ({
