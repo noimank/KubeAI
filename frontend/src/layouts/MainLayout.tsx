@@ -16,6 +16,8 @@ const NAVIGATE_MAP: Record<string, string> = {
   '/models': '模型仓库',
   '/inference': '推理服务',
   '/dev-environments': '开发环境',
+  '/algorithms': '算法管理',
+  '/algorithms/:id': '算法详情',
   '/images': '镜像管理',
   '/annotations': '数据标注',
   '/monitoring': '监控',

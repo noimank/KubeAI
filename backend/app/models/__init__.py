@@ -1,3 +1,4 @@
+from app.models.algorithm import Algorithm
 from app.models.annotation import AnnotationProject
 from app.models.annotation_task import AnnotationTask
 from app.models.audit_log import AuditLog
@@ -15,6 +16,7 @@ from app.models.training_job import TrainingJob
 from app.models.user import User
 
 __all__ = [
+    "Algorithm",
     "AnnotationProject",
     "AnnotationTask",
     "AuditLog",

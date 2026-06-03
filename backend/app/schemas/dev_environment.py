@@ -26,6 +26,7 @@ class DevEnvironmentCreateRequest(BaseModel):
     description: str | None = None
     env_vars: dict[str, str] | None = None
     datasets: list[DatasetMountRequest] | None = None
+    algorithm_id: uuid.UUID | None = None
 
 
 class DevEnvironmentResponse(BaseModel):

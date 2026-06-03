@@ -33,6 +33,8 @@ const DevEnvironmentsPage = lazy(() => import('./pages/dev-environments'))
 const ImagesPage = lazy(() => import('./pages/images'))
 const ImageDetailPage = lazy(() => import('./pages/images/detail'))
 const AnnotationsPage = lazy(() => import('./pages/annotations'))
+const AlgorithmsPage = lazy(() => import('./pages/algorithms'))
+const AlgorithmDetailPage = lazy(() => import('./pages/algorithms/detail'))
 const AnnotationDetailPage = lazy(() => import('./pages/annotations/detail'))
 const AnnotationWorkspacePage = lazy(() => import('./pages/annotations/workspace'))
 const MonitoringPage = lazy(() => import('./pages/monitoring'))
@@ -231,6 +233,14 @@ export default function App() {
                       }
                     />
                     <Route
+                      path="dev-environments/create"
+                      element={
+                        <PermissionGuard permission="dev_environments:write">
+                          <DevEnvironmentsPage />
+                        </PermissionGuard>
+                      }
+                    />
+                    <Route
                       path="images"
                       element={
                         <PermissionGuard permission="images:read">
@@ -240,6 +250,17 @@ export default function App() {
                     >
                       <Route index element={<ImagesPage />} />
                       <Route path=":id" element={<ImageDetailPage />} />
+                    </Route>
+                    <Route
+                      path="algorithms"
+                      element={
+                        <PermissionGuard permission="algorithms:read">
+                          <Outlet />
+                        </PermissionGuard>
+                      }
+                    >
+                      <Route index element={<AlgorithmsPage />} />
+                      <Route path=":id" element={<AlgorithmDetailPage />} />
                     </Route>
                     <Route
                       path="annotations"

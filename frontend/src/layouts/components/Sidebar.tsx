@@ -12,6 +12,7 @@ import {
   FileSearchOutlined,
   SafetyCertificateOutlined,
   BellOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons'
 import type { MenuDataItem } from '@ant-design/pro-components'
 import { filterMenuItems, toMenuDataItem } from './sidebar-utils'
@@ -65,6 +66,12 @@ const MENU_CONFIG: MenuGroup[] = [
     key: 'group-dev',
     name: '开发',
     children: [
+      {
+        path: '/algorithms',
+        name: '算法管理',
+        icon: <FolderOpenOutlined />,
+        permission: 'algorithms:read',
+      },
       {
         path: '/dev-environments',
         name: '开发环境',

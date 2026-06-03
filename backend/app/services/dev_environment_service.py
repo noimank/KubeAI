@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
+import zipfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode
 
@@ -28,12 +31,14 @@ from app.integrations.k8s.pvc import (
 )
 from app.integrations.k8s.resource_quota import get_quota_used
 from app.integrations.k8s.secret import ensure_registry_pull_secret
+from app.models.algorithm import Algorithm
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.dev_environment import DevEnvironment
 from app.models.dev_environment_image import DevEnvironmentImage
 from app.models.enums import DevEnvironmentStatus
 from app.models.tenant import Tenant
 from app.models.user import User
+from app.services.algorithm_storage_service import AlgorithmStorageService
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,6 +70,7 @@ class DevEnvironmentService:
         description: str | None = None,
         env_vars: dict[str, str] | None = None,
         datasets: list[DatasetMountRequest] | None = None,
+        algorithm_id: uuid.UUID | None = None,
     ) -> DevEnvironment:
         dev_image = await self._get_dev_environment_image(environment_image_id, tenant_id)
         tenant = await self._get_tenant_or_fail(tenant_id)
@@ -90,6 +96,13 @@ class DevEnvironmentService:
             sanitized_username=sanitized_username,
         )
 
+        if algorithm_id:
+            await self._extract_algorithm_to_home(
+                algorithm_id=algorithm_id,
+                tenant_id=tenant_id,
+                user_home_host_path=user_home_host_path,
+            )
+
         env = DevEnvironment(
             tenant_id=tenant_id,
             created_by=user_id,
@@ -113,6 +126,12 @@ class DevEnvironmentService:
         try:
             await create_tenant_network_policy(namespace)
             pull_secret_name = await ensure_registry_pull_secret(namespace)
+
+            # Inject SSH keys for the user
+            final_env_vars = self._build_env_vars(
+                env, env_vars, workspace_path=workspace_path, home_path=home_path, algorithm_id=algorithm_id
+            )
+
             await jh_client.ensure_user(env.spawner_name)
             await jh_client.start_server(
                 env.spawner_name,
@@ -124,7 +143,7 @@ class DevEnvironmentService:
                 extra_volumes=extra_volumes or None,
                 extra_volume_mounts=extra_volume_mounts or None,
                 environment_type=dev_image.environment_type,
-                env_vars=self._build_env_vars(env, env_vars, workspace_path=workspace_path, home_path=home_path),
+                env_vars=final_env_vars,
                 image_pull_secret=pull_secret_name,
             )
         except Exception as e:
@@ -259,6 +278,9 @@ class DevEnvironmentService:
             await create_tenant_network_policy(namespace)
             pull_secret_name = await ensure_registry_pull_secret(namespace)
             await jh_client.ensure_user(env.spawner_name or "")
+
+            final_env_vars = self._build_env_vars(env, env.env_vars, workspace_path=workspace_path, home_path=home_path)
+
             await jh_client.start_server(
                 env.spawner_name or "",
                 image=env.image,
@@ -269,7 +291,7 @@ class DevEnvironmentService:
                 extra_volumes=extra_volumes or None,
                 extra_volume_mounts=extra_volume_mounts or None,
                 environment_type=env.environment_type,
-                env_vars=self._build_env_vars(env, env.env_vars, workspace_path=workspace_path, home_path=home_path),
+                env_vars=final_env_vars,
                 image_pull_secret=pull_secret_name,
             )
         except Exception as e:
@@ -512,6 +534,7 @@ class DevEnvironmentService:
         *,
         workspace_path: str | None = None,
         home_path: str | None = None,
+        algorithm_id: uuid.UUID | None = None,
     ) -> dict[str, str]:
         merged: dict[str, str] = {}
         if user_env_vars:
@@ -524,7 +547,62 @@ class DevEnvironmentService:
             merged["KUBEAI_WORKSPACE_PATH"] = workspace_path
         if home_path:
             merged["KUBEAI_HOME_PATH"] = home_path
+        if algorithm_id:
+            merged["KUBEAI_ALGORITHM_ID"] = str(algorithm_id)
         return merged
+
+    async def _extract_algorithm_to_home(
+        self,
+        *,
+        algorithm_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        user_home_host_path: str,
+    ) -> None:
+        """Extract algorithm zip archive into the user home host path.
+
+        The extracted files will be available under
+        ``/kubeai/home/algorithm-<algorithm_id>/`` when the dev environment
+        container starts.
+        """
+        result = await self.db.execute(
+            select(Algorithm).where(Algorithm.id == algorithm_id, Algorithm.tenant_id == tenant_id)
+        )
+        algo = result.scalar_one_or_none()
+        if not algo:
+            logger.warning("algorithm_not_found_for_dev_env", algorithm_id=str(algorithm_id))
+            return
+
+        if not algo.storage_path:
+            logger.warning("algorithm_has_no_storage_path", algorithm_id=str(algorithm_id))
+            return
+
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        storage = AlgorithmStorageService(tenant.name)
+        zip_path = storage.get_file_path(algo.user_id, algorithm_id)
+
+        if not zip_path.exists():
+            logger.warning("algorithm_zip_not_found", path=str(zip_path))
+            return
+
+        dest_dir = Path(user_home_host_path) / f"algorithm-{algorithm_id}"
+
+        def _extract() -> None:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(str(zip_path), "r") as zf:
+                zf.extractall(str(dest_dir))
+            # Ensure extracted files are readable by the container user
+            for p in dest_dir.rglob("*"):
+                if p.is_file():
+                    p.chmod(0o644)
+                elif p.is_dir():
+                    p.chmod(0o755)
+
+        await asyncio.to_thread(_extract)
+        logger.info(
+            "algorithm_extracted_to_home",
+            algorithm_id=str(algorithm_id),
+            dest=str(dest_dir),
+        )
 
     def _home_path(self) -> str:
         return f"{KUBEAI_CONTAINER_ROOT}/home"

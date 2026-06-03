@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.endpoints.algorithms import router as algorithms_router
 from app.api.endpoints.annotations import router as annotations_router
 from app.api.endpoints.audit_logs import router as audit_logs_router
 from app.api.endpoints.auth import router as auth_router
@@ -31,6 +32,7 @@ async def health_check() -> HealthResponse:
 
 
 api_router.include_router(auth_router)
+api_router.include_router(algorithms_router)
 api_router.include_router(annotations_router)
 api_router.include_router(credentials_router)
 api_router.include_router(dashboard_router)

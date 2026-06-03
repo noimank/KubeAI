@@ -41,6 +41,7 @@ class AuditAction(enum.StrEnum):
     BUILD = "build"
     REBUILD = "rebuild"
     CLEANUP_JOB = "cleanup_job"
+    DOWNLOAD = "download"
 
 
 class ResourceType(enum.StrEnum):
@@ -56,6 +57,7 @@ class ResourceType(enum.StrEnum):
     TRAINING_JOB = "training_job"
     MODEL = "model"
     ANNOTATION_PROJECT = "annotation_project"
+    ALGORITHM = "algorithm"
 
 
 class BuildStatus(enum.StrEnum):
@@ -143,3 +145,14 @@ class NotificationPriority(enum.StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+
+
+class AlgorithmSourceType(enum.StrEnum):
+    UPLOAD = "upload"
+    GIT = "git"
+
+
+class AlgorithmStatus(enum.StrEnum):
+    AVAILABLE = "available"
+    ARCHIVED = "archived"
+    ERROR = "error"

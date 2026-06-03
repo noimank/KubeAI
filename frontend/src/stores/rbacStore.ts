@@ -41,6 +41,9 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
     'users:read',
     'notifications:read',
     'notifications:write',
+    'algorithms:read',
+    'algorithms:write',
+    'algorithms:manage',
   ],
   engineer: [
     'datasets:read',
@@ -57,6 +60,8 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
     'inference_services:read',
     'notifications:read',
     'notifications:write',
+    'algorithms:read',
+    'algorithms:write',
   ],
   annotator: [
     'datasets:read',

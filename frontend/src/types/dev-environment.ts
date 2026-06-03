@@ -41,6 +41,7 @@ export interface DevEnvironmentCreateParams {
   description?: string
   envVars?: Record<string, string>
   datasets?: { datasetId: string; versionId?: string }[]
+  algorithmId?: string
 }
 
 export interface AccessUrlResponse {

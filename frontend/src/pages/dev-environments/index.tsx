@@ -1,5 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
+  Alert,
   Button,
   Empty,
   Form,
@@ -13,7 +15,7 @@ import {
   Table,
   Tag,
 } from 'antd'
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, CodeOutlined } from '@ant-design/icons'
 import type { TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
@@ -22,6 +24,7 @@ import { useRbacStore } from '@/stores/rbacStore'
 import { useAuthStore } from '@/stores/authStore'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
 import { getSelectableDevEnvironmentImages } from '@/services/dev-environment-images'
+import { getAlgorithm } from '@/services/algorithms'
 import {
   getDevEnvironments,
   createDevEnvironment,
@@ -70,13 +73,17 @@ interface DevEnvironmentFormValues {
 
 export default function DevEnvironmentsPage() {
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const algorithmId = searchParams.get('algorithmId')
+
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [keyword, setKeyword] = useState<string | undefined>(undefined)
   const [searchText, setSearchText] = useState('')
 
-  const [modalOpen, setModalOpen] = useState(false)
+  const [modalOpen, setModalOpen] = useState(!!algorithmId)
   const [form] = Form.useForm<DevEnvironmentFormValues>()
 
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null)
@@ -110,6 +117,9 @@ export default function DevEnvironmentsPage() {
       setModalOpen(false)
       setSelectedDatasetId(null)
       form.resetFields()
+      if (algorithmId) {
+        navigate('/dev-environments', { replace: true })
+      }
       queryClient.invalidateQueries({ queryKey: ['devEnvironments'] })
     },
   })
@@ -156,6 +166,12 @@ export default function DevEnvironmentsPage() {
     enabled: !!selectedDatasetId && modalOpen,
   })
 
+  const { data: algoForEnv } = useQuery({
+    queryKey: ['algorithm-for-dev-env', algorithmId],
+    queryFn: () => getAlgorithm(algorithmId!),
+    enabled: !!algorithmId && modalOpen,
+  })
+
   const handleSearch = useCallback((value: string) => {
     setKeyword(value || undefined)
     setPage(1)
@@ -187,6 +203,9 @@ export default function DevEnvironmentsPage() {
     setModalOpen(false)
     setSelectedDatasetId(null)
     form.resetFields()
+    if (algorithmId) {
+      navigate('/dev-environments', { replace: true })
+    }
   }
 
   const handleImageSelect = (imageId: string) => {
@@ -222,6 +241,7 @@ export default function DevEnvironmentsPage() {
         datasets: values.datasetId
           ? [{ datasetId: values.datasetId, versionId: values.versionId }]
           : undefined,
+        algorithmId: algorithmId ?? undefined,
       }
       createMutation.mutate(params)
     } catch {
@@ -435,7 +455,9 @@ export default function DevEnvironmentsPage() {
       />
 
       <Modal
-        title="创建开发环境"
+        title={
+          algorithmId && algoForEnv ? `从算法「${algoForEnv.name}」创建开发环境` : '创建开发环境'
+        }
         open={modalOpen}
         onCancel={closeCreateModal}
         onOk={handleSubmit}
@@ -451,6 +473,15 @@ export default function DevEnvironmentsPage() {
           style={{ marginTop: 16 }}
           initialValues={{ gpuCount: 0, cpu: '2', memory: '4Gi' }}
         >
+          {algorithmId && algoForEnv && (
+            <Alert
+              type="info"
+              showIcon
+              icon={<CodeOutlined />}
+              message={`算法「${algoForEnv.name}」的文件将在环境启动时自动解压到用户家目录`}
+              style={{ marginBottom: 16 }}
+            />
+          )}
           <Form.Item
             name="name"
             label="环境名称"

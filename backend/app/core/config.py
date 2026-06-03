@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     MINIO_BUCKET_PREFIX: str = "kubeai-models-"
 
     DATASET_BASE_PATH: str = "/data/kubeai/datasets"
+    ALGORITHM_BASE_PATH: str = "/data/kubeai/algorithms"
 
     HARBOR_URL: str = "http://harbor.kubeai.local"
     HARBOR_USERNAME: str = "admin"
