@@ -7,7 +7,7 @@ import type {
   TrainingJobCreate,
   TrainingMetrics,
 } from '@/types/training-job'
-import { ACCESS_TOKEN_KEY } from '@/stores/authStore'
+import { ACCESS_TOKEN_KEY, API_BASE_URL } from '@/utils/constants'
 
 export async function getTrainingJobs(params: {
   current: number
@@ -63,7 +63,7 @@ export function buildLogStreamUrl(
   jobId: string,
   params?: { podName?: string; tailLines?: number },
 ): string {
-  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const baseURL = API_BASE_URL
   const token = localStorage.getItem(ACCESS_TOKEN_KEY)
   const url = new URL(`${baseURL}/training-jobs/${jobId}/logs/stream`, window.location.origin)
   url.searchParams.set('token', token || '')

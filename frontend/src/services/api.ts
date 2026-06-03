@@ -1,7 +1,8 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios'
 
-import { useAuthStore, ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore'
+import { useAuthStore } from '@/stores/authStore'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, API_BASE_URL } from '@/utils/constants'
 
 declare module 'axios' {
   interface InternalAxiosRequestConfig {
@@ -33,7 +34,7 @@ function transformKeys<T>(obj: T, transformer: (key: string) => string): T {
 }
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: API_BASE_URL,
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
 })
@@ -136,10 +137,9 @@ async function handleTokenRefresh(originalRequest: InternalAxiosRequestConfig) {
   }
 
   try {
-    const { data } = await axios.post(
-      `${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/refresh`,
-      { refresh_token: refreshToken },
-    )
+    const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+      refresh_token: refreshToken,
+    })
 
     const responseData = data?.data || data
     const newAccessToken = responseData.access_token

@@ -38,7 +38,7 @@ import {
   retryTrainingJob,
 } from '@/services/training-jobs'
 import { registerModel } from '@/services/models'
-import { ACCESS_TOKEN_KEY } from '@/stores/authStore'
+import { ACCESS_TOKEN_KEY } from '@/utils/constants'
 import { getMessageInstance } from '@/utils/messageHolder'
 import type { TrainingJobStatus } from '@/types/training-job'
 

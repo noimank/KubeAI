@@ -1,6 +1,5 @@
 import { create } from 'zustand'
-
-const THEME_KEY = 'kubeai_theme'
+import { THEME_KEY } from '@/utils/constants'
 
 type ThemeMode = 'light' | 'dark'
 

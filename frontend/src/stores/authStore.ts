@@ -5,9 +5,7 @@ import { useTenantStore } from './tenantStore'
 import { useNotificationStore } from './notificationStore'
 import { useWsStore } from './wsStore'
 import { getCurrentUser } from '@/services/auth'
-
-export const ACCESS_TOKEN_KEY = 'kubeai_access_token'
-export const REFRESH_TOKEN_KEY = 'kubeai_refresh_token'
+import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, API_BASE_URL } from '@/utils/constants'
 
 interface AuthState {
   user: User | null
@@ -34,7 +32,7 @@ async function callLogoutApi() {
   try {
     const axios = (await import('axios')).default
     await axios.post(
-      `${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/logout`,
+      `${API_BASE_URL}/auth/logout`,
       { refresh_token: refreshToken || undefined },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     )
