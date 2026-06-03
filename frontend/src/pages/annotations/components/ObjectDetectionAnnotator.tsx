@@ -6,6 +6,7 @@ import type Konva from 'konva'
 import type { AnnotationTask, AnnotationProjectDetail } from '@/types/annotation'
 import type { AnnotationResultItem } from '@/types/annotation'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { appendAuthToken } from '@/utils/constants'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
 
 interface BBox {
@@ -74,7 +75,7 @@ export default function ObjectDetectionAnnotator({
     let cancelled = false
     const img = new window.Image()
     img.crossOrigin = 'anonymous'
-    img.src = imageUrl
+    img.src = appendAuthToken(imageUrl)
     img.onload = () => {
       if (!cancelled) setImage(img)
     }

@@ -116,6 +116,70 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 
 
+async def get_current_user_from_query_or_header(
+    request: Request,
+    token: str | None = Query(None, alias="token"),
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    redis: aioredis.Redis = Depends(get_redis),  # noqa: B008
+) -> User:
+    """Authenticate via Bearer header (priority) or ?token= query parameter.
+
+    Used by endpoints that may be accessed both via API client (Bearer header)
+    and direct browser requests like <img> tags (query parameter).
+    """
+    from fastapi.security.utils import get_authorization_scheme_param
+
+    auth_header = request.headers.get("Authorization", "")
+    scheme, param = get_authorization_scheme_param(auth_header)
+
+    # Prefer Bearer header, fall back to query parameter
+    token_str = param if (scheme.lower() == "bearer" and param) else token
+
+    if not token_str:
+        raise UnauthorizedException("未提供认证 Token")
+
+    try:
+        payload = decode_token(token_str)
+    except ValueError:
+        raise UnauthorizedException("无效或过期的 Token") from None
+
+    if payload.get("type") != "access":
+        raise UnauthorizedException("无效的 Token 类型")
+
+    jti = payload.get("jti")
+    if not jti:
+        raise UnauthorizedException("无效的 Token")
+
+    blacklist = TokenBlacklistService(redis)
+    if await blacklist.is_revoked(jti):
+        raise UnauthorizedException("Token 已被吊销")
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise UnauthorizedException("无效的 Token")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise UnauthorizedException("用户不存在")
+    if not user.is_active:
+        raise ForbiddenException("用户已被禁用")
+
+    if user.tenant_id is not None:
+        from app.models.tenant import Tenant
+
+        tenant_result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
+        tenant = tenant_result.scalar_one_or_none()
+        if tenant and tenant.status == TenantStatus.DISABLED:
+            raise ForbiddenException("租户已被禁用, 请联系管理员")
+
+    return user
+
+
+QueryOrHeaderUser = Annotated[User, Depends(get_current_user_from_query_or_header)]
+
+
 async def get_current_user_for_sse(
     token: str | None = Query(None, alias="token"),
     db: AsyncSession = Depends(get_db),  # noqa: B008

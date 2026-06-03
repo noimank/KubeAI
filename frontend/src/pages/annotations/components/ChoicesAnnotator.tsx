@@ -6,6 +6,7 @@ import type {
   AnnotationTask,
 } from '@/types/annotation'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
+import { appendAuthToken } from '@/utils/constants'
 
 interface ChoicesAnnotatorProps {
   task: AnnotationTask
@@ -106,14 +107,14 @@ function ObjectPreview({
   if (objectConfig?.tag === 'Image' && value) {
     return (
       <div style={{ textAlign: 'center' }}>
-        <Image src={value} style={{ maxHeight: 520 }} />
+        <Image src={appendAuthToken(value)} style={{ maxHeight: 520 }} />
       </div>
     )
   }
   if (objectConfig?.tag === 'Audio' && value)
-    return <audio src={value} controls style={{ width: '100%' }} />
+    return <audio src={appendAuthToken(value)} controls style={{ width: '100%' }} />
   if (objectConfig?.tag === 'Video' && value)
-    return <video src={value} controls style={{ width: '100%' }} />
+    return <video src={appendAuthToken(value)} controls style={{ width: '100%' }} />
 
   return (
     <Card size="small">

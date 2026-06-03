@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_db, require_permission
+from app.api.deps import CurrentUser, get_current_user_from_query_or_header, get_db, require_permission
 from app.models.dataset import Dataset
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
@@ -300,8 +300,14 @@ async def download_file(
     version_id: uuid.UUID,
     file_name: str,
     db: DbDep,
-    user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
+    user: Annotated[User, Depends(get_current_user_from_query_or_header)],
 ) -> FileResponse:
+    """Download a dataset file. Supports both Bearer header and ?token= query parameter auth."""
+    from app.core.casbin import CasbinEnforcer
+    from app.core.exceptions import ForbiddenException as ForbiddenExc
+
+    if not CasbinEnforcer.enforce(user.role.value, "datasets", "read"):
+        raise ForbiddenExc("权限不足: 无法对 datasets 执行 read 操作")
     tenant_id = _require_tenant_id(user)
     service = DatasetService(db)
     file_path = await service.get_file_path(dataset_id, version_id, file_name, tenant_id)

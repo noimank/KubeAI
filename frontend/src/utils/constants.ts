@@ -13,3 +13,17 @@ export const DEFAULT_PAGE_SIZE = 10
 
 /** 文件上传上限：5 GiB */
 export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024 * 1024
+
+/**
+ * 为 KubeAI 内部 API URL 追加 JWT Token 查询参数。
+ * 用于 <img> / <audio> / <video> 等无法携带 Authorization Header 的浏览器原生请求。
+ *
+ * @param url - KubeAI 内部 API URL（如 /api/datasets/.../download）
+ * @returns 带 ?token= 查询参数的 URL；若未登录则原样返回
+ */
+export function appendAuthToken(url: string): string {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY)
+  if (!token) return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}token=${encodeURIComponent(token)}`
+}
