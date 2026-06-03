@@ -229,8 +229,8 @@ async def get_all_tenants_usage() -> list[dict[str, Any]]:
                 "used": {
                     "gpu": int(used.get("requests.nvidia.com/gpu", 0)),
                     "cpu": used.get("requests.cpu", "0"),
-                    "memory": used.get("requests.memory", "0"),
-                    "storage": used.get("requests.storage", "0"),
+                    "memory": _normalize_memory_storage(used.get("requests.memory", "0")),
+                    "storage": _normalize_memory_storage(used.get("requests.storage", "0")),
                 },
             }
         )
@@ -258,8 +258,8 @@ async def get_quota_used(namespace: str) -> dict[str, str]:
     return {
         "requests.nvidia.com/gpu": used.get("requests.nvidia.com/gpu", "0"),
         "requests.cpu": used.get("requests.cpu", "0"),
-        "requests.memory": used.get("requests.memory", "0"),
-        "requests.storage": used.get("requests.storage", "0"),
+        "requests.memory": _normalize_memory_storage(used.get("requests.memory", "0")),
+        "requests.storage": _normalize_memory_storage(used.get("requests.storage", "0")),
     }
 
 
@@ -283,3 +283,22 @@ def _parse_memory(value: str) -> int:
             return int(value[: -len(suffix)]) * multiplier
     # No suffix: assume bytes (K8s canonical quantity format)
     return int(value) // 1024
+
+
+def _normalize_memory_storage(value: str) -> str:
+    """Normalize a K8s memory/storage quantity to a Ki-based string.
+
+    K8s ResourceQuota status.used returns canonical (bytes) format for memory
+    and storage, while spec.hard uses human-readable format (e.g. "10Gi").
+    This function normalizes both to a consistent Ki string so downstream
+    consumers get predictable units.
+    """
+    if not value or value == "0":
+        return "0"
+    # Already has a recognized suffix — return as-is
+    for suffix in ("Ki", "Mi", "Gi", "Ti"):
+        if value.endswith(suffix):
+            return value
+    # Raw bytes (no suffix) → convert to Ki
+    ki = _parse_memory(value)
+    return f"{ki}Ki"

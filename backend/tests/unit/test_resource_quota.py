@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.integrations.k8s.resource_quota import (
     RESOURCE_QUOTA_NAME,
+    _normalize_memory_storage,
+    _parse_memory,
     build_tenant_resource_quota,
     create_resource_quota,
     delete_resource_quota,
@@ -177,3 +179,38 @@ class TestGetQuotaUsed:
 
         result = await get_quota_used("kubeai-test")
         assert result["requests.nvidia.com/gpu"] == "0"
+
+
+class TestNormalizeMemoryStorage:
+    def test_raw_bytes_to_ki(self):
+        """K8s status.used returns canonical bytes — normalize to Ki."""
+        # 8Gi = 8 * 1024^3 bytes = 8589934592 bytes
+        result = _normalize_memory_storage("8589934592")
+        assert result == "8388608Ki"  # 8589934592 / 1024 = 8388608 Ki
+
+    def test_already_suffixed_gi(self):
+        """Already-suffixed values pass through unchanged."""
+        assert _normalize_memory_storage("10Gi") == "10Gi"
+
+    def test_already_suffixed_mi(self):
+        assert _normalize_memory_storage("500Mi") == "500Mi"
+
+    def test_already_suffixed_ki(self):
+        assert _normalize_memory_storage("65536Ki") == "65536Ki"
+
+    def test_already_suffixed_ti(self):
+        assert _normalize_memory_storage("1Ti") == "1Ti"
+
+    def test_zero(self):
+        assert _normalize_memory_storage("0") == "0"
+
+    def test_empty(self):
+        assert _normalize_memory_storage("") == "0"
+
+    def test_parse_memory_roundtrip(self):
+        """_parse_memory after _normalize_memory_storage should be idempotent."""
+        # Raw bytes for 4Gi
+        raw_bytes = str(4 * 1024**3)  # 4294967296
+        normalized = _normalize_memory_storage(raw_bytes)
+        ki = _parse_memory(normalized)
+        assert ki == 4 * 1024**2  # 4Gi = 4194304 Ki
