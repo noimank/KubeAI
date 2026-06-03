@@ -153,15 +153,9 @@ class LabelStudioClient:
             raise self._wrap_error("delete_annotation", e) from e
 
     async def export_project_annotations(self, project_id: int) -> list[dict[str, Any]]:
+        """Export all annotations from a LabelStudio project via the SDK's authenticated export path."""
         try:
-            base_url = settings.LABEL_STUDIO_URL.rstrip("/")
-            resp = await self._httpx.get(
-                f"{base_url}/api/projects/{project_id}/export",
-                params={"exportType": "JSON"},
-                headers={"Authorization": f"Token {settings.LABEL_STUDIO_API_TOKEN}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            data = await self._sdk.projects.exports.as_json(project_id)
             if not isinstance(data, list):
                 raise ExternalServiceException("LabelStudio 导出结果格式无效")
             annotations: list[dict[str, Any]] = []
