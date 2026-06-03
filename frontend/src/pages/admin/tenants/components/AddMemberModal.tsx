@@ -5,12 +5,7 @@ import { getMessageInstance } from '@/utils/messageHolder'
 import { getUsers } from '@/services/users'
 import { addMember } from '@/services/tenants'
 import type { UserDetail } from '@/types/user'
-
-const ROLE_OPTIONS = [
-  { label: '算法工程师', value: 'engineer' },
-  { label: 'MLOps', value: 'mlops' },
-  { label: '标注员', value: 'annotator' },
-]
+import { ROLE_OPTIONS } from '@/utils/roleLabels'
 
 interface Props {
   tenantId: string

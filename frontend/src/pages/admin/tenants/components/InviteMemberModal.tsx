@@ -3,12 +3,7 @@ import { Button, Form, Input, Select } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { createInvitation } from '@/services/tenants'
-
-const ROLE_OPTIONS = [
-  { label: '算法工程师', value: 'engineer' },
-  { label: 'MLOps', value: 'mlops' },
-  { label: '标注员', value: 'annotator' },
-]
+import { ROLE_OPTIONS } from '@/utils/roleLabels'
 
 interface Props {
   tenantId: string

@@ -5,12 +5,7 @@ import { getInvitationInfo, acceptInvitation } from '@/services/auth'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useAuthStore } from '@/stores/authStore'
 import type { InvitationInfo } from '@/types/tenant'
-
-const ROLE_LABELS: Record<string, string> = {
-  mlops: 'MLOps',
-  engineer: '算法工程师',
-  annotator: '标注员',
-}
+import { ROLE_LABELS } from '@/utils/roleLabels'
 
 export default function InvitePage() {
   const [searchParams] = useSearchParams()

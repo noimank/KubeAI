@@ -6,72 +6,14 @@ import { useQuery } from '@tanstack/react-query'
 import type { Dayjs } from 'dayjs'
 import { getAuditLogs } from '@/services/audit'
 import type { AuditLog, AuditAction, ResourceType } from '@/types/audit'
-
-const ACTION_LABELS: Record<AuditAction, string> = {
-  create: '创建',
-  update: '更新',
-  delete: '删除',
-  login: '登录',
-  logout: '登出',
-  register: '注册',
-  enable: '启用',
-  disable: '禁用',
-  invite: '邀请',
-  accept_invite: '接受邀请',
-  cancel_invite: '取消邀请',
-  update_role: '变更角色',
-  add_member: '添加成员',
-  remove_member: '移除成员',
-  update_quota: '调整配额',
-  transfer_quota: '配额调配',
-}
-
-const ACTION_COLORS: Record<string, string> = {
-  create: 'green',
-  update: 'blue',
-  delete: 'red',
-  login: 'cyan',
-  logout: 'default',
-  register: 'purple',
-  enable: 'green',
-  disable: 'red',
-  invite: 'blue',
-  accept_invite: 'green',
-  cancel_invite: 'orange',
-  update_role: 'blue',
-  add_member: 'green',
-  remove_member: 'red',
-  update_quota: 'geekblue',
-  transfer_quota: 'purple',
-}
-
-const RESOURCE_LABELS: Record<ResourceType, string> = {
-  tenant: '租户',
-  user: '用户',
-  quota: '配额',
-  membership: '成员关系',
-  invitation: '邀请',
-  credential: '凭证',
-}
-
-const RESOURCE_COLORS: Record<string, string> = {
-  tenant: 'blue',
-  user: 'purple',
-  quota: 'orange',
-  membership: 'cyan',
-  invitation: 'green',
-  credential: 'default',
-}
-
-const ACTION_OPTIONS = Object.entries(ACTION_LABELS).map(([value, label]) => ({
-  label,
-  value,
-}))
-
-const RESOURCE_OPTIONS = Object.entries(RESOURCE_LABELS).map(([value, label]) => ({
-  label,
-  value,
-}))
+import {
+  ACTION_LABELS,
+  ACTION_COLORS,
+  ACTION_OPTIONS,
+  RESOURCE_LABELS,
+  RESOURCE_COLORS,
+  RESOURCE_OPTIONS,
+} from '@/utils/auditLabels'
 
 function DetailPanel({ record }: { record: AuditLog }) {
   return (

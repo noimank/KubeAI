@@ -15,8 +15,26 @@ export type AuditAction =
   | 'remove_member'
   | 'update_quota'
   | 'transfer_quota'
+  | 'upload'
+  | 'build'
+  | 'rebuild'
+  | 'cleanup_job'
+  | 'download'
 
-export type ResourceType = 'tenant' | 'user' | 'quota' | 'membership' | 'invitation' | 'credential'
+export type ResourceType =
+  | 'tenant'
+  | 'user'
+  | 'quota'
+  | 'membership'
+  | 'invitation'
+  | 'credential'
+  | 'dataset'
+  | 'image'
+  | 'dev_environment_image'
+  | 'training_job'
+  | 'model'
+  | 'annotation_project'
+  | 'algorithm'
 
 export interface AuditLog {
   id: string

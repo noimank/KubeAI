@@ -22,27 +22,11 @@ import { getTenants } from '@/services/tenants'
 import { getMessageInstance } from '@/utils/messageHolder'
 import type { UserDetail, UserRole } from '@/types/user'
 import type { Tenant } from '@/types/tenant'
-
-const ROLE_COLORS: Record<string, string> = {
-  admin: 'red',
-  mlops: 'blue',
-  engineer: 'green',
-  annotator: 'orange',
-}
-
-const ROLE_LABELS: Record<string, string> = {
-  admin: '管理员',
-  mlops: 'MLOps 工程师',
-  engineer: '算法工程师',
-  annotator: '标注员',
-}
-
-const ROLE_OPTIONS = [
-  { value: 'admin', label: '管理员' },
-  { value: 'mlops', label: 'MLOps 工程师' },
-  { value: 'engineer', label: '算法工程师' },
-  { value: 'annotator', label: '标注员' },
-]
+import {
+  ROLE_LABELS,
+  ROLE_COLORS,
+  ROLE_OPTIONS_WITH_ADMIN as ROLE_OPTIONS,
+} from '@/utils/roleLabels'
 
 const STATUS_COLORS: Record<string, string> = {
   active: 'green',

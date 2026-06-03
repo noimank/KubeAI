@@ -4,24 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { listMembers, removeMember, updateMemberRole } from '@/services/tenants'
 import type { TenantMember } from '@/types/tenant'
-
-const ROLE_LABELS: Record<string, string> = {
-  mlops: 'MLOps',
-  engineer: '算法工程师',
-  annotator: '标注员',
-}
-
-const ROLE_COLORS: Record<string, string> = {
-  mlops: 'blue',
-  engineer: 'green',
-  annotator: 'orange',
-}
-
-const ROLE_OPTIONS = [
-  { label: '算法工程师', value: 'engineer' },
-  { label: 'MLOps', value: 'mlops' },
-  { label: '标注员', value: 'annotator' },
-]
+import { ROLE_LABELS, ROLE_COLORS, ROLE_OPTIONS } from '@/utils/roleLabels'
 
 interface Props {
   tenantId: string
