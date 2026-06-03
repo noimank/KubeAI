@@ -270,8 +270,16 @@ def _parse_cpu(value: str) -> int:
 
 
 def _parse_memory(value: str) -> int:
+    """Parse a Kubernetes memory quantity string into KiB.
+
+    Handles binary suffixes (Ki, Mi, Gi, Ti) per K8s convention.
+    Values without a recognized suffix are treated as bytes — this is the
+    canonical representation used by ResourceQuota status and pod resource
+    requests/responses in the K8s API.
+    """
     suffixes = {"Ki": 1, "Mi": 1024, "Gi": 1024**2, "Ti": 1024**3}
     for suffix, multiplier in suffixes.items():
         if value.endswith(suffix):
             return int(value[: -len(suffix)]) * multiplier
-    return int(value)
+    # No suffix: assume bytes (K8s canonical quantity format)
+    return int(value) // 1024

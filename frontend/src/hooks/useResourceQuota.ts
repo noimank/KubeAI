@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTenantStore } from '@/stores/tenantStore'
 import { getTenantQuotaUsage } from '@/services/tenants'
+import { parseK8sQuantity, formatKi } from '@/utils/format'
 
 interface ResourceQuota {
   gpu: { used: number; total: number; percent: number; level: 'ok' | 'warning' | 'danger' }
@@ -13,22 +14,6 @@ function getLevel(percent: number): 'ok' | 'warning' | 'danger' {
   if (percent > 85) return 'danger'
   if (percent > 60) return 'warning'
   return 'ok'
-}
-
-function parseK8sQuantity(val: string | undefined | null): number {
-  if (!val) return 0
-  if (val.endsWith('Gi')) return parseFloat(val) * 1024
-  if (val.endsWith('Mi')) return parseFloat(val)
-  if (val.endsWith('Ki')) return parseFloat(val) / 1024
-  if (val.endsWith('G')) return parseFloat(val) * 1000
-  if (val.endsWith('M')) return parseFloat(val)
-  if (val.endsWith('m')) return parseFloat(val) / 1000
-  return parseFloat(val) || 0
-}
-
-function formatMemoryMi(mi: number): string {
-  if (mi >= 1024) return `${(mi / 1024).toFixed(1)} Gi`
-  return `${mi} Mi`
 }
 
 export function useResourceQuota() {
@@ -52,10 +37,10 @@ export function useResourceQuota() {
     const gpuTotal = currentTenant.gpuLimit ?? 0
     const cpuUsed = parseK8sQuantity(data.cpuUsed)
     const cpuTotal = parseK8sQuantity(currentTenant.cpuLimit)
-    const memUsedMi = parseK8sQuantity(data.memoryUsed)
-    const memTotalMi = parseK8sQuantity(currentTenant.memoryLimit)
-    const storUsedMi = parseK8sQuantity(data.storageUsed)
-    const storTotalMi = parseK8sQuantity(currentTenant.storageLimit)
+    const memUsedKi = parseK8sQuantity(data.memoryUsed)
+    const memTotalKi = parseK8sQuantity(currentTenant.memoryLimit)
+    const storUsedKi = parseK8sQuantity(data.storageUsed)
+    const storTotalKi = parseK8sQuantity(currentTenant.storageLimit)
 
     return {
       gpu: {
@@ -71,19 +56,19 @@ export function useResourceQuota() {
         level: getLevel(cpuTotal ? (cpuUsed / cpuTotal) * 100 : 0),
       },
       memory: {
-        used: memUsedMi,
-        total: memTotalMi,
-        percent: memTotalMi ? (memUsedMi / memTotalMi) * 100 : 0,
-        level: getLevel(memTotalMi ? (memUsedMi / memTotalMi) * 100 : 0),
+        used: memUsedKi,
+        total: memTotalKi,
+        percent: memTotalKi ? (memUsedKi / memTotalKi) * 100 : 0,
+        level: getLevel(memTotalKi ? (memUsedKi / memTotalKi) * 100 : 0),
       },
       storage: {
-        used: storUsedMi,
-        total: storTotalMi,
-        percent: storTotalMi ? (storUsedMi / storTotalMi) * 100 : 0,
-        level: getLevel(storTotalMi ? (storUsedMi / storTotalMi) * 100 : 0),
+        used: storUsedKi,
+        total: storTotalKi,
+        percent: storTotalKi ? (storUsedKi / storTotalKi) * 100 : 0,
+        level: getLevel(storTotalKi ? (storUsedKi / storTotalKi) * 100 : 0),
       },
     }
   })()
 
-  return { quota, isLoading, refetch, formatMemoryMi }
+  return { quota, isLoading, refetch, formatKi }
 }

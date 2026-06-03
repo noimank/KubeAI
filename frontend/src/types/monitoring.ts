@@ -82,7 +82,6 @@ export interface QuotaAllocationOverview {
   gpu: QuotaAllocationItem
   cpu: QuotaAllocationItem
   memory: QuotaAllocationItem
-  storage: QuotaAllocationItem
 }
 
 export interface TenantQuotaComparisonItem {

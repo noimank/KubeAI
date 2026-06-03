@@ -24,7 +24,7 @@ const LEVEL_TIP: Record<string, { icon: React.ReactNode; text: string }> = {
 }
 
 export default function ResourceAwarePanel() {
-  const { quota, isLoading, formatMemoryMi } = useResourceQuota()
+  const { quota, isLoading, formatKi } = useResourceQuota()
 
   if (isLoading) {
     return (
@@ -76,15 +76,15 @@ export default function ResourceAwarePanel() {
         />
         <ResourceRow
           label="内存"
-          used={formatMemoryMi(quota.memory.used)}
-          total={formatMemoryMi(quota.memory.total)}
+          used={formatKi(quota.memory.used)}
+          total={formatKi(quota.memory.total)}
           percent={quota.memory.percent}
           level={quota.memory.level}
         />
         <ResourceRow
           label="存储"
-          used={formatMemoryMi(quota.storage.used)}
-          total={formatMemoryMi(quota.storage.total)}
+          used={formatKi(quota.storage.used)}
+          total={formatKi(quota.storage.total)}
           percent={quota.storage.percent}
           level={quota.storage.level}
         />

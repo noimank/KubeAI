@@ -53,7 +53,6 @@ class MonitoringService:
         allocated_gpu = sum(t.gpu_limit for t in tenants)
         allocated_cpu = sum(parse_cpu(t.cpu_limit) for t in tenants)
         allocated_memory = sum(parse_memory(t.memory_limit) for t in tenants)
-        allocated_storage = sum(parse_memory(t.storage_limit) for t in tenants)
 
         return {
             "gpu": {
@@ -70,11 +69,6 @@ class MonitoringService:
                 "total": total_memory,
                 "allocated": allocated_memory,
                 "available": max(total_memory - allocated_memory, 0),
-            },
-            "storage": {
-                "total": parse_memory(capacity.get("memory", "0")),
-                "allocated": allocated_storage,
-                "available": max(parse_memory(capacity.get("memory", "0")) - allocated_storage, 0),
             },
         }
 

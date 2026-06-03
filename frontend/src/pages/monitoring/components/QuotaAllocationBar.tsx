@@ -11,7 +11,6 @@ const RESOURCE_LABELS = [
   { key: 'gpu' as const, label: 'GPU', unit: '张', format: (v: number) => `${v}` },
   { key: 'cpu' as const, label: 'CPU', unit: '核', format: (v: number) => `${v}` },
   { key: 'memory' as const, label: '内存', unit: '', format: formatKi },
-  { key: 'storage' as const, label: '存储', unit: '', format: formatKi },
 ]
 
 export default function QuotaAllocationBar({ data }: Props) {

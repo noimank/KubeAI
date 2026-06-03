@@ -88,7 +88,6 @@ class QuotaAllocationOverview(BaseModel):
     gpu: QuotaAllocationItem
     cpu: QuotaAllocationItem
     memory: QuotaAllocationItem
-    storage: QuotaAllocationItem
 
 
 class TenantQuotaComparisonItem(BaseModel):
