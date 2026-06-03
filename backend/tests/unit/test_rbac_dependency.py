@@ -34,6 +34,8 @@ def init_casbin():
         (UserRole.ENGINEER, "inference_services", "read", True),
         (UserRole.ENGINEER, "inference_services", "write", False),
         (UserRole.ENGINEER, "models", "read", True),
+        (UserRole.ENGINEER, "annotations", "read", True),
+        (UserRole.ENGINEER, "annotations", "write", True),
         (UserRole.ENGINEER, "models", "write", False),
         (UserRole.ENGINEER, "users", "read", False),
         (UserRole.MLOPS, "inference_services", "manage", True),

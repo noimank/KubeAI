@@ -43,6 +43,19 @@ describe('rbacStore', () => {
     expect(state.hasPermission('users:read')).toBe(false)
   })
 
+  it('engineer should inherit annotator permissions (annotations, datasets, notifications)', () => {
+    useRbacStore.getState().setRole('engineer')
+    const state = useRbacStore.getState()
+    // 继承自 annotator
+    expect(state.hasPermission('annotations:read')).toBe(true)
+    expect(state.hasPermission('annotations:write')).toBe(true)
+    expect(state.hasPermission('datasets:read')).toBe(true)
+    expect(state.hasPermission('notifications:read')).toBe(true)
+    expect(state.hasPermission('notifications:write')).toBe(true)
+    // annotator 没有的，engineer 也不应该有（除非 own 定义了）
+    expect(state.hasPermission('annotations:manage')).toBe(false)
+  })
+
   it('mlops should have manage on training jobs and read on users', () => {
     useRbacStore.getState().setRole('mlops')
     const state = useRbacStore.getState()
