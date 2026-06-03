@@ -11,156 +11,84 @@ KubeAI is a Kubernetes-native AI/ML platform with multi-tenant RBAC. Monorepo wi
 ### Backend (from `backend/`)
 
 ```bash
-# Install dependencies
 uv sync
-
-# Run dev server (port 8000)
-uv run uvicorn app.main:app --reload
-
-# Run all tests
-uv run pytest
-
-# Run a single test file
-uv run pytest tests/unit/test_security.py
-
-# Run a single test function
-uv run pytest tests/unit/test_security.py::test_hash_password -v
-
-# Database migrations
-uv run alembic upgrade head
+uv run uvicorn app.main:app --reload          # dev server (port 8000)
+uv run pytest                                  # all tests
+uv run pytest tests/unit/test_security.py::test_hash_password -v  # single test
+uv run alembic upgrade head                    # migrate
 uv run alembic revision --autogenerate -m "description"
-
-# Lint & format
-uv run ruff check .
-uv run ruff check --fix .
-uv run ruff format .
-
-# Type check
-uv run mypy app/
+uv run ruff check . && uv run ruff format .    # lint+format
+uv run mypy app/                               # type check
 ```
 
 ### Frontend (from `frontend/`)
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Run dev server (port 3000, proxies /api → localhost:8000)
-pnpm dev
-
-# Build (tsc -b then vite build)
-pnpm build
-
-# Lint & format
-pnpm lint
-pnpm format
-
-# Type check
+pnpm dev                    # dev server (port 3000, proxies /api → localhost:8000)
+pnpm build                  # tsc -b then vite build
+pnpm lint && pnpm format
 pnpm typecheck
-
-# Run tests
 pnpm test
-pnpm test:watch
 ```
 
-### Infrastructure (from project root)
+### Infrastructure & Docs (from project root)
 
 ```bash
-# Deploy all services via Helm (PostgreSQL, Redis, MinIO, Volcano, Harbor, backend, frontend)
-helm install kubeai infra/helm/kubeai/ \
-  -f infra/helm/kubeai/values-dev.yaml \
-  -n kubeai --create-namespace
+# Helm deploy (PostgreSQL, Redis, MinIO, Volcano, Harbor, JupyterHub, Prometheus stack, backend, frontend)
+helm install kubeai infra/helm/kubeai/ -f infra/helm/kubeai/values-dev.yaml -n kubeai --create-namespace
 
-# Docker build (from project root)
+# Docker build
 docker build -t kubeai-backend -f infra/images/backend/Dockerfile .
 docker build -t kubeai-frontend -f infra/images/frontend/Dockerfile .
-docker build -t kubeai-docs -f infra/images/docs/Dockerfile .
-```
 
-### Documentation (from `backend/`)
-
-```bash
-# Install docs dependencies (first time)
+# Docs (from backend/)
 uv sync --group docs
-
-# Preview docs locally (hot reload)
 uv run mkdocs serve --config-file ../mkdocs.yml
-
-# Build static docs (zero warnings)
-NO_MKDOCS_2_WARNING=1 uv run mkdocs build --config-file ../mkdocs.yml
-
-# Build with git revision dates (requires committed docs)
-NO_MKDOCS_2_WARNING=1 ENABLE_GIT_DATES=true uv run mkdocs build --config-file ../mkdocs.yml
 ```
+
+Pre-commit hooks (ruff+mypy on backend, eslint+prettier+tsc on frontend): `pre-commit install` then auto-runs on commit. Config: `.pre-commit-config.yaml`.
 
 ## Architecture
 
 ### Backend (`backend/`)
 
-- **Framework**: FastAPI with async SQLAlchemy (asyncpg + PostgreSQL), Redis for caching/token blacklist
-- **Entry point**: `app/main.py` — creates FastAPI app, registers middleware and router at `/api` prefix
-- **Config**: `app/core/config.py` — Pydantic Settings, reads from `.env` file
-- **Database**: async SQLAlchemy 2.0 with `DeclarativeBase`, `Mapped`/`mapped_column` style. All models use `TimestampMixin`. User has `SoftDeleteMixin`. Models in `app/models/`, migrations in `alembic/` (async runner)
-- **Auth flow**: JWT access/refresh tokens (HS256). `app/core/security.py` for hashing and token creation. `app/core/token_blacklist.py` uses Redis to revoke tokens by JTI. Account lockout after 5 failed attempts (Redis TTL 15 min)
-- **RBAC**: Casbin enforcer (`app/core/casbin.py`) with policy model at `app/core/rbac_model.conf`. Roles: admin > mlops > engineer > annotator. Policies seeded from `app/core/permissions.py`. `manage` action in Casbin matcher matches all actions
-- **Dependency injection**: `app/api/deps.py` — `CurrentUser` (JWT auth + blacklist check), `require_permission(resource, action)`, `require_tenant_access()`. Note: `get_db()` is defined in both `app/core/database.py` and `app/api/deps.py`; endpoints use the one in `deps.py`
-- **Services**: Constructor-injected with `AsyncSession` (and optionally Redis/MinIO). Key services:
-  - `AuthService` — register/login/lockout/refresh/logout
-  - `TenantService` — K8s namespace + ResourceQuota + NetworkPolicy with rollback on failure
-  - `CredentialService` — async K8s Secret management (no DB)
-  - `OAuthService` — OIDC/OAuth2 via authlib with Redis-cached discovery docs
-  - `DatasetService` — MinIO-backed dataset/version management with presigned URLs
-  - `ImageService` — custom image builds via K8s Jobs, push to Harbor registry
-  - `TrainingJobService` — creates Volcano VCJobs, manages PVCs for dataset mounts, tracks quota
-  - `ExperimentService` — MLflow-backed experiment tracking, reproduces experiments as training jobs
-  - `InvitationService` — tenant member invitation with role assignment
-  - `AuditService` — records audit logs for resource operations
-  - `AnnotationService` — Label Studio-backed annotation projects with custom XML config, task assignment, and annotation writeback to dataset versions
-  - `DevEnvironmentService` — JupyterHub-based dev environments with dataset mounting, idle timeout auto-stop, and training job creation from notebooks
-  - `InferenceService` — KServe-based model inference with KEDA autoscaling, canary deployments, and API token auth
-- **Model registry**: No dedicated service — `app/api/endpoints/model_registry.py` handles logic directly. Models in `app/models/registered_model.py` (`RegisteredModel` + `ModelVersion`). Versions uploaded via K8s upload Jobs, files stored in MinIO
-- **Multi-tenancy**: Three layers — DB-level (`TenantMixin` + FK), app-level (`TenantMiddleware` + `require_tenant_access`), infra-level (K8s NetworkPolicy per namespace isolating tenant traffic)
-- **External integrations** (`app/integrations/`):
-  - `k8s/` — async `kubernetes_asyncio` client (CoreV1Api, NetworkingV1Api, BatchV1Api). Handles namespace, PVC, Secret, Job, ResourceQuota, NetworkPolicy, upload Jobs. Client lifecycle managed via `get_k8s_clients()` / `close_k8s_clients()`. Pure construction helpers (e.g. `create_build_job`, `build_tenant_resource_quota`) remain sync
-  - `mlflow/` — MLflow REST API client via `httpx` for experiment/run tracking. Sync calls wrapped in `asyncio.to_thread()` at service level
-  - `volcano/` — Volcano batch scheduler via async K8s CustomObjectsApi (`batch.volcano.sh/v1alpha1` VCJobs). Maps Volcano phases to internal status (Pending→pending, Running→running, Completed→succeeded, etc.)
-  - `harbor/` — Harbor REST API client via `httpx` for container registry management (projects, repos, robots). Sync calls wrapped in `asyncio.to_thread()` at service level
-  - `minio/` — MinIO/S3 client for dataset file storage (buckets, presigned upload/download URLs). Sync calls wrapped in `asyncio.to_thread()` at service level
-  - `jupyterhub/` — JupyterHub REST API client via `httpx` for dev environment lifecycle (user creation, server start/stop, spawner management)
-  - `labelstudio/` — Label Studio REST API client + XML template builder (`templates.py`) for annotation projects. Supports image classification, object detection, segmentation, text classification, and custom choices/text areas
-  - `kserve/` — KServe inference services via async K8s CustomObjectsApi (`serving.kserve.io/v1beta1`). Builder pattern for InferenceService specs, canary rollout support
-  - `keda/` — KEDA autoscaler via async K8s CustomObjectsApi (`keda.sh/v1alpha1`). Builds ScaledObjects for inference service auto-scaling
-  - Namespace prefix: `kubeai-`
-- **API responses**: All endpoints return `BaseResponse[T]` wrapper (`{success, message, data}`)
-- **Exceptions**: `AppException` hierarchy in `app/core/exceptions.py` — caught by error handler middleware returning `BaseResponse` with appropriate HTTP status. All default messages are in Chinese
-- **Startup**: `app/core/events.py` — initializes Redis, Casbin, seeds admin user (`admin`/`Admin123456`) and default tenant, creates MinIO client singleton (accessed via `get_minio_client()`)
-- **Tests**: `asyncio_mode = "auto"` in pytest config. `conftest.py` provides session-scoped `event_loop` + `httpx.AsyncClient` with `ASGITransport` for in-process testing. Unit tests in `tests/unit/`, integration in `tests/integration/`
-- **Mounted routers** (`api/endpoints/router.py`): auth, annotations, audit_logs, credentials, datasets, dev_environments, experiments, images, inference_services, inference_proxy, model_registry, tenants, training_jobs, users
+- **Entry point**: `app/main.py` — FastAPI app with lifespan, middleware stack (RequestId → Tenant → error handlers), routers at `/api` prefix
+- **Config**: `app/core/config.py` — Pydantic Settings from `.env`
+- **Database**: async SQLAlchemy 2.0 (`DeclarativeBase`, `Mapped`/`mapped_column`). All models use `TimestampMixin`; User adds `SoftDeleteMixin`. Migrations in `alembic/` (async runner via asyncpg)
+- **Auth**: JWT access/refresh (HS256, `app/core/security.py`). Token blacklist via Redis (`token_blacklist.py`). Account lockout after 5 failures (Redis TTL 15 min)
+- **RBAC**: Casbin (`app/core/casbin.py`, model at `rbac_model.conf`). Roles: admin > mlops > engineer > annotator. `manage` action is wildcard in matcher. Policies seeded from `permissions.py`
+- **Dependency injection**: `app/api/deps.py` — `CurrentUser` (JWT + blacklist check), `require_permission(resource, action)`, `require_tenant_access()`. **Critical**: `get_db()` exists in both `core/database.py` and `api/deps.py` — endpoints must use `deps.py`
+- **API pattern**: All responses wrapped in `BaseResponse[T]` (`{success, message, data}`). `AppException` hierarchy in `core/exceptions.py` caught by middleware
+- **Services**: Constructor-injected with `AsyncSession` (+ optional Redis/MinIO). All in `app/services/` — covering auth, tenants, datasets, training jobs (Volcano VCJobs), inference (KServe + KEDA), experiments (MLflow), annotations (Label Studio), dev environments (JupyterHub), images (Harbor), algorithms, monitoring, notifications, dashboard, audit. Model registry has no dedicated service — logic is in the endpoint module directly
+- **Multi-tenancy**: DB (`TenantMixin` + FK) → app (`TenantMiddleware` + `require_tenant_access`) → infra (K8s NetworkPolicy per namespace)
+- **Integrations** (`app/integrations/`): `k8s/` (async kubernetes_asyncio), `volcano/` (VCJob CRDs), `kserve/` + `keda/` (inference CRDs), `harbor/`, `minio/`, `mlflow/`, `jupyterhub/`, `labelstudio/`, `prometheus/` (DCGM GPU metrics), `storage/` (local filesystem). K8s calls are fully async; MinIO/Harbor/MLflow clients are sync — wrap in `asyncio.to_thread()` at service layer. Namespace prefix: `kubeai-`
+- **WebSocket**: `WS /api/ws?token=<jwt>`. Connection manager (`ws_manager.py`) groups by tenant+user (max 5/user). Redis Pub/Sub (`ws_pubsub.py`) bridges multi-replica broadcast on `kubeai:*` channels
+- **Startup** (`core/events.py`): seeds admin (`admin`/`Admin123456`), initializes Redis/Casbin/all external clients, starts background tasks (idle checker, resource cleaner, quota alerts, metrics push)
+- **Tests**: `asyncio_mode = "auto"`. `conftest.py` provides `httpx.AsyncClient` with `ASGITransport` for in-process testing. Unit in `tests/unit/`, integration in `tests/integration/`
+- **Mounted routers**: auth, algorithms, annotations, audit_logs, credentials, dashboard, datasets, dev_environment_images, dev_environments, experiments, images, inference_proxy, inference_services, model_registry, monitoring, notifications, tenants, training_jobs, users
 
 ### Frontend (`frontend/`)
 
 - **Stack**: React 18 + TypeScript (strict) + Ant Design 5 + ProComponents + Zustand + TanStack React Query + Tailwind CSS
-- **Build**: Vite 6 with `@` path alias to `src/`, manual chunk splitting (`vendor`, `antd`, `router`)
-- **Routing**: React Router v7 with lazy-loaded pages. Routes defined declaratively in `App.tsx`. `AuthGuard` wraps authenticated routes, `PermissionGuard` wraps per-route permission checks
-- **State**: Zustand stores using flat `create()` pattern, no middleware. Cross-store communication via `useOtherStore.getState()` (e.g., authStore sets rbacStore role on login). Stores: `authStore`, `rbacStore`, `tenantStore`, `themeStore`
-- **RBAC permissions**: Strings follow `resource:action` pattern (e.g., `datasets:read`, `tenants:manage`). Admin gets wildcard `*`. Enforced at route level (`PermissionGuard`) and sidebar visibility
-- **API client**: `src/services/api.ts` — Axios instance with recursive snake_case↔camelCase key transform on requests/responses. Auto token refresh with queue for concurrent 401s. `messageHolder.ts` singleton bridges Ant Design `message` API to non-React code (interceptors)
-- **Token storage**: Dual-persisted in localStorage (cross-tab persistence, interceptor access) and Zustand state (React reactivity)
-- **Tailwind**: Preflight disabled to coexist with Ant Design. Dark mode via `[data-theme="dark"]` attribute selector
-- **Tests**: Vitest with jsdom, `@testing-library/react`. Test files mirror `src/` structure under `tests/`
+- **Build**: Vite 6, `@` alias → `src/`, chunk splitting for vendor/antd/router
+- **Routing**: React Router v7, all pages lazy-loaded in `App.tsx`. `AuthGuard` → `MainLayout` (ProLayout sidebar + header) → `PermissionGuard` per route
+- **State**: 6 Zustand stores (`auth`, `rbac`, `tenant`, `theme`, `notification`, `ws`). Cross-store via `useOtherStore.getState()`. WebSocket reconnect with exponential backoff; events invalidate React Query caches by domain (training, inference, dev_environment, cluster_resource)
+- **API client**: `src/services/api.ts` — Axios with recursive snake_case↔camelCase transform. Auto token refresh queues concurrent 401s. `messageHolder.ts` bridges Ant Design `message` to interceptors
+- **RBAC**: `resource:action` strings (e.g., `datasets:read`). Admin gets `*`. Route-level via `PermissionGuard`, sidebar visibility via `filterMenuItems()`
+- **Tailwind**: Preflight disabled (coexist with Ant Design). Dark mode via `[data-theme="dark"]` selector. CSS variables for status colors in `styles/variables.css`
+- **Tests**: Vitest + jsdom + @testing-library/react. Files mirror `src/` under `tests/`
 
 ### Infrastructure (`infra/`)
 
-- **Helm chart**: `infra/helm/kubeai/` — deploys PostgreSQL 17, Redis 7, MinIO, Volcano scheduler, Harbor registry, backend, and frontend. Dependencies managed via Chart.lock
-- **Docker images**: `infra/images/backend/Dockerfile`, `infra/images/frontend/Dockerfile`
-- **CI/CD**: `.github/workflows/` — `ci.yml` runs backend lint+test, frontend lint+test, and helm lint on PRs to main/dev
+- **Helm**: `infra/helm/kubeai/` — 10 chart dependencies (PostgreSQL, Redis, MinIO, Volcano, Harbor, kube-prometheus-stack, DCGM exporter, JupyterHub, backend, frontend)
+- **Images**: Backend/frontend + Jupyter/VS Code/RStudio dev-environment images in `infra/images/`
+- **CI/CD**: `.github/workflows/` — `ci.yml` (PR: lint+test), `build.yml` (push to main/dev: GHCR images), `release.yml` (v* tag: versioned images + Helm package)
 
-### Key Conventions
+## Key Conventions
 
-- Backend API uses snake_case; frontend auto-transforms to camelCase
-- All API responses wrapped in `BaseResponse` (`{success, message, data}`)
-- Backend: Python 3.12+, Ruff (line-length 120, double quotes), mypy strict with pydantic plugin
-- Frontend: pnpm, ESLint 9 flat config, Prettier (no semicolons, single quotes, 100 char width, 2-space indent), Vitest
-- `get_db()` exists in both `app/core/database.py` and `app/api/deps.py` — endpoints must use the one from `deps.py`
-- K8s calls are fully async via `kubernetes_asyncio` — all integration functions return coroutines and must be `await`ed
-- MinIO and Harbor clients are synchronous — wrap their calls in `asyncio.to_thread()` at the service layer
+- Backend: Python 3.12+, Ruff (line-length 120, double quotes), mypy strict
+- Frontend: pnpm, ESLint 9 flat config, Prettier (no semicolons, single quotes, 100 char width, 2-space indent)
+- API: backend snake_case ↔ frontend camelCase (auto-transformed)
+- Commits: emoji-prefixed Conventional Commits (`✨ feat:`, `🔧 chore:`, `♻️ refactor:`). See `AGENTS.md`
+- K8s: fully async via `kubernetes_asyncio`. Sync external clients (MinIO, Harbor, MLflow) wrapped in `asyncio.to_thread()`
