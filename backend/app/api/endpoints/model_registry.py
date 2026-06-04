@@ -1,7 +1,8 @@
+import io
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -308,6 +309,114 @@ async def register_model(
     return BaseResponse(data=_build_version_response(version), message="模型注册成功")
 
 
+@router.post("/local-upload", response_model=BaseResponse[ModelVersionResponse])
+async def register_model_local(
+    db: DbDep,
+    minio: MinioDep,
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("models", "write"))],
+    name: str | None = Form(None, min_length=1, max_length=200),
+    description: str | None = Form(None),
+    model_id: uuid.UUID | None = Form(None),  # noqa: B008
+    training_job_id: uuid.UUID | None = Form(None),  # noqa: B008
+    files: list[UploadFile] = File(..., min_length=1),  # noqa: B008
+) -> BaseResponse[ModelVersionResponse]:
+    """本地上传模型文件到 MinIO，同步完成上传后标记为 AVAILABLE。"""  # noqa: RUF002
+    if not model_id and not name:
+        raise BadRequestException("请提供模型名称或模型 ID")
+    tenant_id = _require_tenant_id(user)
+    tenant = await _get_tenant_or_fail(db, tenant_id)
+
+    # 关联训练任务（可选）  # noqa: RUF003
+    dataset_id: uuid.UUID | None = None
+    dataset_version_id: uuid.UUID | None = None
+    image_id: uuid.UUID | None = None
+    hyperparameters: dict[str, str] | None = None
+    if training_job_id:
+        training_job = await _get_training_job_or_fail(db, training_job_id, tenant_id)
+        dataset_id = training_job.dataset_id
+        dataset_version_id = training_job.dataset_version_id
+        image_id = training_job.image_id
+        hyperparameters = training_job.hyperparameters
+
+    # 定位模型: 指定 model_id 则直接定位; 否则按名称查找/创建
+    if model_id:
+        await _verify_model_tenant(db, model_id, tenant_id)
+        result = await db.execute(select(RegisteredModel).where(RegisteredModel.id == model_id))
+        model = result.scalar_one()
+    else:
+        assert name is not None  # validated above
+        model = await _get_or_create_registered_model(db, tenant_id, user.id, name)
+
+    version_number = await _next_version_number(db, model.id)
+    storage_path = f"models/{sanitize_k8s_name(model.name)}/v{version_number}"
+
+    # 确保 MinIO bucket 存在
+    await minio.ensure_bucket(tenant.name)
+
+    # 逐个上传文件到 MinIO
+    total_size = 0
+    file_count = 0
+    for file in files:
+        content = await file.read()
+        object_name = f"{storage_path}/{file.filename}"
+        try:
+            await minio.upload_stream(
+                tenant_name=tenant.name,
+                object_name=object_name,
+                data=io.BytesIO(content),
+                length=len(content),
+                content_type=file.content_type or "application/octet-stream",
+            )
+        except Exception as e:
+            raise BadRequestException(f"文件上传失败: {file.filename} - {e}") from e
+        total_size += len(content)
+        file_count += 1
+
+    # 创建模型版本记录（直接标记为 AVAILABLE）  # noqa: RUF003
+    version = ModelVersion(
+        registered_model_id=model.id,
+        version_number=version_number,
+        description=description,
+        storage_path=storage_path,
+        status=ModelVersionStatus.AVAILABLE,
+        upload_job_name=None,
+        file_count=file_count,
+        total_size_bytes=total_size,
+        training_job_id=training_job_id,
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        image_id=image_id,
+        hyperparameters=hyperparameters,
+        created_by=user.id,
+    )
+    db.add(version)
+
+    # 审计日志
+    audit_service = AuditService(db)
+    await audit_service.log_action(
+        action="register",
+        resource_type="model",
+        ip_address=_audit_ctx(request, user)["ip_address"],
+        user_id=user.id,
+        tenant_id=tenant_id,
+        resource_id=str(version.id),
+        detail={
+            "model_name": model.name,
+            "version_number": version_number,
+            "file_count": file_count,
+            "total_size_bytes": total_size,
+            "upload_method": "local",
+        },
+        user_agent=_audit_ctx(request, user).get("user_agent"),
+        request_id=_audit_ctx(request, user).get("request_id"),
+    )
+
+    await db.flush()
+    await db.refresh(version)
+    return BaseResponse(data=_build_version_response(version), message="模型本地上传成功")
+
+
 @router.get("", response_model=PageResponse[RegisteredModelResponse])
 async def list_models(
     db: DbDep,
@@ -557,3 +666,94 @@ async def _verify_model_tenant(db: AsyncSession, model_id: uuid.UUID, tenant_id:
         from app.core.exceptions import ForbiddenException
 
         raise ForbiddenException("无权访问其他租户的资源")
+
+
+async def _delete_version_minio_objects(minio: MinIOClient, tenant_name: str, storage_path: str) -> int:
+    """Delete all MinIO objects under a version's storage_path prefix. Returns count of deleted objects."""
+    try:
+        objects = await minio.list_objects(tenant_name, storage_path)
+    except Exception:
+        return 0
+    if not objects:
+        return 0
+    object_names = [o["object_name"] for o in objects]
+    await minio.delete_objects(tenant_name, object_names)
+    return len(object_names)
+
+
+@router.delete("/{model_id}/versions/{version_id}", response_model=BaseResponse[None])
+async def delete_model_version(
+    model_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: DbDep,
+    minio: MinioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("models", "manage"))],
+) -> BaseResponse[None]:
+    """删除指定模型版本及其 MinIO 文件。"""
+    tenant_id = _require_tenant_id(user)
+    await _verify_model_tenant(db, model_id, tenant_id)
+    version = await _get_version_or_fail(db, version_id, model_id)
+
+    # 检查是否还有其它版本 — 至少保留一个版本时不能删最后一个版本通过模型级删除
+    result = await db.execute(select(func.count(ModelVersion.id)).where(ModelVersion.registered_model_id == model_id))
+    version_count = result.scalar_one()
+    if version_count <= 1:
+        raise BadRequestException("模型至少需要保留一个版本，请直接删除整个模型")  # noqa: RUF001
+
+    # 删除 MinIO 文件
+    tenant = await _get_tenant_or_fail(db, tenant_id)
+    deleted_count = await _delete_version_minio_objects(minio, tenant.name, version.storage_path)
+
+    # 删除 DB 记录
+    await db.delete(version)
+    await db.commit()
+
+    return BaseResponse(message=f"版本 v{version.version_number} 已删除（清理了 {deleted_count} 个文件）")  # noqa: RUF001
+
+
+@router.delete("/{model_id}", response_model=BaseResponse[None])
+async def delete_registered_model(
+    model_id: uuid.UUID,
+    db: DbDep,
+    minio: MinioDep,
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("models", "manage"))],
+) -> BaseResponse[None]:
+    """删除整个模型及其所有版本和 MinIO 文件。"""
+    tenant_id = _require_tenant_id(user)
+    await _verify_model_tenant(db, model_id, tenant_id)
+
+    result = await db.execute(select(RegisteredModel).where(RegisteredModel.id == model_id))
+    model = result.scalar_one()
+
+    # 删除所有版本的 MinIO 文件
+    tenant = await _get_tenant_or_fail(db, tenant_id)
+    total_deleted = 0
+    for version in model.versions:
+        total_deleted += await _delete_version_minio_objects(minio, tenant.name, version.storage_path)
+
+    # 审计日志
+    audit_service = AuditService(db)
+    await audit_service.log_action(
+        action="delete",
+        resource_type="model",
+        ip_address=_audit_ctx(request, user)["ip_address"],
+        user_id=user.id,
+        tenant_id=tenant_id,
+        resource_id=str(model_id),
+        detail={
+            "model_name": model.name,
+            "version_count": len(model.versions),
+            "files_deleted": total_deleted,
+        },
+        user_agent=_audit_ctx(request, user).get("user_agent"),
+        request_id=_audit_ctx(request, user).get("request_id"),
+    )
+
+    # 级联删除(RegisteredModel -> ModelVersion via cascade)
+    await db.delete(model)
+    await db.commit()
+
+    return BaseResponse(
+        message=f"模型 {model.name} 已删除（清理了 {len(model.versions)} 个版本、{total_deleted} 个文件）"  # noqa: RUF001
+    )

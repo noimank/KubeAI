@@ -1,12 +1,15 @@
 import { useState, useCallback } from 'react'
-import { Button, Empty, Input, Skeleton, Table, Tag } from 'antd'
-import { Link } from 'react-router-dom'
-import { SearchOutlined } from '@ant-design/icons'
+import { Button, Empty, Input, Popconfirm, Skeleton, Space, Table, Tag } from 'antd'
+import { Link, useNavigate } from 'react-router-dom'
+import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
-import { useQuery } from '@tanstack/react-query'
-import { getModels } from '@/services/models'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getModels, deleteModel } from '@/services/models'
 import { formatDate } from '@/utils/format'
+import { getMessageInstance } from '@/utils/messageHolder'
+import { useRbacStore } from '@/stores/rbacStore'
 import type { RegisteredModel } from '@/types/model'
+import UploadModal from './upload-modal'
 
 function formatHyperparamsShort(params?: Record<string, string> | null): string {
   if (!params || Object.keys(params).length === 0) return '-'
@@ -17,15 +20,38 @@ function formatHyperparamsShort(params?: Record<string, string> | null): string 
 }
 
 export default function ModelsPage() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [keyword, setKeyword] = useState<string>()
   const [searchText, setSearchText] = useState('')
+  const [uploadModalOpen, setUploadModalOpen] = useState(false)
+
+  const hasPermission = useRbacStore((s) => s.hasPermission)
+  const canWrite = hasPermission('models:write')
+  const canManage = hasPermission('models:manage')
 
   const { data, isPending, isFetching } = useQuery({
     queryKey: ['models', page, pageSize, keyword],
     queryFn: () => getModels({ current: page, pageSize, search: keyword }),
   })
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteModel,
+    onSuccess: () => {
+      getMessageInstance()?.success('模型已删除')
+      queryClient.invalidateQueries({ queryKey: ['models'] })
+    },
+  })
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteMutation.mutateAsync(id)
+    } catch {
+      // interceptor handles error toast
+    }
+  }
 
   const handleSearch = useCallback((value: string) => {
     setKeyword(value || undefined)
@@ -71,20 +97,36 @@ export default function ModelsPage() {
     },
     {
       title: '操作',
-      width: 80,
+      width: canManage ? 160 : 80,
       render: (_: unknown, record: RegisteredModel) => (
-        <Link to={`/models/${record.id}`}>
-          <Button type="link" size="small">
-            查看详情
-          </Button>
-        </Link>
+        <Space>
+          <Link to={`/models/${record.id}`}>
+            <Button type="link" size="small">
+              查看详情
+            </Button>
+          </Link>
+          {canManage && (
+            <Popconfirm
+              title={`确定删除模型 "${record.name}" 吗？`}
+              description="该模型的所有版本和文件将被永久删除"
+              onConfirm={() => handleDelete(record.id)}
+              okText="确认删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+            >
+              <Button type="link" size="small" danger loading={deleteMutation.isPending}>
+                删除
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
       ),
     },
   ]
 
   const emptyContent = (
     <Empty
-      description="模型仓库为空，训练完成后模型会自动归档到这里"
+      description="模型仓库为空，可通过本地上传或训练任务自动归档来添加模型"
       image={Empty.PRESENTED_IMAGE_SIMPLE}
     >
       <Link to="/training-jobs/create">
@@ -105,6 +147,11 @@ export default function ModelsPage() {
           onSearch={handleSearch}
           prefix={<SearchOutlined />}
         />
+        {canWrite && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
+            本地上传
+          </Button>
+        )}
       </div>
       {isPending ? (
         <Skeleton active paragraph={{ rows: 8 }} />
@@ -126,6 +173,15 @@ export default function ModelsPage() {
           locale={{ emptyText: emptyContent }}
         />
       )}
+      <UploadModal
+        open={uploadModalOpen}
+        onClose={() => setUploadModalOpen(false)}
+        onSuccess={(version) => {
+          setUploadModalOpen(false)
+          queryClient.invalidateQueries({ queryKey: ['models'] })
+          navigate(`/models/${version.registeredModelId}`)
+        }}
+      />
     </div>
   )
 }

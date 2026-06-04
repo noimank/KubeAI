@@ -38,6 +38,23 @@ export async function registerModel(data: ModelVersionCreate): Promise<ModelVers
   return res.data.data!
 }
 
+export async function uploadModelFiles(params: {
+  name?: string
+  modelId?: string
+  description?: string
+  trainingJobId?: string
+  files: File[]
+}): Promise<ModelVersion> {
+  const formData = new FormData()
+  if (params.name) formData.append('name', params.name)
+  if (params.modelId) formData.append('model_id', params.modelId)
+  if (params.description) formData.append('description', params.description)
+  if (params.trainingJobId) formData.append('training_job_id', params.trainingJobId)
+  params.files.forEach((f) => formData.append('files', f))
+  const res = await api.post('/model-registry/local-upload', formData)
+  return res.data.data!
+}
+
 export async function getModelVersionFiles(
   modelId: string,
   versionId: string,
@@ -56,4 +73,12 @@ export async function getModelFileDownloadUrl(
     { fileName },
   )
   return res.data.data!
+}
+
+export async function deleteModelVersion(modelId: string, versionId: string): Promise<void> {
+  await api.delete(`/model-registry/${modelId}/versions/${versionId}`)
+}
+
+export async function deleteModel(modelId: string): Promise<void> {
+  await api.delete(`/model-registry/${modelId}`)
 }
