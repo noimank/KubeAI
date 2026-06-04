@@ -8,6 +8,7 @@ import type {
   InferenceService,
   InferenceServiceCreate,
   InferenceServiceEvent,
+  InferenceServiceMetrics,
   InferenceServiceScaleRequest,
 } from '@/types/inference'
 
@@ -110,5 +111,13 @@ export async function rollbackCanary(id: string): Promise<InferenceService> {
 
 export async function getCanaryStatus(id: string): Promise<CanaryStatusResponse> {
   const res = await api.get(`/inference-services/${id}/canary/status`)
+  return res.data.data!
+}
+
+export async function getInferenceServiceMetrics(
+  id: string,
+  params?: { duration?: string; step?: string },
+): Promise<InferenceServiceMetrics> {
+  const res = await api.get(`/inference-services/${id}/metrics`, { params })
   return res.data.data!
 }

@@ -98,6 +98,7 @@ class TrainingMetricsResponse(BaseModel):
     gpu_metrics: list[GpuMetricPoint]
     gpu_utilization_history: list[TimeSeriesPoint]
     metrics_url: str | None
+    prometheus_available: bool
     timestamp: str
 
 

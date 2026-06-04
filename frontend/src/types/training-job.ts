@@ -73,24 +73,14 @@ export interface LogData {
   totalLines: number
 }
 
-export interface GpuMetricPoint {
-  gpuIndex: number
-  utilizationPercent: number
-  memoryUsedMib: number
-  memoryTotalMib: number
-  temperatureC: number
-  powerW: number
-}
-
-export interface TimeSeriesPoint {
-  timestamp: string
-  value: number
-  label: string
-}
+// Re-export shared GPU metric types
+export type { GpuMetricPoint, TimeSeriesPoint } from './metrics'
+import type { GpuMetricPoint, TimeSeriesPoint } from './metrics'
 
 export interface TrainingMetrics {
   gpuMetrics: GpuMetricPoint[]
   gpuUtilizationHistory: TimeSeriesPoint[]
   metricsUrl: string | null
+  prometheusAvailable: boolean
   timestamp: string
 }

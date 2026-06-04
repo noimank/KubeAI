@@ -121,3 +121,15 @@ export interface CanaryStatusResponse {
   canaryEndpointUrl?: string
   canaryEvents: InferenceServiceEvent[]
 }
+
+// Re-export shared GPU metric types
+export type { GpuMetricPoint, TimeSeriesPoint } from './metrics'
+import type { GpuMetricPoint, TimeSeriesPoint } from './metrics'
+
+export interface InferenceServiceMetrics {
+  gpuMetrics: GpuMetricPoint[]
+  gpuUtilizationHistory: TimeSeriesPoint[]
+  metricsUrl: string | null
+  prometheusAvailable: boolean
+  timestamp: string
+}

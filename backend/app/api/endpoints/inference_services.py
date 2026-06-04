@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
+from app.core.events import get_prometheus_client
 from app.core.exceptions import ForbiddenException
 from app.integrations.k8s.deployment import list_deployment_events
 from app.integrations.k8s.namespace import make_namespace_name
@@ -23,6 +24,7 @@ from app.schemas.inference_service import (
     InferenceServiceCreateRequest,
     InferenceServiceCreateResponse,
     InferenceServiceEventResponse,
+    InferenceServiceMetricsResponse,
     InferenceServiceResponse,
     InferenceServiceScaleRequest,
     InferenceServiceScaleResponse,
@@ -261,6 +263,27 @@ async def get_inference_service_events(
         for e in raw_events
     ]
     return BaseResponse(data=events, message="获取成功")
+
+
+@router.get("/{service_id}/metrics", response_model=BaseResponse[InferenceServiceMetricsResponse])
+async def get_inference_service_metrics(
+    service_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "read"))],
+    duration: str = Query("20m", description="历史范围(如 20m/1h)"),
+    step: str = Query("15s", description="查询精度"),
+) -> BaseResponse[InferenceServiceMetricsResponse]:
+    service = InferenceServiceService(db)
+    tenant_id = _require_tenant_id(user)
+    prom_client = get_prometheus_client()
+    data = await service.get_metrics(
+        service_id=service_id,
+        tenant_id=tenant_id,
+        prom_client=prom_client,
+        duration=duration,
+        step=step,
+    )
+    return BaseResponse(data=InferenceServiceMetricsResponse(**data), message="获取成功")
 
 
 # ── Canary endpoints ────────────────────────────────────────────────────────

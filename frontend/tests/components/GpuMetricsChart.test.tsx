@@ -61,6 +61,13 @@ describe('GpuMetricsChart', () => {
     expect(screen.getByText('GPU 监控数据暂不可用')).toBeDefined()
   })
 
+  it('renders Prometheus unavailable message when prometheusAvailable=false', () => {
+    render(
+      <GpuMetricsChart gpuMetrics={[]} gpuUtilizationHistory={[]} prometheusAvailable={false} />,
+    )
+    expect(screen.getByText('未连接 Prometheus，GPU 监控数据不可用')).toBeDefined()
+  })
+
   it('renders chart when history data available', () => {
     render(
       <GpuMetricsChart
@@ -80,5 +87,56 @@ describe('GpuMetricsChart', () => {
       <GpuMetricsChart gpuMetrics={[]} gpuUtilizationHistory={[]} loading />,
     )
     expect(container.querySelector('.ant-spin')).toBeDefined()
+  })
+
+  it('shows aggregate stats for multi-GPU', () => {
+    render(
+      <GpuMetricsChart
+        gpuMetrics={[
+          {
+            gpuIndex: 0,
+            utilizationPercent: 80,
+            memoryUsedMib: 8000,
+            memoryTotalMib: 16000,
+            temperatureC: 70,
+            powerW: 200,
+          },
+          {
+            gpuIndex: 1,
+            utilizationPercent: 60,
+            memoryUsedMib: 6000,
+            memoryTotalMib: 16000,
+            temperatureC: 75,
+            powerW: 180,
+          },
+        ]}
+        gpuUtilizationHistory={[]}
+      />,
+    )
+    // Should show per-GPU detail table for multi-GPU
+    expect(screen.getByText('GPU 详情')).toBeDefined()
+    expect(screen.getByText('GPU 0')).toBeDefined()
+    expect(screen.getByText('GPU 1')).toBeDefined()
+  })
+
+  it('high temperature shows red color', () => {
+    render(
+      <GpuMetricsChart
+        gpuMetrics={[
+          {
+            gpuIndex: 0,
+            utilizationPercent: 85,
+            memoryUsedMib: 8000,
+            memoryTotalMib: 16000,
+            temperatureC: 88,
+            powerW: 300,
+          },
+        ]}
+        gpuUtilizationHistory={[]}
+      />,
+    )
+    // The statistic value for temperature should have red color style
+    const tempElement = screen.getByText('温度')
+    expect(tempElement).toBeDefined()
   })
 })

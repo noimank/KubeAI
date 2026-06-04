@@ -30,6 +30,7 @@ import { useResourceQuota } from '@/hooks/useResourceQuota'
 import {
   getInferenceService,
   getInferenceServiceEvents,
+  getInferenceServiceMetrics,
   regenerateToken,
   startCanary,
   startInferenceService,
@@ -199,6 +200,17 @@ export default function InferenceServiceDetailPage() {
     refetchInterval: svc?.status === 'running' || svc?.status === 'deploying' ? 30000 : false,
   })
 
+  // GPU metrics query with polling
+  const isRunning = svc?.status === 'running'
+  const { data: metricsData, isLoading: metricsLoading } = useQuery({
+    queryKey: ['inferenceServiceMetrics', id],
+    queryFn: () => getInferenceServiceMetrics(id!),
+    enabled: !!id && svc?.status === 'running' && svc?.gpuCount > 0,
+    refetchInterval: isRunning ? 10_000 : false,
+  })
+
+  const prometheusAvailable = metricsData?.prometheusAvailable ?? false
+
   if (isLoading) return <Spin />
   if (!svc) return null
 
@@ -269,7 +281,15 @@ print(response.json())`
       key: 'monitor',
       label: '监控',
       children: (
-        <MonitorTab serviceStatus={svc.status} events={events} eventsLoading={eventsLoading} />
+        <MonitorTab
+          serviceStatus={svc.status}
+          events={events}
+          eventsLoading={eventsLoading}
+          gpuMetrics={metricsData?.gpuMetrics ?? []}
+          gpuUtilizationHistory={metricsData?.gpuUtilizationHistory ?? []}
+          metricsLoading={metricsLoading}
+          prometheusAvailable={prometheusAvailable}
+        />
       ),
     },
     {

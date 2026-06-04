@@ -335,6 +335,7 @@ export default function TrainingJobDetailPage() {
         gpuMetrics={metricsData?.gpuMetrics ?? []}
         gpuUtilizationHistory={metricsData?.gpuUtilizationHistory ?? []}
         loading={metricsLoading}
+        prometheusAvailable={metricsData?.prometheusAvailable ?? false}
       />
     </div>
   )

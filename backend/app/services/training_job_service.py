@@ -592,11 +592,13 @@ class TrainingJobService:
                 logger.warning("Failed to get pod IP for metrics_url: %s", e)
 
         # Degraded response when Prometheus unavailable
+        prometheus_available = prom_client is not None
         if not prom_client:
             return {
                 "gpu_metrics": [],
                 "gpu_utilization_history": [],
                 "metrics_url": metrics_url,
+                "prometheus_available": prometheus_available,
                 "timestamp": datetime.now(UTC).isoformat(),
             }
 
@@ -624,6 +626,7 @@ class TrainingJobService:
                 "gpu_metrics": gpu_metrics,
                 "gpu_utilization_history": history,
                 "metrics_url": metrics_url,
+                "prometheus_available": prometheus_available,
                 "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as e:
@@ -632,6 +635,7 @@ class TrainingJobService:
                 "gpu_metrics": [],
                 "gpu_utilization_history": [],
                 "metrics_url": metrics_url,
+                "prometheus_available": prometheus_available,
                 "timestamp": datetime.now(UTC).isoformat(),
             }
 

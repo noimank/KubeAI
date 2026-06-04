@@ -177,3 +177,32 @@ class CanaryStatusResponse(BaseModel):
     stable_traffic_percent: int | None = None
     canary_endpoint_url: str | None = None
     canary_events: list[InferenceServiceEventResponse] = []
+
+
+class GpuMetricPoint(BaseModel):
+    """单张 GPU 的瞬时指标快照."""
+
+    gpu_index: int
+    utilization_percent: float
+    memory_used_mib: float
+    memory_total_mib: float
+    temperature_c: float
+    power_w: float
+
+
+class TimeSeriesPoint(BaseModel):
+    """时序数据点."""
+
+    timestamp: str
+    value: float
+    label: str
+
+
+class InferenceServiceMetricsResponse(BaseModel):
+    """推理服务 GPU 监控指标响应."""
+
+    gpu_metrics: list[GpuMetricPoint]
+    gpu_utilization_history: list[TimeSeriesPoint]
+    metrics_url: str | None
+    prometheus_available: bool
+    timestamp: str
