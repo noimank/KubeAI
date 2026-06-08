@@ -1,7 +1,13 @@
 # MLflow Tracking Server - 实验追踪
 # 依赖: PostgreSQL (需 mlflow 数据库)
 # 部署: kubectl apply -k infra/k8s/mlflow/
-# 端口: ClusterIP 5000 | NodePort 30500 (dev)
+# 端口: ClusterIP 5000 (内部访问；如需外部，通过 Ingress 暴露)
+#
+# 生产部署前:
+#   1. 确认 StorageClass 可用
+#   2. 按需调整 PVC 大小和资源限制
+#   3. 建议 artifact 使用 S3 兼容存储 (MinIO) 而非本地 PVC
+#   4. 构建自定义 MLflow 镜像: docker build -t kubeai-mlflow -f infra/images/mlflow/Dockerfile .
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -13,8 +19,6 @@ metadata:
     app.kubernetes.io/component: tracking
 spec:
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: mlflow
@@ -25,19 +29,27 @@ spec:
         app.kubernetes.io/name: mlflow
         app.kubernetes.io/component: tracking
     spec:
+      nodeSelector:
+        kubeai: "true"
       containers:
         - name: mlflow
-          image: ghcr.io/mlflow/mlflow:v3.12.0
-          command: ["sh", "-c"]
+          image: kubeai-mlflow:0.1.0
+          command: ["mlflow", "server"]
           args:
-            - |
-              pip install --quiet psycopg2-binary && \
-              mlflow server \
-                --host 0.0.0.0 \
-                --port 5000 \
-                --backend-store-uri postgresql://postgres:postgres@postgresql.kubeai.svc.cluster.local:5432/mlflow \
-                --default-artifact-root /mlflow/artifacts
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "5000"
+            - --backend-store-uri
+            - "$(MLFLOW_BACKEND_STORE_URI)"
+            - --default-artifact-root
+            - /mlflow/artifacts
           env:
+            - name: MLFLOW_BACKEND_STORE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-secret
+                  key: backend-store-uri
             - name: MLFLOW_SQLALCHEMYSTORE_POOL_SIZE
               value: "10"
             - name: MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW
@@ -67,12 +79,27 @@ spec:
               cpu: 250m
               memory: 512Mi
             limits:
-              cpu: "1"
+              cpu: "2"
               memory: 2Gi
       volumes:
         - name: artifacts
           persistentVolumeClaim:
-            claimName: mlflow
+            claimName: mlflow-artifacts
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-artifacts
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/component: tracking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
 ---
 apiVersion: v1
 kind: Service
@@ -83,27 +110,11 @@ metadata:
     app.kubernetes.io/name: mlflow
     app.kubernetes.io/component: tracking
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - name: http
       port: 5000
       targetPort: http
-      nodePort: 30500
   selector:
     app.kubernetes.io/name: mlflow
     app.kubernetes.io/component: tracking
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mlflow
-  namespace: kubeai
-  labels:
-    app.kubernetes.io/name: mlflow
-    app.kubernetes.io/component: tracking
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi

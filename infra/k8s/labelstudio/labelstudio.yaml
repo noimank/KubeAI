@@ -1,7 +1,11 @@
 # Label Studio - 数据标注服务
 # 依赖: PostgreSQL (需 labelstudio 数据库)
 # 部署: kubectl apply -k infra/k8s/labelstudio/
-# 端口: ClusterIP 8080 | NodePort 30800 (dev)
+# 端口: ClusterIP 8080 (内部访问；如需外部，通过 Ingress 暴露)
+#
+# 生产部署前:
+#   1. 创建 postgresql-labelstudio-secret 包含数据库密码
+#   2. 配置 LABEL_STUDIO_USERNAME / LABEL_STUDIO_PASSWORD 作为管理员凭证
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -23,6 +27,8 @@ spec:
         app.kubernetes.io/name: labelstudio
         app.kubernetes.io/component: annotation
     spec:
+      nodeSelector:
+        kubeai: "true"
       containers:
         - name: labelstudio
           image: heartexlabs/label-studio:1.23.0
@@ -34,7 +40,10 @@ spec:
             - name: POSTGRE_USER
               value: "postgres"
             - name: POSTGRE_PASSWORD
-              value: "postgres"
+              valueFrom:
+                secretKeyRef:
+                  name: labelstudio-secret
+                  key: postgres-password
             - name: POSTGRE_HOST
               value: "postgresql.kubeai.svc.cluster.local"
             - name: POSTGRE_PORT
@@ -63,8 +72,8 @@ spec:
               cpu: 250m
               memory: 512Mi
             limits:
-              cpu: "1"
-              memory: 1Gi
+              cpu: "2"
+              memory: 2Gi
 ---
 apiVersion: v1
 kind: Service
@@ -75,12 +84,11 @@ metadata:
     app.kubernetes.io/name: labelstudio
     app.kubernetes.io/component: annotation
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - name: http
       port: 8080
       targetPort: http
-      nodePort: 30800
   selector:
     app.kubernetes.io/name: labelstudio
     app.kubernetes.io/component: annotation

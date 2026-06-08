@@ -1,6 +1,11 @@
 # PostgreSQL - KubeAI 主数据库 (含 mlflow/labelstudio 初始化)
 # 部署: kubectl apply -k infra/k8s/postgresql/
-# 端口: ClusterIP 5432 | NodePort 30432 (dev)
+# 端口: ClusterIP 5432 (仅集群内访问)
+#
+# 生产部署前:
+#   1. 替换 POSTGRES_PASSWORD（使用 Secret + secretKeyRef）
+#   2. 确认 StorageClass 可用: kubectl get storageclass
+#   3. 按需调整 PVC 大小和资源限制
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -16,6 +21,21 @@ data:
   02-create-labelstudio-db.sql: |
     CREATE DATABASE labelstudio;
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,7 +45,7 @@ metadata:
     app.kubernetes.io/name: postgresql
     app.kubernetes.io/component: database
 spec:
-  replicas: 1
+  replicas: 1  # 生产高可用建议配合 Patroni/CloudNativePG 实现多副本
   strategy:
     type: Recreate
   selector:
@@ -43,7 +63,10 @@ spec:
           image: postgres:17-alpine
           env:
             - name: POSTGRES_PASSWORD
-              value: "postgres"
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-secret
+                  key: password
             - name: POSTGRES_DB
               value: "kubeai"
             - name: POSTGRES_USER
@@ -79,8 +102,8 @@ spec:
               cpu: 250m
               memory: 256Mi
             limits:
-              cpu: "1"
-              memory: 512Mi
+              cpu: "2"
+              memory: 1Gi
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -98,27 +121,11 @@ metadata:
     app.kubernetes.io/name: postgresql
     app.kubernetes.io/component: database
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - name: postgresql
       port: 5432
       targetPort: postgresql
-      nodePort: 30432
   selector:
     app.kubernetes.io/name: postgresql
     app.kubernetes.io/component: database
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgresql
-  namespace: kubeai
-  labels:
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/component: database
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi

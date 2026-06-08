@@ -1,6 +1,11 @@
 # Redis - 缓存 & Token 黑名单存储
 # 部署: kubectl apply -k infra/k8s/redis/
-# 端口: ClusterIP 6379 | NodePort 30379 (dev)
+# 端口: ClusterIP 6379 (仅集群内访问)
+#
+# 生产部署前:
+#   1. 配置密码认证: redis-cli CONFIG SET requirepass <password>
+#   2. 确认 StorageClass 可用
+#   3. 高可用建议部署 Redis Sentinel 或 Cluster
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -37,6 +42,9 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -51,12 +59,11 @@ metadata:
     app.kubernetes.io/name: redis
     app.kubernetes.io/component: cache
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - name: redis
       port: 6379
       targetPort: redis
-      nodePort: 30379
   selector:
     app.kubernetes.io/name: redis
     app.kubernetes.io/component: cache

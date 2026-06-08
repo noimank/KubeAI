@@ -1,3 +1,15 @@
+# Harbor - 私有镜像仓库 (helm template 渲染，部署前重新生成)
+#
+# 生产部署: 建议用 Helm 直接安装并覆盖生产值，而非使用此渲染文件:
+#   helm repo add harbor https://helm.goharbor.io
+#   helm install harbor harbor/harbor -n kubeai -f harbor-values-prod.yaml
+#
+# 如使用此静态 YAML，部署前必须:
+#   1. 替换 HARBOR_ADMIN_PASSWORD (当前 base64: Harbor12345)
+#   2. 替换 POSTGRESQL_PASSWORD (当前: changeit)
+#   3. 替换 TLS 自签名证书为 cert-manager 签发的正式证书
+#   4. 修改 EXT_ENDPOINT 和 Ingress host 为实际域名
+#   5. 设置 storageClassName 为集群可用 StorageClass
 ---
 # Source: harbor/templates/core/core-secret.yaml
 apiVersion: v1
@@ -203,7 +215,7 @@ data:
   POSTGRESQL_SSLMODE: "disable"
   POSTGRESQL_MAX_IDLE_CONNS: "100"
   POSTGRESQL_MAX_OPEN_CONNS: "900"
-  EXT_ENDPOINT: "https://core.harbor.domain"
+  EXT_ENDPOINT: "https://harbor.kubeai.example.com"  # FIXME: 改为实际 Harbor 域名
   CORE_URL: "http://harbor-core:80"
   JOBSERVICE_URL: "http://harbor-jobservice"
   REGISTRY_URL: "http://harbor-registry:5000"
@@ -419,7 +431,7 @@ data:
       # set via environment variable
       # secret: placeholder
       debug:
-        addr: localhost:5001
+        addr: 127.0.0.1:5001
     auth:
       htpasswd:
         realm: harbor-registry-basic-realm
@@ -741,6 +753,13 @@ spec:
       - name: core
         image: docker.io/goharbor/harbor-core:v2.15.1
         imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
         startupProbe:
           httpGet:
             path: /api/v2.0/ping
@@ -1097,6 +1116,13 @@ spec:
       - name: registry
         image: docker.io/goharbor/registry-photon:v2.15.1
         imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
         livenessProbe:
           httpGet:
             path: /
@@ -1295,7 +1321,14 @@ spec:
       - name: database
         image: docker.io/goharbor/harbor-db:v2.15.1
         imagePullPolicy: IfNotPresent
-        securityContext: 
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
@@ -1650,7 +1683,7 @@ spec:
   tls:
   - secretName: harbor-ingress
     hosts:
-    - harbor.kubeai.local
+    - harbor.kubeai.example.com  # FIXME: 改为实际 Harbor 域名
   rules:
   - http:
       paths:
@@ -1689,4 +1722,4 @@ spec:
             name: harbor-portal
             port:
               number: 80
-    host: harbor.kubeai.local
+    host: harbor.kubeai.example.com  # FIXME: 改为实际域名

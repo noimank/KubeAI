@@ -1,6 +1,24 @@
-# MinIO - 对象存储 (数据集/模型文件)
+# MinIO - 对象存储 (模型文件)
 # 部署: kubectl apply -k infra/k8s/minio/
-# 端口: API ClusterIP 9000 (NodePort 30900) | Console ClusterIP 9001 (NodePort 30901)
+# 端口: API ClusterIP 9000 | Console ClusterIP 9001
+#
+# 生产部署前:
+#   1. 替换 MINIO_ROOT_USER / MINIO_ROOT_PASSWORD（使用 Secret）
+#   2. 确认 StorageClass 可用: kubectl get storageclass
+#   3. 按需调整 PVC 大小
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-secret
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: storage
+type: Opaque
+stringData:
+  root-user: "minioadmin"       # 生产环境必须替换
+  root-password: "minioadmin"   # 生产环境必须替换
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -24,9 +42,11 @@ spec:
         app.kubernetes.io/name: minio
         app.kubernetes.io/component: storage
     spec:
+      nodeSelector:
+        kubeai: "true"
       containers:
         - name: minio
-          image: minio/minio:latest
+          image: minio/minio:RELEASE.2025-03-12T18-04-18Z
           args:
             - server
             - /data
@@ -34,9 +54,15 @@ spec:
             - ":9001"
           env:
             - name: MINIO_ROOT_USER
-              value: "minioadmin"
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-user
             - name: MINIO_ROOT_PASSWORD
-              value: "minioadmin"
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-password
           ports:
             - name: api
               containerPort: 9000
@@ -48,7 +74,10 @@ spec:
           resources:
             requests:
               cpu: 250m
-              memory: 256Mi
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -63,16 +92,14 @@ metadata:
     app.kubernetes.io/name: minio
     app.kubernetes.io/component: storage
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - name: api
       port: 9000
       targetPort: api
-      nodePort: 30900
     - name: console
       port: 9001
       targetPort: console
-      nodePort: 30901
   selector:
     app.kubernetes.io/name: minio
     app.kubernetes.io/component: storage
@@ -90,4 +117,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi
+      storage: 200Gi
