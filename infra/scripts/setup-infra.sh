@@ -38,6 +38,7 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 err()  { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # -- Defaults
 INSTALL_ALL=false
@@ -103,18 +104,41 @@ if ! kubectl cluster-info &>/dev/null; then
     exit 1
 fi
 
+ensure_cert_manager() {
+    if kubectl get namespace cert-manager &>/dev/null 2>&1; then
+        log "cert-manager already installed, skipping."
+        return
+    fi
+
+    log "Installing cert-manager..."
+    helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
+    helm repo update jetstack
+    helm install cert-manager jetstack/cert-manager \
+        --namespace cert-manager \
+        --create-namespace \
+        --set crds.enabled=true \
+        --wait
+    log "cert-manager installed."
+}
+
 # -- Uninstall all
 uninstall_all() {
     log "Removing all KubeAI infrastructure components..."
 
     log "Removing KServe..."
-    bash "$SCRIPT_DIR/install-kserve.sh" --uninstall 2>/dev/null || true
+    kubectl delete -f "$PROJECT_ROOT/infra/k8s/kserve/kserve-cluster-resources.yaml" --ignore-not-found 2>/dev/null || true
+    kubectl delete -f "$PROJECT_ROOT/infra/k8s/kserve/kserve.yaml" --ignore-not-found 2>/dev/null || true
+    kubectl delete -f "$PROJECT_ROOT/infra/k8s/kserve/kserve-crd.yaml" --ignore-not-found 2>/dev/null || true
+    kubectl delete -f "$PROJECT_ROOT/infra/k8s/kserve/00-namespace.yaml" --ignore-not-found 2>/dev/null || true
 
     log "Removing KEDA..."
-    bash "$SCRIPT_DIR/install-keda.sh" --uninstall 2>/dev/null || true
+    kubectl delete -f "$PROJECT_ROOT/infra/k8s/keda/keda.yaml" --ignore-not-found 2>/dev/null || true
+    kubectl delete -f "$PROJECT_ROOT/infra/k8s/keda/00-namespace.yaml" --ignore-not-found 2>/dev/null || true
 
     log "Removing Volcano..."
-    bash "$SCRIPT_DIR/install-volcano.sh" --uninstall 2>/dev/null || true
+    kubectl delete -f "$PROJECT_ROOT/infra/k8s/volcano/99-default-queue.yaml" --ignore-not-found 2>/dev/null || true
+    kubectl delete -f "$PROJECT_ROOT/infra/k8s/volcano/volcano.yaml" --ignore-not-found 2>/dev/null || true
+    kubectl delete -f "$PROJECT_ROOT/infra/k8s/volcano/00-namespace.yaml" --ignore-not-found 2>/dev/null || true
 
     log "Removing cert-manager..."
     helm uninstall cert-manager -n cert-manager --ignore-not-found 2>/dev/null || true
@@ -162,37 +186,37 @@ log "========================================="
 
 # Install cert-manager first (required by KServe)
 if [[ "$COMPONENTS" == *"cert-manager"* ]]; then
-    log "Installing cert-manager..."
-    if ! kubectl get namespace cert-manager &>/dev/null 2>&1; then
-        helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
-        helm repo update jetstack
-        helm install cert-manager jetstack/cert-manager \
-            --namespace cert-manager \
-            --create-namespace \
-            --set crds.enabled=true \
-            --wait
-        log "cert-manager installed."
-    else
-        log "cert-manager already installed, skipping."
-    fi
+    ensure_cert_manager
 fi
 
 # Install Volcano
 if [[ "$COMPONENTS" == *"volcano"* ]]; then
     log "Installing Volcano..."
-    bash "$SCRIPT_DIR/install-volcano.sh"
+    kubectl apply -f "$PROJECT_ROOT/infra/k8s/volcano/00-namespace.yaml"
+    kubectl apply -f "$PROJECT_ROOT/infra/k8s/volcano/volcano.yaml"
+    kubectl wait --for=condition=Established --timeout=60s crd/jobs.batch.volcano.sh crd/queues.scheduling.volcano.sh
+    kubectl apply -f "$PROJECT_ROOT/infra/k8s/volcano/99-default-queue.yaml"
 fi
 
 # Install KEDA
 if [[ "$COMPONENTS" == *"keda"* ]]; then
     log "Installing KEDA..."
-    bash "$SCRIPT_DIR/install-keda.sh"
+    kubectl apply -f "$PROJECT_ROOT/infra/k8s/keda/00-namespace.yaml"
+    kubectl apply --server-side -f "$PROJECT_ROOT/infra/k8s/keda/keda.yaml"
 fi
 
 # Install KServe (depends on cert-manager)
 if [[ "$COMPONENTS" == *"kserve"* ]]; then
+    ensure_cert_manager
     log "Installing KServe..."
-    bash "$SCRIPT_DIR/install-kserve.sh"
+    kubectl apply -f "$PROJECT_ROOT/infra/k8s/kserve/00-namespace.yaml"
+    kubectl apply --server-side -f "$PROJECT_ROOT/infra/k8s/kserve/kserve-crd.yaml"
+    kubectl wait --for=condition=Established --timeout=60s \
+        crd/inferenceservices.serving.kserve.io \
+        crd/servingruntimes.serving.kserve.io \
+        crd/clusterservingruntimes.serving.kserve.io
+    kubectl apply -f "$PROJECT_ROOT/infra/k8s/kserve/kserve.yaml"
+    kubectl apply --server-side -f "$PROJECT_ROOT/infra/k8s/kserve/kserve-cluster-resources.yaml"
 fi
 
 echo ""

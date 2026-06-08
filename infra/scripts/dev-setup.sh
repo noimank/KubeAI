@@ -76,6 +76,28 @@ check_in_cluster() {
     fi
 }
 
+ensure_cert_manager() {
+    if kubectl get namespace cert-manager &>/dev/null 2>&1; then
+        log "cert-manager already installed, skipping."
+        return
+    fi
+
+    if ! command -v helm &>/dev/null; then
+        err "helm is required to install cert-manager for KServe."
+        exit 1
+    fi
+
+    log "Installing cert-manager..."
+    helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
+    helm repo update jetstack
+    helm install cert-manager jetstack/cert-manager \
+        --namespace cert-manager \
+        --create-namespace \
+        --set crds.enabled=true \
+        --wait
+    log "cert-manager installed."
+}
+
 # -- Install K8s components only
 install_k8s_components() {
     log "Installing K8s components..."
@@ -83,7 +105,10 @@ install_k8s_components() {
     # Volcano (job scheduling for training)
     if ! kubectl get namespace volcano-system &>/dev/null 2>&1; then
         log "Installing Volcano..."
-        bash "$SCRIPT_DIR/install-volcano.sh"
+        kubectl apply -f "$PROJECT_ROOT/infra/k8s/volcano/00-namespace.yaml"
+        kubectl apply -f "$PROJECT_ROOT/infra/k8s/volcano/volcano.yaml"
+        kubectl wait --for=condition=Established --timeout=60s crd/jobs.batch.volcano.sh crd/queues.scheduling.volcano.sh
+        kubectl apply -f "$PROJECT_ROOT/infra/k8s/volcano/99-default-queue.yaml"
     else
         log "Volcano already installed, skipping."
     fi
@@ -91,15 +116,24 @@ install_k8s_components() {
     # KEDA (auto-scaling for inference services)
     if ! kubectl get namespace keda &>/dev/null 2>&1; then
         log "Installing KEDA..."
-        bash "$SCRIPT_DIR/install-keda.sh"
+        kubectl apply -f "$PROJECT_ROOT/infra/k8s/keda/00-namespace.yaml"
+        kubectl apply --server-side -f "$PROJECT_ROOT/infra/k8s/keda/keda.yaml"
     else
         log "KEDA already installed, skipping."
     fi
 
     # KServe (model serving)
     if ! kubectl get namespace kserve &>/dev/null 2>&1; then
+        ensure_cert_manager
         log "Installing KServe..."
-        bash "$SCRIPT_DIR/install-kserve.sh"
+        kubectl apply -f "$PROJECT_ROOT/infra/k8s/kserve/00-namespace.yaml"
+        kubectl apply --server-side -f "$PROJECT_ROOT/infra/k8s/kserve/kserve-crd.yaml"
+        kubectl wait --for=condition=Established --timeout=60s \
+            crd/inferenceservices.serving.kserve.io \
+            crd/servingruntimes.serving.kserve.io \
+            crd/clusterservingruntimes.serving.kserve.io
+        kubectl apply -f "$PROJECT_ROOT/infra/k8s/kserve/kserve.yaml"
+        kubectl apply --server-side -f "$PROJECT_ROOT/infra/k8s/kserve/kserve-cluster-resources.yaml"
     else
         log "KServe already installed, skipping."
     fi

@@ -14,7 +14,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-PRIVATE_REGISTRY_PREFIX="${PRIVATE_REGISTRY_PREFIX:-hub.uimpcloud.com/kubeai}"
+PRIVATE_REGISTRY_PREFIX="${PRIVATE_REGISTRY_PREFIX:?请设置 PRIVATE_REGISTRY_PREFIX 环境变量，例如 export PRIVATE_REGISTRY_PREFIX=hub.example.com/kubeai}"
 PULL_RETRIES="${PULL_RETRIES:-3}"
 
 declare -a REQUIRED=()
@@ -107,7 +107,7 @@ REQUIRED+=("redis:7-alpine")
 # ============================================
 section "[2/13] 对象存储"
 
-REQUIRED+=("minio/minio:latest")
+REQUIRED+=("minio/minio:RELEASE.2025-03-12T18-04-18Z")
 
 # ============================================
 # 实验追踪
@@ -132,7 +132,7 @@ REQUIRED+=("quay.io/jupyterhub/k8s-hub:4.3.5")
 REQUIRED+=("quay.io/jupyterhub/configurable-http-proxy:5.2.0")
 REQUIRED+=("quay.io/jupyterhub/k8s-network-tools:4.3.5")
 REQUIRED+=("quay.io/jupyterhub/k8s-image-awaiter:4.3.5")
-REQUIRED+=("jupyter/datascience-notebook:latest")
+REQUIRED+=("jupyter/datascience-notebook:2025-01-15")
 REQUIRED+=("registry.k8s.io/pause:3.10.1")
 REQUIRED+=("registry.k8s.io/kube-scheduler:v1.30.14")
 
@@ -163,9 +163,17 @@ REQUIRED+=("kserve/router:v0.17.0")
 REQUIRED+=("kserve/art-explainer:v0.17.0")
 
 # ============================================
+# Istio (KServe 入站网关依赖)
+# ============================================
+section "[8/14] Istio (KServe 依赖)"
+
+REQUIRED+=("docker.io/istio/pilot:1.24.3")
+REQUIRED+=("docker.io/istio/proxyv2:1.24.3")
+
+# ============================================
 # KEDA 自动扩缩容
 # ============================================
-section "[8/13] KEDA"
+section "[9/14] KEDA"
 
 REQUIRED+=("ghcr.io/kedacore/keda:2.19.0")
 REQUIRED+=("ghcr.io/kedacore/keda-metrics-apiserver:2.19.0")
@@ -174,7 +182,7 @@ REQUIRED+=("ghcr.io/kedacore/keda-admission-webhooks:2.19.0")
 # ============================================
 # Volcano 批调度器
 # ============================================
-section "[9/13] Volcano"
+section "[10/14] Volcano"
 
 REQUIRED+=("docker.io/volcanosh/vc-webhook-manager:v1.14.2")
 REQUIRED+=("docker.io/volcanosh/vc-controller-manager:v1.14.2")
@@ -183,7 +191,7 @@ REQUIRED+=("docker.io/volcanosh/vc-scheduler:v1.14.2")
 # ============================================
 # Prometheus 监控栈
 # ============================================
-section "[10/13] Prometheus 监控栈"
+section "[11/14] Prometheus 监控栈"
 
 REQUIRED+=("quay.io/prometheus/prometheus:v3.1.0")
 REQUIRED+=("docker.io/grafana/grafana:11.4.0")
@@ -196,14 +204,14 @@ REQUIRED+=("registry.k8s.io/ingress-nginx/kube-webhook-certgen:v20221220-control
 # ============================================
 # GPU 监控
 # ============================================
-section "[11/13] DCGM Exporter (GPU)"
+section "[12/14] DCGM Exporter (GPU)"
 
 REQUIRED+=("nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04")
 
 # ============================================
 # 镜像构建工具 (后端 K8s Job 使用)
 # ============================================
-section "[12/13] 镜像构建 & 工具镜像"
+section "[13/14] 镜像构建 & 工具镜像"
 
 REQUIRED+=("gcr.io/kaniko-project/executor:latest")
 REQUIRED+=("minio/mc:latest")
@@ -212,7 +220,7 @@ REQUIRED+=("busybox:1.36")
 # ============================================
 # 构建基础镜像 (Dockerfile 中使用)
 # ============================================
-section "[13/13] 构建基础镜像"
+section "[14/14] 构建基础镜像"
 
 REQUIRED+=("python:3.12-slim")
 REQUIRED+=("ghcr.io/astral-sh/uv:latest")
@@ -224,9 +232,9 @@ REQUIRED+=("nginx:alpine")
 # ============================================
 section "[可选] 开发环境镜像"
 
-OPTIONAL+=("codercom/code-server:latest")
+OPTIONAL+=("codercom/code-server:4.96.4")
 OPTIONAL+=("nvidia/cuda:12.4.1-devel-ubuntu22.04")
-OPTIONAL+=("quay.io/jupyter/scipy-notebook:latest")
+OPTIONAL+=("quay.io/jupyter/scipy-notebook:2025-01-15")
 OPTIONAL+=("quay.io/jupyter/pytorch-notebook:cuda12-latest")
 OPTIONAL+=("quay.io/jupyter/tensorflow-notebook:cuda-latest")
 OPTIONAL+=("rocker/verse:4.4.3")
