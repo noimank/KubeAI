@@ -432,7 +432,7 @@ data:
         "localGateway" : "knative-serving/knative-local-gateway",
         "localGatewayService" : "knative-local-gateway.istio-system.svc.cluster.local",
         "ingressClassName" : "istio",
-        "ingressDomain"  : "example.com",
+        "ingressDomain"  : "kubeai.example.com",  # FIXME: 改为实际推理服务域名
         "additionalIngressDomains": [
         ],
         "domainTemplate": "{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}",
@@ -954,6 +954,8 @@ spec:
         control-plane: kserve-controller-manager
         controller-tools.k8s.io: "1.0"
     spec:
+      nodeSelector:
+        kubeai: "true"
       containers:
       - args:
         - --metrics-addr=127.0.0.1:8080

@@ -18738,6 +18738,8 @@ spec:
           type: RuntimeDefault
       serviceAccount: volcano-admission
       priorityClassName: system-cluster-critical
+      nodeSelector:
+        kubeai: "true"
       containers:
         - args:
             - --enabled-admission=/jobs/mutate,/jobs/validate,/podgroups/validate,/queues/mutate,/queues/validate,/hypernodes/validate,/cronjobs/validate
@@ -18804,6 +18806,8 @@ spec:
           type: RuntimeDefault
       serviceAccount: volcano-controllers
       priorityClassName: system-cluster-critical
+      nodeSelector:
+        kubeai: "true"
       containers:
         - name: volcano-controllers
           image: docker.io/volcanosh/vc-controller-manager:v1.14.2
@@ -18820,6 +18824,13 @@ spec:
             - -v=4
             - 2>&1
           imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           securityContext:
               allowPrivilegeEscalation: false
               capabilities:
@@ -18860,6 +18871,8 @@ spec:
           type: RuntimeDefault
       serviceAccount: volcano-scheduler
       priorityClassName: system-cluster-critical
+      nodeSelector:
+        kubeai: "true"
       containers:
         - name: volcano-scheduler
           image: docker.io/volcanosh/vc-scheduler:v1.14.2
@@ -18879,6 +18892,13 @@ spec:
             - name: DEBUG_SOCKET_DIR
               value: /tmp/klog-socks
           imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           volumeMounts:
             - name: scheduler-config
               mountPath: /volcano.scheduler
@@ -19225,6 +19245,8 @@ spec:
   backoffLimit: 3
   template:
     spec:
+      nodeSelector:
+        kubeai: "true"
       securityContext:
         seLinuxOptions:
           level: s0:c123,c456

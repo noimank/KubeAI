@@ -29,7 +29,6 @@ metadata:
     app.kubernetes.io/part-of: keda-operator
     app.kubernetes.io/version: 2.19.0
     app.kubernetes.io/instance: keda
-  annotations:
   name: keda-metrics-server
   namespace: keda
 automountServiceAccountToken: true
@@ -47,7 +46,6 @@ metadata:
     app.kubernetes.io/part-of: keda-operator
     app.kubernetes.io/version: 2.19.0
     app.kubernetes.io/instance: keda
-  annotations:
   name: keda-webhook
   namespace: keda
 automountServiceAccountToken: true
@@ -11742,6 +11740,8 @@ spec:
       enableServiceLinks: true
       serviceAccountName: keda-operator
       automountServiceAccountToken: true
+      nodeSelector:
+        kubeai: "true"
       securityContext:
         runAsNonRoot: true
       containers:
@@ -11960,6 +11960,8 @@ spec:
       hostNetwork: false
       nodeSelector:
         kubernetes.io/os: linux
+        kubeai: "true"
+
 ---
 # Source: keda/templates/webhooks/deployment.yaml
 apiVersion: apps/v1
@@ -12074,6 +12076,8 @@ spec:
       hostNetwork: false
       nodeSelector:
         kubernetes.io/os: linux
+        kubeai: "true"
+
 ---
 # Source: keda/templates/metrics-server/apiservice.yaml
 apiVersion: apiregistration.k8s.io/v1

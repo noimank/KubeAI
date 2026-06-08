@@ -1,0 +1,10 @@
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: default
+  labels:
+    app.kubernetes.io/name: volcano
+    app.kubernetes.io/component: queue
+spec:
+  weight: 1
+  reclaimable: true
