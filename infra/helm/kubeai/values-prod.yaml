@@ -87,7 +87,7 @@ mlflow:
       memory: 1Gi
 
 # KServe: required for inference service management
-# Install before deploying KubeAI: infra/scripts/install-kserve.sh
+# Install before deploying KubeAI: infra/k8s/kserve/
 kserve:
   enabled: true
 

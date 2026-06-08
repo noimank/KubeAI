@@ -73,12 +73,12 @@ pnpm dev                      # 启动 http://localhost:3000，自动代理 /api
 
 ## 基础设施组件说明
 
-| 组件 | 用途 | 安装脚本 |
+| 组件 | 用途 | 安装方式 |
 |------|------|---------|
 | cert-manager | KServe webhook TLS 证书 | setup-infra.sh (自动) |
-| Volcano | 训练任务调度 (VCJob) | install-volcano.sh |
-| KEDA | 推理服务自动伸缩 | install-keda.sh |
-| KServe | 模型推理服务 | install-kserve.sh |
+| Volcano | 训练任务调度 (VCJob) | infra/k8s/volcano/ |
+| KEDA | 推理服务自动伸缩 | infra/k8s/keda/ |
+| KServe | 模型推理服务 | infra/k8s/kserve/ |
 
 ## 常用命令
 

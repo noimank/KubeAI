@@ -9,8 +9,10 @@ infra/k8s/
 ├── namespace.yaml               # 命名空间 (必须首先部署)
 ├── backend-config.yaml          # 后端 ConfigMap + Secret (所有配置项，按需修改)
 ├── backend-rbac.yaml            # 后端集群权限 (ServiceAccount/ClusterRole/ClusterRoleBinding)
+├── 组件说明.md                  # 各组件部署说明索引 (中文)
 │
 ├── postgresql/                  # PostgreSQL 数据库
+│   ├── postgresql-secret.yaml   #   数据库密码 (部署前必须修改)
 │   └── postgresql.yaml          #   含 mlflow/labelstudio 数据库初始化
 ├── redis/                       # Redis 缓存
 │   └── redis.yaml
@@ -23,14 +25,34 @@ infra/k8s/
 │   ├── deployment.yaml
 │   └── service.yaml
 ├── mlflow/                      # MLflow 实验追踪 (可选)
+│   ├── mlflow-secret.yaml       #   数据库连接 URI
 │   └── mlflow.yaml
 ├── labelstudio/                 # Label Studio 数据标注 (可选)
+│   ├── labelstudio-secret.yaml  #   数据库密码
 │   └── labelstudio.yaml
 ├── ingress/                     # Ingress 入口 (可选)
 │   └── ingress.yaml             #   仅路由到 frontend，nginx 内部代理 /api 和 /ws
 │
 ├── volcano/                     # Volcano 批处理调度器
+│   ├── 00-namespace.yaml        #   volcano-system 命名空间
 │   ├── volcano.yaml             #   helm template 渲染，可直接 kubectl apply
+│   ├── 99-default-queue.yaml    #   KubeAI VCJob 默认 Queue
+│   └── README.md
+├── kserve/                      # KServe 模型推理服务
+│   ├── 00-namespace.yaml        #   kserve 命名空间
+│   ├── kserve-crd.yaml          #   CRDs (helm template 渲染，必须先安装)
+│   ├── kserve.yaml              #   Controller + Webhooks
+│   ├── kserve-cluster-resources.yaml # ClusterServingRuntime 后置资源
+│   ├── README.md
+│   └── istio/                   #   Istio 入站链路 (KServe 依赖)
+│       ├── istio-operator.yaml  #     IstioOperator 最小化配置
+│       ├── istio-manifest.yaml   #     IstioManifest 生成配置 (generate.sh 渲染)
+│       ├── kserve-gateway.yaml  #     Gateway + IngressClass
+│       ├── install.sh           #     一键安装脚本
+│       └── generate.sh           #     Manifest 生成脚本 (helm template + yq)
+├── keda/                        # KEDA 自动扩缩容
+│   ├── 00-namespace.yaml        #   keda 命名空间
+│   ├── keda.yaml                #   helm template 渲染
 │   └── README.md
 ├── jupyterhub/                  # JupyterHub 开发环境
 │   ├── jupyterhub.yaml          #   含 KubeAI 自定义 Authenticator + Spawner
@@ -44,13 +66,9 @@ infra/k8s/
 ├── dcgm-exporter/               # NVIDIA GPU 指标采集
 │   ├── dcgm-exporter.yaml       #   helm template 渲染
 │   └── README.md
-├── kserve/                      # KServe 模型推理服务
-│   ├── kserve-crd.yaml          #   CRDs (helm template 渲染，必须先安装)
-│   ├── kserve.yaml              #   Controller + Webhooks
-│   └── README.md
-└── keda/                        # KEDA 自动扩缩容
-    ├── keda.yaml                #   helm template 渲染
-    └── README.md
+├── monitoring/                  # 监控命名空间
+│   └── 00-namespace.yaml        #   monitoring 命名空间 (prometheus/dcgm-exporter 依赖)
+└── pull_all_images.sh           # 镜像拉取/推送脚本
 ```
 
 ## 部署前检查清单
@@ -61,10 +79,56 @@ infra/k8s/
 |-------|------|
 | Kubernetes 集群 | 可正常连接，`kubectl cluster-info` 通过 |
 | 集群权限 | 需要 ClusterAdmin 权限（创建 ClusterRole、ClusterRoleBinding） |
+| 节点标签 | 运行 backend/frontend 的节点需打标签: `kubectl label node <node-name> kubeai=true` |
 | 镜像就绪 | `kubeai-backend:0.1.0` 和 `kubeai-frontend:0.1.0` 已 build 或可拉取 |
 | SECRET_KEY | `backend-config.yaml` 中已替换为随机密钥 (`openssl rand -hex 32`) |
 | 数据库密码 | Secret 中 `DATABASE_URL` 密码与 `postgresql/postgresql.yaml` 一致 |
 | MinIO 凭证 | Secret 中 `MINIO_ACCESS_KEY/SECRET_KEY` 与 `minio/minio.yaml` 一致 |
+| 主机端 `/data/kubeai` 目录 | 见下文 [主机端数据目录准备](#主机端数据目录准备)，否则后端会 `PermissionError` |
+
+## 主机端数据目录准备
+
+后端使用 `hostPath` 把宿主机的 `/data/kubeai` 挂到容器，但镜像内进程以非 root 用户 `kubeai`(UID/GID 999) 运行。
+宿主机上如果 `/data/kubeai` 归属 root，容器进程无法 `mkdir /data/kubeai/datasets`，会出现：
+
+```
+PermissionError: [Errno 13] Permission denied: '/data/kubeai/datasets'
+```
+
+Deployment 已在 `securityContext` 中设置 `fsGroup: 999`，让 kubelet 在挂载时把卷根 chown 到 999；
+**但首次部署前**仍需在宿主机上把目录准备好，否则 kubelet 也无权对 root 拥有的目录执行 chown。
+
+**首次部署（仅在第一个会被调度到的工作节点执行）**：
+
+```bash
+# 1. 创建目录
+sudo mkdir -p /data/kubeai
+
+# 2. 把属主改为镜像内 kubeai 用户的 UID/GID (与 Dockerfile USER kubeai 一致: 999:999)
+sudo chown -R 999:999 /data/kubeai
+
+# 3. 给属主/属组读写执行权限 (新建子目录 datasets/ 等会继承)
+sudo chmod -R u+rwX,g+rwX /data/kubeai
+```
+
+> 如果使用了 `nodeSelector: kubeai=true` 把 backend 固定在特定节点，只需在该节点上执行。
+
+**多节点 (backend 可漂移)**：
+
+hostPath 在多节点上数据不会同步；如果 backend Pod 漂移到其他节点，会看到**空目录**。
+如需多节点可用：
+
+- 方案 A：在**所有**可能被调度到的节点上用 `rsync` 同步 `/data/kubeai`（适合小数据量）
+- 方案 B：把 `hostPath` 换成 `nfs` / `cephfs` / `local-path` Provisioner（推荐）
+- 方案 C：用 nodeAffinity 把 backend 钉死在固定节点 + 配合 PVC 备份
+
+**Pod 已就绪后报错的应急止血**（在 Pod 当前所在节点）：
+
+```bash
+sudo chown -R 999:999 /data/kubeai
+sudo chmod -R u+rwX,g+rwX /data/kubeai
+kubectl -n kubeai rollout restart deploy/backend
+```
 
 ## 快速部署
 
@@ -112,12 +176,24 @@ kubectl apply -f infra/k8s/mlflow/          # 实验追踪
 kubectl apply -f infra/k8s/labelstudio/     # 数据标注
 
 # 7. 平台组件 (按需部署)
-kubectl apply -f infra/k8s/volcano/volcano.yaml       # 训练任务调度
-kubectl apply -f infra/k8s/kserve/kserve-crd.yaml      # KServe CRDs (先装)
-kubectl apply -f infra/k8s/kserve/kserve.yaml          # KServe Controller
-kubectl apply -f infra/k8s/keda/keda.yaml              # 自动扩缩容
+kubectl apply -f infra/k8s/volcano/00-namespace.yaml
+kubectl apply -f infra/k8s/volcano/volcano.yaml
+kubectl wait --for=condition=Established --timeout=60s crd/jobs.batch.volcano.sh crd/queues.scheduling.volcano.sh
+kubectl apply -f infra/k8s/volcano/99-default-queue.yaml
+
+# KServe 推理链路 (需要 Istio + cert-manager，详见 kserve/README.md)
+bash infra/k8s/kserve/istio/install.sh
+kubectl apply -f infra/k8s/kserve/00-namespace.yaml
+kubectl apply --server-side -f infra/k8s/kserve/kserve-crd.yaml
+kubectl wait --for=condition=Established --timeout=60s crd/inferenceservices.serving.kserve.io crd/servingruntimes.serving.kserve.io crd/clusterservingruntimes.serving.kserve.io
+kubectl apply -f infra/k8s/kserve/kserve.yaml
+kubectl apply --server-side -f infra/k8s/kserve/kserve-cluster-resources.yaml
+
+kubectl apply -f infra/k8s/keda/00-namespace.yaml
+kubectl apply --server-side -f infra/k8s/keda/keda.yaml
 kubectl apply -f infra/k8s/jupyterhub/jupyterhub.yaml  # 开发环境
 kubectl apply -f infra/k8s/harbor/harbor.yaml          # 镜像仓库
+kubectl apply -f infra/k8s/monitoring/00-namespace.yaml  # 监控命名空间
 kubectl apply -f infra/k8s/prometheus/prometheus.yaml  # 监控
 ```
 
@@ -144,10 +220,12 @@ namespace.yaml
       ├── volcano/           ← backend 训练任务调度 (需要 RBAC 权限)
       ├── kserve/            ← backend 推理服务管理 (需要 RBAC 权限)
       │   ├── kserve-crd.yaml   (CRDs，必须先安装)
-      │   └── kserve.yaml       (Controller + Webhooks)
+      │   ├── kserve.yaml       (Controller + Webhooks)
+      │   └── istio/            (Istio + Gateway，KServe 入站依赖)
       ├── keda/              ← 推理服务自动扩缩容 (需要 RBAC 权限)
       ├── jupyterhub/        ← 交互式开发环境
       ├── harbor/            ← 自定义镜像构建
+      ├── monitoring/        ← 监控命名空间 (prometheus/dcgm-exporter 依赖)
       ├── prometheus/        ← 监控指标采集
       └── dcgm-exporter/     ← GPU 指标 (需 GPU 节点)
 ```
@@ -181,19 +259,30 @@ kubectl port-forward -n kubeai svc/mlflow 5000:5000
 kubectl port-forward -n kubeai svc/labelstudio 8080:8080
 ```
 
-NodePort 已配置，可直接通过节点 IP 访问：
+外部访问通过 `kubectl port-forward` 或 Ingress 实现：
 
-| 组件          | NodePort | 说明 |
-|--------------|----------|------|
-| PostgreSQL   | 30432    | 数据库 |
-| Redis        | 30379    | 缓存 |
-| MinIO API    | 30900    | 对象存储 API |
-| MinIO 控制台  | 30901    | MinIO Web UI |
-| MLflow       | 30500    | 实验追踪 UI |
-| Label Studio | 30800    | 标注 UI |
-| JupyterHub   | 30801    | 开发环境 |
-| Prometheus   | 30090    | 监控 |
-| Grafana      | 30030    | 仪表盘 |
+组件 Service 均为 ClusterIP，生产环境通过 Ingress 暴露，开发调试使用 `kubectl port-forward`。
+
+## 节点标签
+
+Backend 和 Frontend 组件通过 `nodeSelector` 限制只能调度到带有 `kubeai` 标签的节点上。部署前需要为工作节点打标签：
+
+```bash
+# 查看当前节点
+kubectl get nodes
+
+# 为节点打上 KubeAI 标签
+kubectl label node <node-name> kubeai=true
+
+# 批量打标签 (所有 worker 节点)
+kubectl get nodes -l 'node-role.kubernetes.io/worker' -o name | xargs -I {} kubectl label {} kubeai=true
+
+# 为 JupyterHub 开发环境打节点标签
+kubectl label node <node-name> kubeai-jupyterhub=true
+```
+
+> **注意**: 如果所有节点都允许调度 backend/frontend，可以修改 `deployment.yaml` 注释或删除 `nodeSelector` 字段。
+> JupyterHub 的 hub/proxy/user-scheduler/user pods 均限制调度在 `kubeai-jupyterhub=true` 节点上。
 
 ## 配置说明
 
@@ -223,14 +312,22 @@ kubectl delete -f infra/k8s/labelstudio/
 kubectl delete -f infra/k8s/mlflow/
 kubectl delete -f infra/k8s/frontend/
 kubectl delete -f infra/k8s/backend/
-kubectl delete -f infra/k8s/keda/keda.yaml
-kubectl delete -f infra/k8s/kserve/kserve.yaml
-kubectl delete -f infra/k8s/kserve/kserve-crd.yaml
-kubectl delete -f infra/k8s/volcano/volcano.yaml
+kubectl delete -f infra/k8s/keda/keda.yaml --ignore-not-found
+kubectl delete -f infra/k8s/keda/00-namespace.yaml --ignore-not-found
+
+kubectl delete -f infra/k8s/kserve/kserve-cluster-resources.yaml --ignore-not-found
+kubectl delete -f infra/k8s/kserve/kserve.yaml --ignore-not-found
+kubectl delete -f infra/k8s/kserve/kserve-crd.yaml --ignore-not-found
+kubectl delete -f infra/k8s/kserve/00-namespace.yaml --ignore-not-found
+
+kubectl delete -f infra/k8s/volcano/99-default-queue.yaml --ignore-not-found
+kubectl delete -f infra/k8s/volcano/volcano.yaml --ignore-not-found
+kubectl delete -f infra/k8s/volcano/00-namespace.yaml --ignore-not-found
 kubectl delete -f infra/k8s/jupyterhub/jupyterhub.yaml
 kubectl delete -f infra/k8s/harbor/harbor.yaml
-kubectl delete -f infra/k8s/dcgm-exporter/dcgm-exporter.yaml
-kubectl delete -f infra/k8s/prometheus/prometheus.yaml
+kubectl delete -f infra/k8s/dcgm-exporter/dcgm-exporter.yaml --ignore-not-found
+kubectl delete -f infra/k8s/prometheus/prometheus.yaml --ignore-not-found
+kubectl delete -f infra/k8s/monitoring/00-namespace.yaml --ignore-not-found
 kubectl delete -f infra/k8s/backend-rbac.yaml
 kubectl delete -f infra/k8s/backend-config.yaml
 kubectl delete -f infra/k8s/minio/

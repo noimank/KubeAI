@@ -26,7 +26,7 @@ KubeAI 使用 Helm Chart 进行部署管理，Chart 位于 `infra/helm/kubeai/`�
 | Label Studio | 自定义 | 1.23.0 | :material-close: | 数据标注 |
 | JupyterHub | JupyterHub | 4.3.x | :material-close: | 开发环境 |
 
-KServe 通过独立脚本安装：`infra/scripts/install-kserve.sh`
+KServe 通过静态部署文件安装：`infra/k8s/kserve/`
 
 ## Values 配置
 

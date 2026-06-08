@@ -45,7 +45,7 @@ dependencies:
     alias: dcgmExporter
 
   # Post-MVP dependencies (install separately):
-  # KServe: deploy via infra/scripts/install-kserve.sh (uses OCI Helm charts)
+  # KServe: deploy via infra/k8s/kserve/ static manifests
   #   helm install kserve-crd oci://ghcr.io/kserve/charts/kserve-crd --version v0.17.0 -n kserve --create-namespace
   #   helm install kserve oci://ghcr.io/kserve/charts/kserve-resources --version v0.17.0 -n kserve --set kserve.controller.deploymentMode=Standard
   # - name: keda

@@ -226,7 +226,7 @@ dcgmExporter:
       effect: NoSchedule
 
 # -- KServe (model serving inference)
-# Deploy KServe separately: infra/scripts/install-kserve.sh
+# Deploy KServe separately: infra/k8s/kserve/
 # Required for inference service management (InferenceService CRD).
 kserve:
   enabled: false

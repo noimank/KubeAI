@@ -108,7 +108,7 @@ ingress:
   enabled: false
 
 # KServe: required for inference service management in dev
-# Install: ./infra/scripts/install-kserve.sh --version v0.14.0
+# Install: infra/k8s/kserve/
 kserve:
   enabled: true
   namespace: kserve

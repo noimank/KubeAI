@@ -41,16 +41,24 @@ kubectl create secret generic kubeai-secrets \
 
 ```bash
 # 安装 KServe
-bash infra/scripts/install-kserve.sh
+kubectl apply -f infra/k8s/kserve/00-namespace.yaml
+kubectl apply --server-side -f infra/k8s/kserve/kserve-crd.yaml
+kubectl wait --for=condition=Established --timeout=60s crd/inferenceservices.serving.kserve.io crd/servingruntimes.serving.kserve.io crd/clusterservingruntimes.serving.kserve.io
+kubectl apply -f infra/k8s/kserve/kserve.yaml
+kubectl apply --server-side -f infra/k8s/kserve/kserve-cluster-resources.yaml
 
 # 安装 KEDA
-bash infra/scripts/install-keda.sh
+kubectl apply -f infra/k8s/keda/00-namespace.yaml
+kubectl apply --server-side -f infra/k8s/keda/keda.yaml
 ```
 
 ### 4. 安装 Volcano 调度器
 
 ```bash
-bash infra/scripts/install-volcano.sh
+kubectl apply -f infra/k8s/volcano/00-namespace.yaml
+kubectl apply -f infra/k8s/volcano/volcano.yaml
+kubectl wait --for=condition=Established --timeout=60s crd/jobs.batch.volcano.sh crd/queues.scheduling.volcano.sh
+kubectl apply -f infra/k8s/volcano/99-default-queue.yaml
 ```
 
 ### 5. 安装 KubeAI

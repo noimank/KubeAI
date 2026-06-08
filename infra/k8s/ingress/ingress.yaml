@@ -1,5 +1,6 @@
 # Ingress - 前端流量入口
 # 需要: nginx-ingress-controller + cert-manager (如需 TLS)
+# 部署前修改 host 为实际域名
 # 部署: kubectl apply -f infra/k8s/ingress/
 ---
 apiVersion: networking.k8s.io/v1
@@ -14,10 +15,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - kubeai.example.com
+        - kubeai.example.com  # FIXME: 改为实际生产域名
       secretName: kubeai-tls
   rules:
-    - host: kubeai.example.com
+    - host: kubeai.example.com  # FIXME: 改为实际生产域名
       http:
         paths:
           - path: /
