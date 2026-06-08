@@ -1,6 +1,16 @@
 # KubeAI 后端配置 - ConfigMap + Secret
 # 部署: kubectl apply -f infra/k8s/backend-config.yaml
-# 注意: 部署前请修改 Secret 中的 SECRET_KEY 和密码
+#
+# 生产部署前必须修改:
+#   Secret:
+#     - SECRET_KEY: openssl rand -hex 32 生成随机密钥
+#     - DATABASE_URL: 密码与 PostgreSQL 实际密码一致
+#     - MINIO_ACCESS_KEY / MINIO_SECRET_KEY: 与 MinIO 凭证一致
+#     - HARBOR_PASSWORD: 与 Harbor 实际密码一致
+#     - JUPYTERHUB_API_TOKEN: 与 JupyterHub 实际 apiToken 一致
+#   ConfigMap:
+#     - FRONTEND_URL: 改为实际生产域名
+#     - PROMETHEUS_URL: 确认与集群中 Prometheus Service 名称一致
 #
 # 本文件与 backend/app/core/config.py 中的 Settings 字段对齐
 # 未列出的字段使用 config.py 中的默认值
@@ -51,8 +61,8 @@ data:
   OIDC_SCOPES: "openid profile email"
   OIDC_DISPLAY_NAME: "SSO 登录"
 
-  # -- 前端地址 (用于 OIDC 回调地址拼接)
-  FRONTEND_URL: "http://localhost:3000"
+  # -- 前端地址（OIDC 回调/邮件链接等使用，部署时必须改为实际域名）
+  FRONTEND_URL: "https://kubeai.example.com"  # FIXME: 改为实际生产域名
 
   # -- MinIO (非敏感配置)
   MINIO_SECURE: "false"
@@ -65,8 +75,8 @@ data:
   # -- K8s 命名空间
   K8S_PLATFORM_NAMESPACE: "kubeai"
 
-  # -- 内部服务地址 (按部署的实际组件修改)
-  PROMETHEUS_URL: "http://kubeai-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+  # -- 内部服务地址 (按实际部署修改；下文为独立 k8s YAML 部署的默认地址)
+  PROMETHEUS_URL: "http://keda-kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
   API_BASE_URL: "http://backend.kubeai.svc.cluster.local:8000"
 
   # -- MLflow 实验追踪 (部署 mlflow/ 后启用)
@@ -115,6 +125,8 @@ stringData:
   LABEL_STUDIO_API_TOKEN: ""
 
   # -- JupyterHub API Token (部署 JupyterHub 后配置)
+  # ⚠️ 必须与 infra/k8s/jupyterhub/jupyterhub.yaml 第 594 行
+  #    hub.services.kubeai.apiToken 保持完全一致 (同一个明文 token)
   JUPYTERHUB_API_TOKEN: ""
 
   # -- OIDC (启用 SSO 时配置)

@@ -20,6 +20,8 @@ spec:
         app.kubernetes.io/name: frontend
         app.kubernetes.io/component: web
     spec:
+      nodeSelector:
+        kubeai: "true"
       containers:
         - name: frontend
           image: kubeai-frontend:0.1.0

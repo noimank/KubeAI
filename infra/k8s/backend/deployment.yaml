@@ -1,5 +1,8 @@
 # Backend Deployment - FastAPI 后端服务
 # 部署前需先创建 ConfigMap、Secret、RBAC
+#
+# 数据持久化: /data/kubeai 用于存放数据集、算法文件、用户上传数据等。
+# 生产环境建议替换为 PVC 或 NFS 等共享存储，避免节点故障导致数据丢失。
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -22,11 +25,23 @@ spec:
         app.kubernetes.io/component: api
     spec:
       serviceAccountName: backend
+      nodeSelector:
+        kubeai: "true"
+      # hostPath 模式:/data/kubeai 在宿主机上归属 root,容器进程(UID 999)无法写入。
+      # fsGroup 让 kubelet 在挂载时把卷根 chown 到 999,子目录继承即可写。
+      # 新建子目录(datasets/ 等)由 Python 端 Path.mkdir(parents=True) 创建,默认 umask 0022
+      # 即可被 UID 999 所属的 GID 999 写(因 fsGroup 加入了 999 组)。
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
       initContainers:
         - name: migrate
           image: kubeai-backend:0.1.0
           imagePullPolicy: IfNotPresent
-          command: ["uv", "run", "alembic", "upgrade", "head"]
+          command: ["alembic", "upgrade", "head"]
           envFrom:
             - configMapRef:
                 name: backend-config
