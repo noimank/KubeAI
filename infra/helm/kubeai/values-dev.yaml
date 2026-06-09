@@ -1,10 +1,9 @@
-# -- Dev environment: infrastructure services only, run backend/frontend locally
+# -- Dev environment: infrastructure services only. Run backend, Taskiq worker/scheduler, and frontend locally.
 
-backend:
-  enabled: false
-
-frontend:
-  enabled: false
+certManager:
+  enabled: true
+  crds:
+    enabled: true
 
 # Override Bitnami images with official images (Bitnami free images deprecated since Aug 2025)
 postgresql:
@@ -90,6 +89,18 @@ prometheus:
 dcgmExporter:
   enabled: false  # Dev: no GPU nodes typically
 
+kserveCrd:
+  enabled: true
+
+kserveResources:
+  enabled: true
+  kserve:
+    controller:
+      deploymentMode: Standard
+
+keda:
+  enabled: true
+
 mlflow:
   enabled: true
   service:
@@ -103,17 +114,6 @@ labelstudio:
   service:
     type: NodePort
     nodePort: 30800
-
-ingress:
-  enabled: false
-
-# KServe: required for inference service management in dev
-# Install: infra/k8s/kserve/
-kserve:
-  enabled: true
-  namespace: kserve
-  version: "v0.17.0"
-  deploymentMode: Standard
 
 jupyterhub:
   enabled: true
@@ -151,7 +151,7 @@ jupyterhub:
         c.JupyterHub.hub_connect_url = f"http://hub.{_kubeai_hub_namespace}.svc.cluster.local:8081/hub/"
         _kubeai_login_url = os.environ.get(
             "KUBEAI_JUPYTERHUB_LOGIN_URL",
-            f"http://kubeai-backend.{_kubeai_hub_namespace}.svc.cluster.local:8000/api/dev-environments/jupyterhub-login",
+            "http://host.docker.internal:8000/api/dev-environments/jupyterhub-login",
         )
 
         class KubeAIForcedLoginAuthenticator(Authenticator):

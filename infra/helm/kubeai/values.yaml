@@ -4,94 +4,11 @@ global:
   imageRegistry: ""
   imagePullSecrets: []
 
-# -- Backend configuration
-backend:
-  enabled: true
-  replicaCount: 1
-  image:
-    repository: kubeai-backend
-    tag: "0.1.0"
-    pullPolicy: IfNotPresent
-  service:
-    type: ClusterIP
-    port: 8000
-  resources:
-    requests:
-      cpu: 250m
-      memory: 256Mi
-    limits:
-      cpu: "1"
-      memory: 512Mi
-  migration:
-    enabled: true
-  persistence:
-    enabled: true
-    hostPath: /data/kubeai
-    mountPath: /data/kubeai
-  env:
-    APP_NAME: KubeAI
-    APP_VERSION: "0.1.0"
-    DEBUG: "false"
-    API_PREFIX: /api
-    DB_POOL_SIZE: "20"
-    DB_MAX_OVERFLOW: "10"
-    REDIS_MAX_CONNECTIONS: "20"
-    ACCESS_TOKEN_EXPIRE_MINUTES: "30"
-    REFRESH_TOKEN_EXPIRE_DAYS: "7"
-    IDLE_TIMEOUT_MINUTES: "30"
-    ALLOW_USER_REGISTRATION: "true"
-    OIDC_ENABLED: "false"
-    MINIO_SECURE: "false"
-    MINIO_BUCKET_PREFIX: "kubeai-datasets-"
-    DATASET_BASE_PATH: "/data/kubeai/datasets"
-    HARBOR_PROJECT_PREFIX: "kubeai-"
-    FRONTEND_URL: "http://localhost:30000"
-    PROMETHEUS_URL: "http://kubeai-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
-    DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS: "60"
-  secrets:
-    SECRET_KEY: ""
-    DATABASE_URL: ""
-    REDIS_URL: ""
-    MINIO_ENDPOINT: ""
-    MINIO_ACCESS_KEY: ""
-    MINIO_SECRET_KEY: ""
-    HARBOR_URL: ""
-    HARBOR_USERNAME: ""
-    HARBOR_PASSWORD: ""
-    LABEL_STUDIO_API_TOKEN: ""
-    JUPYTERHUB_API_TOKEN: ""
-    JUPYTERHUB_HUB_SERVICE_ACCOUNT: ""
-
-# -- Frontend configuration
-frontend:
-  enabled: true
-  replicaCount: 1
-  image:
-    repository: kubeai-frontend
-    tag: "0.1.0"
-    pullPolicy: IfNotPresent
-  service:
-    type: ClusterIP
-    port: 80
-  resources:
-    requests:
-      cpu: 100m
-      memory: 64Mi
-    limits:
-      cpu: 250m
-      memory: 128Mi
-
-# -- Ingress configuration
-ingress:
+# -- cert-manager (required by KServe webhooks)
+certManager:
   enabled: false
-  className: ""
-  annotations: {}
-  hosts:
-    - host: kubeai.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
+  crds:
+    enabled: true
 
 # -- PostgreSQL sub-chart
 postgresql:
@@ -209,7 +126,7 @@ prometheus:
 # Requires NVIDIA device plugin on GPU nodes.
 # Key: kubernetes.enablePodLabels=true adds namespace/pod/container labels to metrics.
 dcgmExporter:
-  enabled: true
+  enabled: false
   serviceMonitor:
     enabled: true
     interval: 15s
@@ -226,19 +143,22 @@ dcgmExporter:
       effect: NoSchedule
 
 # -- KServe (model serving inference)
-# Deploy KServe separately: infra/k8s/kserve/
-# Required for inference service management (InferenceService CRD).
-kserve:
+# Infrastructure dependency only. Backend/frontend/Taskiq are not deployed by this chart.
+kserveCrd:
   enabled: false
-  namespace: kserve
-  version: "v0.17.0"
-  # Standard = RawDeployment (no Knative required)
-  # Knative = Serverless (requires Knative Serving)
-  deploymentMode: Standard
+
+kserveResources:
+  enabled: false
+  kserve:
+    controller:
+      deploymentMode: Standard
+
+# -- KEDA (event-driven autoscaling for inference services)
+keda:
+  enabled: false
 
 # -- MLflow Tracking Server (experiment tracking)
 # Deploys MLflow with PostgreSQL backend store and PVC artifact storage.
-# When enabled, MLFLOW_TRACKING_URI is auto-injected into backend pods.
 mlflow:
   enabled: false
   image:
@@ -260,7 +180,6 @@ mlflow:
 
 # -- Label Studio (data annotation service)
 # Deploys Label Studio with PostgreSQL backend store.
-# When enabled, LABEL_STUDIO_URL is auto-injected into backend pods.
 labelstudio:
   enabled: false
   image:
@@ -317,7 +236,7 @@ jupyterhub:
         c.JupyterHub.hub_connect_url = f"http://hub.{_kubeai_hub_namespace}.svc.cluster.local:8081/hub/"
         _kubeai_login_url = os.environ.get(
             "KUBEAI_JUPYTERHUB_LOGIN_URL",
-            f"http://kubeai-backend.{_kubeai_hub_namespace}.svc.cluster.local:8000/api/dev-environments/jupyterhub-login",
+            "http://host.docker.internal:8000/api/dev-environments/jupyterhub-login",
         )
 
         class KubeAIForcedLoginAuthenticator(Authenticator):

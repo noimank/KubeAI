@@ -1,6 +1,6 @@
 apiVersion: v2
 name: kubeai
-description: KubeAI - Kubernetes-native AI/ML Platform
+description: KubeAI local development infrastructure dependencies
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
@@ -14,6 +14,12 @@ maintainers:
     email: noimank@163.com
 
 dependencies:
+  - name: cert-manager
+    version: "v1.16.x"
+    repository: https://charts.jetstack.io
+    condition: certManager.enabled
+    alias: certManager
+
   - name: postgresql
     version: "16.7.x"
     repository: https://charts.bitnami.com/bitnami
@@ -44,14 +50,24 @@ dependencies:
     condition: dcgmExporter.enabled
     alias: dcgmExporter
 
-  # Post-MVP dependencies (install separately):
-  # KServe: deploy via infra/k8s/kserve/ static manifests
-  #   helm install kserve-crd oci://ghcr.io/kserve/charts/kserve-crd --version v0.17.0 -n kserve --create-namespace
-  #   helm install kserve oci://ghcr.io/kserve/charts/kserve-resources --version v0.17.0 -n kserve --set kserve.controller.deploymentMode=Standard
-  # - name: keda
-  #   version: "2.16.x"
-  #   repository: https://kedacore.github.io/charts
-  #   condition: keda.enabled
+  - name: kserve-crd
+    version: "v0.17.0"
+    repository: oci://ghcr.io/kserve/charts
+    condition: kserveCrd.enabled
+    alias: kserveCrd
+
+  - name: kserve-resources
+    version: "v0.17.0"
+    repository: oci://ghcr.io/kserve/charts
+    condition: kserveResources.enabled
+    alias: kserveResources
+
+  - name: keda
+    version: "2.16.x"
+    repository: https://kedacore.github.io/charts
+    condition: keda.enabled
+    alias: keda
+
   # Label Studio: deployed as custom template (templates/labelstudio.yaml)
 
   - name: jupyterhub

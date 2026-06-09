@@ -1,0 +1,57 @@
+# Taskiq Scheduler Deployment - 定时任务调度器
+# Scheduler 必须保持单副本，避免重复投递定时任务。
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-taskiq-scheduler
+  namespace: kubeai
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: taskiq-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+      app.kubernetes.io/component: taskiq-scheduler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend
+        app.kubernetes.io/component: taskiq-scheduler
+    spec:
+      serviceAccountName: backend
+      nodeSelector:
+        kubeai: "true"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: taskiq-scheduler
+          image: kubeai-backend:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["taskiq", "scheduler", "app.core.taskiq_app:scheduler", "--skip-first-run"]
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secret
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data/kubeai
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: data-volume
+          hostPath:
+            path: /data/kubeai
+            type: DirectoryOrCreate
