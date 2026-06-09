@@ -6,6 +6,7 @@ import { UserOutlined, MailOutlined, LockOutlined } from '@ant-design/icons'
 import { register, getAuthConfig, getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { APP_TITLE } from '@/utils/constants'
 import type { RegisterRequest } from '@/types/auth'
 import './index.css'
 
@@ -115,7 +116,7 @@ export default function RegisterPage() {
         <section className="register-brand-panel">
           <div className="register-product-mark">
             <ProductIcon className="register-logo-mark" />
-            <span>KubeAI</span>
+            <span>{APP_TITLE}</span>
           </div>
 
           <div className="register-hero-copy">
@@ -123,7 +124,7 @@ export default function RegisterPage() {
               <ProductIcon className="register-eyebrow-icon" />
               创建 AI 工程账号
             </div>
-            <h1>加入 KubeAI 工作空间</h1>
+            <h1>加入 {APP_TITLE} 工作空间</h1>
             <p>用统一账号访问数据、训练、模型与推理服务，在可治理的资源池中协作交付。</p>
           </div>
 
@@ -143,7 +144,7 @@ export default function RegisterPage() {
               <ProductIcon className="register-card-icon" />
               <div>
                 <h2>创建账号</h2>
-                <p>注册后进入 KubeAI 控制台</p>
+                <p>注册后进入 {APP_TITLE} 控制台</p>
               </div>
             </div>
 

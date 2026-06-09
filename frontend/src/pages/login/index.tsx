@@ -6,6 +6,7 @@ import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { login, getAuthConfig, getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { APP_TITLE } from '@/utils/constants'
 import OAuthButtons from './components/OAuthButtons'
 import './index.css'
 
@@ -88,7 +89,7 @@ export default function LoginPage() {
         <section className="login-brand-panel">
           <div className="login-product-mark">
             <ProductIcon className="login-logo-mark" />
-            <span>KubeAI</span>
+            <span>{APP_TITLE}</span>
           </div>
 
           <div className="login-hero-copy">
@@ -116,7 +117,7 @@ export default function LoginPage() {
               <ProductIcon className="login-card-icon" />
               <div>
                 <h2>登录控制台</h2>
-                <p>进入 KubeAI 工作空间</p>
+                <p>进入 {APP_TITLE} 工作空间</p>
               </div>
             </div>
 
