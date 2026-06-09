@@ -246,10 +246,11 @@ class TestStopEnvironment:
         jh_mock.stop_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
-        result = await service.stop_environment(env.id, env.tenant_id)
+        await service.stop_environment_async(env.id, env.tenant_id)
 
-        assert result.status == DevEnvironmentStatus.STOPPED
-        assert result.stopped_reason == "manual"
+        # 重新查询最新状态
+        assert env.status == DevEnvironmentStatus.STOPPED
+        assert env.stopped_reason == "manual"
         jh_mock.stop_server.assert_called_once()
 
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
@@ -260,10 +261,21 @@ class TestStopEnvironment:
         jh_mock.stop_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
-        result = await service.stop_environment(env.id, env.tenant_id, stopped_reason="idle_timeout")
+        await service.stop_environment_async(env.id, env.tenant_id, stopped_reason="idle_timeout")
 
-        assert result.status == DevEnvironmentStatus.STOPPED
-        assert result.stopped_reason == "idle_timeout"
+        assert env.status == DevEnvironmentStatus.STOPPED
+        assert env.stopped_reason == "idle_timeout"
+
+    async def test_stop_api_marks_pending_without_calling_jh(self, service, mock_db):
+        """service.stop_environment 是 API 路径: 仅置 PENDING, 不调用 JupyterHub."""
+        env = _make_env(status=DevEnvironmentStatus.RUNNING)
+        mock_db.execute.return_value = _sync_result(env)
+
+        with patch("app.services.dev_environment_service.get_jupyterhub_client") as mock_jh_client:
+            result = await service.stop_environment(env.id, env.tenant_id)
+            mock_jh_client.assert_not_called()
+
+        assert result.status == DevEnvironmentStatus.PENDING
 
     async def test_stop_already_stopped_raises(self, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.STOPPED)
@@ -281,6 +293,17 @@ class TestStopEnvironment:
 
 
 class TestStartEnvironment:
+    async def test_start_api_marks_creating_without_calling_jh(self, service, mock_db):
+        """service.start_environment 是 API 路径: 仅置 CREATING, 不调用 JupyterHub."""
+        env = _make_env(status=DevEnvironmentStatus.STOPPED)
+        mock_db.execute.return_value = _sync_result(env)
+
+        with patch("app.services.dev_environment_service.get_jupyterhub_client") as mock_jh_client:
+            result = await service.start_environment(env.id, env.tenant_id)
+            mock_jh_client.assert_not_called()
+
+        assert result.status == DevEnvironmentStatus.CREATING
+
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
     async def test_start_stopped_env(self, mock_jh_client, service, mock_db):
         env = _make_env(status=DevEnvironmentStatus.STOPPED)
@@ -292,9 +315,8 @@ class TestStartEnvironment:
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
-        result = await service.start_environment(env.id, env.tenant_id)
+        await service.start_environment_async(env.id, env.tenant_id)
 
-        assert result.status == DevEnvironmentStatus.CREATING
         jh_mock.ensure_user.assert_called_once()
         jh_mock.start_server.assert_called_once()
         assert jh_mock.start_server.call_args[1]["namespace"] == "kubeai-default"
@@ -319,11 +341,27 @@ class TestStartEnvironment:
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
-        result = await service.start_environment(env.id, env.tenant_id)
-        assert result.status == DevEnvironmentStatus.CREATING
+        await service.start_environment_async(env.id, env.tenant_id)
+        # 不会自动变 RUNNING (task 路径交给 JupyterHub 后续同步)
+        assert env.status in (
+            DevEnvironmentStatus.STOPPED,
+            DevEnvironmentStatus.CREATING,
+        )
 
 
 class TestDeleteEnvironment:
+    async def test_delete_api_only_validates(self, service, mock_db):
+        """service.delete_environment 是 API 路径: 仅校验存在性, 不调用 JupyterHub."""
+        env = _make_env()
+        mock_db.execute.return_value = _sync_result(env)
+
+        with patch("app.services.dev_environment_service.get_jupyterhub_client") as mock_jh_client:
+            result = await service.delete_environment(env.id, env.tenant_id)
+            mock_jh_client.assert_not_called()
+            mock_db.delete.assert_not_called()
+
+        assert result.id == env.id
+
     @patch("app.services.dev_environment_service.get_jupyterhub_client")
     async def test_delete_cleanup(self, mock_jh_client, service, mock_db):
         env = _make_env()
@@ -333,7 +371,7 @@ class TestDeleteEnvironment:
         jh_mock.delete_user = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
-        await service.delete_environment(env.id, env.tenant_id)
+        await service.delete_environment_async(env.id, env.tenant_id)
 
         jh_mock.stop_server.assert_called_once()
         jh_mock.delete_user.assert_called_once()
@@ -795,9 +833,8 @@ class TestStartEnvironmentRemount:
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
-        result = await service.start_environment(env.id, env.tenant_id)
+        await service.start_environment_async(env.id, env.tenant_id)
 
-        assert result.status == DevEnvironmentStatus.CREATING
         call_kwargs = jh_mock.start_server.call_args[1]
         assert call_kwargs["extra_volumes"] is not None
         # 3 volumes: workspace hostPath + home hostPath + dataset hostPath
@@ -819,9 +856,8 @@ class TestStartEnvironmentRemount:
         jh_mock.start_server = AsyncMock()
         mock_jh_client.return_value = jh_mock
 
-        result = await service.start_environment(env.id, env.tenant_id)
+        await service.start_environment_async(env.id, env.tenant_id)
 
-        assert result.status == DevEnvironmentStatus.CREATING
         call_kwargs = jh_mock.start_server.call_args[1]
         # Only workspace + home hostPath volumes
         assert call_kwargs["extra_volumes"] is not None

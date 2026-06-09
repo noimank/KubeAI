@@ -47,7 +47,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-TERMINAL_STATUSES = {DevEnvironmentStatus.FAILED, DevEnvironmentStatus.STOPPED}
 STARTUP_MISSING_SERVER_GRACE_SECONDS = 180
 KUBEAI_CONTAINER_ROOT = "/kubeai"
 
@@ -320,6 +319,7 @@ class DevEnvironmentService:
         status: str | None = None,
         name: str | None = None,
     ) -> tuple[list[DevEnvironment], int]:
+        """纯 DB 列表查询. 状态同步由 sync_dev_environment_statuses_task 周期任务负责."""
         query = select(DevEnvironment).where(DevEnvironment.tenant_id == tenant_id)
 
         if user_id is not None:
@@ -335,35 +335,11 @@ class DevEnvironmentService:
         result = await self.db.execute(
             query.order_by(DevEnvironment.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
         )
-        environments = list(result.scalars().all())
-
-        non_terminal = [e for e in environments if e.spawner_name and e.status not in TERMINAL_STATUSES]
-        if non_terminal:
-            tenant = await self._get_tenant_or_fail(tenant_id)
-            namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-            for env in non_terminal:
-                try:
-                    await self._sync_environment_status(env, namespace)
-                except Exception as e:
-                    logger.warning("sync_status_failed", spawner=env.spawner_name, error=str(e))
-            await self.db.commit()
-            for env in non_terminal:
-                await self.db.refresh(env)
-
-        return environments, total
+        return list(result.scalars().all()), total
 
     async def get_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
-        env = await self._get_environment_or_fail(env_id, tenant_id)
-        if env.spawner_name and env.status not in TERMINAL_STATUSES:
-            tenant = await self._get_tenant_or_fail(tenant_id)
-            namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-            try:
-                await self._sync_environment_status(env, namespace)
-            except Exception as e:
-                logger.warning("sync_status_failed", spawner=env.spawner_name, error=str(e))
-            await self.db.commit()
-            await self.db.refresh(env)
-        return env
+        """纯 DB 详情查询. 状态同步由 sync_dev_environment_statuses_task 周期任务负责."""
+        return await self._get_environment_or_fail(env_id, tenant_id)
 
     async def sync_non_terminal_environments(self, *, limit: int = 200) -> int:
         result = await self.db.execute(
@@ -404,6 +380,7 @@ class DevEnvironmentService:
     async def stop_environment(
         self, env_id: uuid.UUID, tenant_id: uuid.UUID, *, stopped_reason: str = "manual"
     ) -> DevEnvironment:
+        """API 路径: 仅做状态校验 + 置 PENDING (作为停止中过渡), 由 task 负责真实停止."""
         env = await self._get_environment_or_fail(env_id, tenant_id)
 
         if env.status not in (
@@ -412,6 +389,26 @@ class DevEnvironmentService:
             DevEnvironmentStatus.PENDING,
         ):
             raise ConflictException(f"当前状态为 {env.status}, 无法停止环境")
+
+        env.status = DevEnvironmentStatus.PENDING
+        env.error_message = None
+        await self.db.commit()
+        await self.db.refresh(env)
+        return env
+
+    async def stop_environment_async(
+        self, env_id: uuid.UUID, tenant_id: uuid.UUID, *, stopped_reason: str = "manual"
+    ) -> None:
+        """真实停止 JupyterHub server, 由 task 调用."""
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+
+        if env.status not in (
+            DevEnvironmentStatus.RUNNING,
+            DevEnvironmentStatus.CREATING,
+            DevEnvironmentStatus.PENDING,
+        ):
+            logger.info("skip_dev_environment_stop", env_id=str(env.id), status=env.status)
+            return
 
         if env.spawner_name:
             jh_client = get_jupyterhub_client()
@@ -424,13 +421,27 @@ class DevEnvironmentService:
         env.stopped_reason = stopped_reason
         await self.db.commit()
         await self.db.refresh(env)
-        return env
 
     async def start_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
+        """API 路径: 仅做状态校验 + 置 CREATING (作为启动中过渡), 由 task 负责真实启动."""
         env = await self._get_environment_or_fail(env_id, tenant_id)
 
         if env.status != DevEnvironmentStatus.STOPPED:
             raise ConflictException(f"当前状态为 {env.status}, 只有已停止的环境才能启动")
+
+        env.status = DevEnvironmentStatus.CREATING
+        env.error_message = None
+        await self.db.commit()
+        await self.db.refresh(env)
+        return env
+
+    async def start_environment_async(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+        """真实启动 JupyterHub server, 由 task 调用."""
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+
+        if env.status != DevEnvironmentStatus.STOPPED:
+            logger.info("skip_dev_environment_start", env_id=str(env.id), status=env.status)
+            return
 
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
@@ -480,18 +491,24 @@ class DevEnvironmentService:
             )
         except Exception as e:
             logger.error("start_server_failed", spawner=env.spawner_name, error=str(e))
+            old_status = env.status
             env.status = DevEnvironmentStatus.FAILED
             env.error_message = f"启动失败: {e}"
             await self.db.commit()
-            raise ExternalServiceException(f"启动失败: {e}") from e
+            if old_status != env.status:
+                await self._publish_status_change(env.tenant_id, env.id, old_status, env.status)
+            raise
 
-        env.status = DevEnvironmentStatus.CREATING
-        env.error_message = None
         await self.db.commit()
         await self.db.refresh(env)
-        return env
 
     async def delete_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
+        """API 路径: 仅校验存在性, 由 task 负责真实删除 (JupyterHub + DB)."""
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+        return env
+
+    async def delete_environment_async(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+        """真实删除 JupyterHub user + DB 记录, 由 task 调用."""
         env = await self._get_environment_or_fail(env_id, tenant_id)
 
         if env.spawner_name:
@@ -507,7 +524,6 @@ class DevEnvironmentService:
 
         await self.db.delete(env)
         await self.db.commit()
-        return env
 
     async def create_open_ticket(self, env_id: uuid.UUID, tenant_id: uuid.UUID, user_id: uuid.UUID) -> str:
         env = await self._get_environment_or_fail(env_id, tenant_id)

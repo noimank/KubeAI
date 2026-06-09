@@ -80,9 +80,7 @@ class TestDevEnvironmentCRUD:
     @pytest.mark.asyncio(loop_scope="session")
     @patch("app.api.endpoints.dev_environments.enqueue_dev_environment_provision")
     @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
-    async def test_create_and_get_environment(
-        self, _, mock_enqueue, client: AsyncClient, admin_headers
-    ):
+    async def test_create_and_get_environment(self, _, mock_enqueue, client: AsyncClient, admin_headers):
         from app.core.database import async_session_factory
         from app.models.tenant import Tenant
 

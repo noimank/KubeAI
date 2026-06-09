@@ -127,7 +127,7 @@ export default function DevEnvironmentsPage() {
   const stopMutation = useMutation({
     mutationFn: stopDevEnvironment,
     onSuccess: () => {
-      getMessageInstance()?.success('环境已停止')
+      getMessageInstance()?.success('停止任务已提交，请稍候')
       queryClient.invalidateQueries({ queryKey: ['devEnvironments'] })
     },
   })
@@ -135,7 +135,7 @@ export default function DevEnvironmentsPage() {
   const startMutation = useMutation({
     mutationFn: startDevEnvironment,
     onSuccess: () => {
-      getMessageInstance()?.success('环境已启动')
+      getMessageInstance()?.success('启动任务已提交，请稍候')
       queryClient.invalidateQueries({ queryKey: ['devEnvironments'] })
     },
   })
@@ -143,7 +143,7 @@ export default function DevEnvironmentsPage() {
   const deleteMutation = useMutation({
     mutationFn: deleteDevEnvironment,
     onSuccess: () => {
-      getMessageInstance()?.success('环境已删除')
+      getMessageInstance()?.success('删除任务已提交')
       queryClient.invalidateQueries({ queryKey: ['devEnvironments'] })
     },
   })

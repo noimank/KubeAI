@@ -24,7 +24,12 @@ from app.schemas.dev_environment import (
     DevEnvironmentResponse,
 )
 from app.services.dev_environment_service import DevEnvironmentService
-from app.tasks.dev_environment_tasks import enqueue_dev_environment_provision
+from app.tasks.dev_environment_tasks import (
+    enqueue_dev_environment_delete,
+    enqueue_dev_environment_provision,
+    enqueue_dev_environment_start,
+    enqueue_dev_environment_stop,
+)
 
 router = APIRouter(prefix="/dev-environments", tags=["dev-environments"])
 
@@ -163,7 +168,8 @@ async def stop_environment(
     tenant_id = _require_tenant_id(user)
     service = DevEnvironmentService(db)
     env = await service.stop_environment(env_id, tenant_id)
-    return BaseResponse(data=_to_response(env), message="开发环境已停止")
+    await enqueue_dev_environment_stop(env.id, tenant_id)
+    return BaseResponse(data=_to_response(env), message="开发环境停止任务已提交")
 
 
 @router.post("/{env_id}/start", response_model=BaseResponse[DevEnvironmentResponse])
@@ -175,7 +181,8 @@ async def start_environment(
     tenant_id = _require_tenant_id(user)
     service = DevEnvironmentService(db)
     env = await service.start_environment(env_id, tenant_id)
-    return BaseResponse(data=_to_response(env), message="开发环境启动中")
+    await enqueue_dev_environment_start(env.id, tenant_id)
+    return BaseResponse(data=_to_response(env), message="开发环境启动任务已提交")
 
 
 @router.delete("/{env_id}", response_model=BaseResponse[DevEnvironmentResponse])
@@ -189,8 +196,8 @@ async def delete_environment(
     env = await service.get_environment(env_id, tenant_id)
     if env.created_by != user.id and user.role not in (UserRole.ADMIN, UserRole.MLOPS):
         raise ForbiddenException("只能删除自己创建的开发环境")
-    await service.delete_environment(env_id, tenant_id)
-    return BaseResponse(data=_to_response(env), message="开发环境已删除")
+    await enqueue_dev_environment_delete(env.id, tenant_id)
+    return BaseResponse(data=_to_response(env), message="开发环境删除任务已提交")
 
 
 @router.get("/{env_id}/access-url", response_model=BaseResponse[AccessUrlResponse])
