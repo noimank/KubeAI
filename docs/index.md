@@ -30,7 +30,7 @@ KubeAI 是一个基于 Kubernetes 的云原生 AI/ML 平台，提供从数据管
 | 数据标注 | Label Studio |
 | 开发环境 | JupyterHub |
 | 监控 | Prometheus + DCGM Exporter |
-| 部署 | Helm 3 + Docker |
+| 部署 | 本地依赖 Helm Chart + 生产 Kubernetes Manifests |
 
 ## 快速导航
 

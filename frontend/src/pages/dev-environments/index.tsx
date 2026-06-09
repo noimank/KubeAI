@@ -113,7 +113,7 @@ export default function DevEnvironmentsPage() {
   const createMutation = useMutation({
     mutationFn: (values: DevEnvironmentCreateParams) => createDevEnvironment(values),
     onSuccess: () => {
-      getMessageInstance()?.success('开发环境创建成功')
+      getMessageInstance()?.success('开发环境创建任务已提交')
       setModalOpen(false)
       setSelectedDatasetId(null)
       form.resetFields()

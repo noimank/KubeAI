@@ -1,209 +1,90 @@
-# Helm Chart 配置
+# Helm 本地调试环境
 
-## Chart 概述
+## 定位
 
-KubeAI 使用 Helm Chart 进行部署管理，Chart 位于 `infra/helm/kubeai/`。
+`infra/helm/kubeai/` 只用于本地调试依赖环境，不部署 KubeAI 后端、Taskiq worker/scheduler、前端、应用 Ingress、后端 ConfigMap/Secret 或 RBAC。
 
-| 属性 | 值 |
-|------|------|
-| Chart 名称 | `kubeai` |
-| Chart 版本 | `0.1.0` |
-| App 版本 | `0.1.0` |
-| 维护者 | noimank (noimank@163.com) |
+本地开发时：
+
+- 后端在本机运行：`uv run uvicorn app.main:app --reload`
+- Taskiq worker/scheduler 在本机运行
+- 前端在本机运行：`pnpm dev`
+- 生产部署由 `infra/k8s/` 负责
 
 ## 依赖组件
 
-| 组件 | Chart | 版本 | 默认启用 | 说明 |
-|------|-------|------|----------|------|
-| PostgreSQL | Bitnami | 16.7.x | :material-check: | 主数据库 |
-| Redis | 自定义 | 7-alpine | :material-check: | 缓存/会话 |
-| MinIO | 自定义 | latest | :material-check: | 对象存储 |
-| Volcano | Volcano | 1.14.x | :material-check: | 批处理调度 |
-| Prometheus Stack | Prometheus | 67.x | :material-check: | 监控 |
-| DCGM Exporter | NVIDIA | 3.x | :material-check: | GPU 指标 |
-| Harbor | Harbor | 1.16.0 | :material-close: | 镜像仓库 |
-| MLflow | 自定义 | v3.12.0 | :material-close: | 实验跟踪 |
-| Label Studio | 自定义 | 1.23.0 | :material-close: | 数据标注 |
-| JupyterHub | JupyterHub | 4.3.x | :material-close: | 开发环境 |
+| 组件 | 默认 | 说明 |
+|------|------|------|
+| PostgreSQL | 启用 | 主数据库，`values-dev.yaml` 暴露 `30432` |
+| Redis | 启用 | 缓存、Taskiq broker/result backend，`values-dev.yaml` 暴露 `30379` |
+| MinIO | 启用 | 对象存储，`values-dev.yaml` 暴露 `30900/30901` |
+| cert-manager | 开发启用 | KServe webhook TLS 证书依赖 |
+| Volcano | 启用 | 训练任务调度依赖 |
+| KEDA | 开发启用 | 推理服务自动伸缩联调依赖 |
+| KServe | 开发启用 | 本地推理联调基础设施，随 Helm release 安装到 `kubeai` namespace |
+| Prometheus/Grafana | 启用 | 本地监控调试，`values-dev.yaml` 暴露 `30090/30030` |
+| MLflow | 开发启用 | `values-dev.yaml` 暴露 `30500` |
+| Label Studio | 开发启用 | `values-dev.yaml` 暴露 `30800` |
+| JupyterHub | 开发启用 | `values-dev.yaml` 暴露 `30801` |
+| Harbor | 默认关闭 | 按需启用，资源占用较高 |
 
-KServe 通过静态部署文件安装：`infra/k8s/kserve/`
+本地开发基础设施统一通过 Helm 安装。生产部署仍使用 `infra/k8s/`，其中 KServe 生产 manifests 安装到独立的 `kserve` namespace；本地 Helm 依赖会跟随 release 安装到 `kubeai` namespace。
 
-## Values 配置
-
-### 后端配置
-
-```yaml
-backend:
-  enabled: true
-  replicaCount: 1
-  image:
-    repository: kubeai-backend
-    tag: "0.1.0"
-
-  service:
-    type: ClusterIP
-    port: 8000
-
-  resources:
-    requests:
-      cpu: 250m
-      memory: 256Mi
-    limits:
-      cpu: "1"
-      memory: 512Mi
-
-  # 数据库迁移
-  migration:
-    enabled: true
-
-  # 持久化存储
-  persistence:
-    enabled: true
-    storageClass: ""
-    size: 10Gi
-    hostPath: /data/kubeai
-
-  env:
-    APP_NAME: "KubeAI"
-    APP_VERSION: "0.1.0"
-    DEBUG: false
-    DB_POOL_SIZE: 20
-    REDIS_MAX_CONNECTIONS: 20
-    ACCESS_TOKEN_EXPIRE_MINUTES: 30
-    REFRESH_TOKEN_EXPIRE_DAYS: 7
-    MINIO_BUCKET_PREFIX: "kubeai-datasets-"
-    HARBOR_PROJECT_PREFIX: "kubeai-"
-
-  secrets:
-    DATABASE_URL: ""         # 必填
-    REDIS_URL: ""            # 必填
-    SECRET_KEY: ""           # 必填
-    MINIO_ACCESS_KEY: ""
-    MINIO_SECRET_KEY: ""
-    HARBOR_ADMIN_PASSWORD: ""
-```
-
-### 前端配置
-
-```yaml
-frontend:
-  enabled: true
-  replicaCount: 1
-  image:
-    repository: kubeai-frontend
-    tag: "0.1.0"
-
-  service:
-    type: ClusterIP
-    port: 80
-
-  resources:
-    requests:
-      cpu: 100m
-      memory: 64Mi
-    limits:
-      cpu: 250m
-      memory: 128Mi
-```
-
-### Ingress 配置
-
-```yaml
-ingress:
-  enabled: false
-  className: ""
-  annotations: {}
-  hosts:
-    - host: kubeai.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
-```
-
-### PostgreSQL 配置
-
-```yaml
-postgresql:
-  enabled: true
-  auth:
-    postgresPassword: "change-me"
-    database: "kubeai"
-  primary:
-    persistence:
-      enabled: true
-      size: 10Gi
-  initdb:
-    scripts:
-      # 同时创建 MLflow 和 Label Studio 数据库
-      create_dbs.sql: |
-        CREATE DATABASE mlflow;
-        CREATE DATABASE labelstudio;
-```
-
-### Prometheus 配置
-
-```yaml
-kube-prometheus-stack:
-  enabled: true
-  prometheus:
-    prometheusSpec:
-      retention: 15d
-      storageSpec:
-        volumeClaimTemplate:
-          spec:
-            resources:
-              requests:
-                storage: 20Gi
-      # 跨命名空间 ServiceMonitor 发现
-      serviceMonitorSelectorNilUsesHelmValues: false
-  grafana:
-    enabled: true
-```
-
-## 安装命令
-
-### 开发环境
+## 安装
 
 ```bash
-helm install kubeai infra/helm/kubeai/ \
+helm repo add jetstack https://charts.jetstack.io
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo add volcano-sh https://volcano-sh.github.io/helm-charts
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/
+helm repo add nvidia https://nvidia.github.io/dcgm-exporter/helm-charts
+helm repo add harbor https://helm.goharbor.io
+
+helm dependency update infra/helm/kubeai/
+
+helm upgrade --install kubeai infra/helm/kubeai/ \
   -f infra/helm/kubeai/values-dev.yaml \
   -n kubeai --create-namespace
 ```
 
-### 生产环境
+## 本地服务配置
 
-```bash
-# 创建 Secret（敏感信息）
-kubectl create namespace kubeai
-kubectl create secret generic kubeai-secrets \
-  -n kubeai \
-  --from-literal=DATABASE_URL='postgresql+asyncpg://user:pass@postgres:5432/kubeai' \
-  --from-literal=REDIS_URL='redis://redis:6379/0' \
-  --from-literal=SECRET_KEY='your-strong-secret-key'
+后端 `.env` 应连接 Helm 暴露的本地端口：
 
-# 安装
-helm install kubeai infra/helm/kubeai/ \
-  -f infra/helm/kubeai/values.yaml \
-  -f infra/helm/kubeai/values-prod.yaml \
-  -n kubeai
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:30432/kubeai
+REDIS_URL=redis://localhost:30379/0
+MINIO_ENDPOINT=localhost:30900
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+JUPYTERHUB_API_URL=http://localhost:30801/hub/api
+JUPYTERHUB_API_TOKEN=kubeai-dev-jupyterhub-token
+JUPYTERHUB_BASE_URL=http://localhost:30801
 ```
 
-## 模板文件
+本地需要分别启动：
 
-Helm Chart 包含以下模板：
+```bash
+cd backend
+uv run uvicorn app.main:app --reload
+uv run taskiq worker app.core.taskiq_app:broker --fs-discover
+uv run taskiq scheduler app.core.taskiq_app:scheduler --skip-first-run
+
+cd ../frontend
+pnpm dev
+```
+
+## 模板范围
+
+Helm Chart 仅保留依赖服务模板：
 
 | 模板 | 资源 |
 |------|------|
-| `backend-deployment.yaml` | 后端 Deployment |
-| `backend-service.yaml` | 后端 Service |
-| `frontend-deployment.yaml` | 前端 Deployment |
-| `frontend-service.yaml` | 前端 Service |
-| `ingress.yaml` | Ingress 规则 |
-| `secrets.yaml` | Kubernetes Secrets |
-| `configmap.yaml` | ConfigMap 配置 |
-| `rbac.yaml` | RBAC 权限 |
-| `redis.yaml` | Redis StatefulSet |
-| `minio.yaml` | MinIO StatefulSet |
-| `mlflow.yaml` | MLflow Deployment |
-| `labelstudio.yaml` | Label Studio Deployment |
+| `redis.yaml` | Redis |
+| `minio.yaml` | MinIO |
+| `mlflow.yaml` | MLflow |
+| `labelstudio.yaml` | Label Studio |
+
+其他依赖来自 Helm sub-chart：cert-manager、PostgreSQL、Volcano、KEDA、Prometheus、DCGM Exporter、Harbor、KServe、JupyterHub。

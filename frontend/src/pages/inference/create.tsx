@@ -141,7 +141,7 @@ export default function CreateInferenceServicePage() {
             }
           : undefined,
       })
-      getMessageInstance()?.success('推理服务创建成功')
+      getMessageInstance()?.success('推理服务创建任务已提交')
       navigate(`/inference/${res.id}`, { state: { authToken: res.authToken } })
     } catch {
       // error handled by interceptor

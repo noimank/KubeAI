@@ -13,19 +13,20 @@ cd KubeAI
 
 ```bash
 # 添加必要的 Helm 仓库
+helm repo add jetstack https://charts.jetstack.io
 helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo add volcano https://volcano-sh.github.io/charts
+helm repo add volcano-sh https://volcano-sh.github.io/helm-charts
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/
+helm repo add nvidia https://nvidia.github.io/dcgm-exporter/helm-charts
+helm repo add harbor https://helm.goharbor.io
+helm dependency update infra/helm/kubeai/
 
-# 安装所有依赖服务
-helm install kubeai infra/helm/kubeai/ \
+# 安装本地调试依赖服务
+helm upgrade --install kubeai infra/helm/kubeai/ \
   -f infra/helm/kubeai/values-dev.yaml \
   -n kubeai --create-namespace
-```
-
-或者使用一键脚本：
-
-```bash
-bash infra/scripts/setup-infra.sh
 ```
 
 安装完成后，各服务通过 NodePort 暴露：
@@ -38,6 +39,9 @@ bash infra/scripts/setup-infra.sh
 | MinIO Console | `localhost:30901` |
 | MLflow | `localhost:30500` |
 | Label Studio | `localhost:30800` |
+| JupyterHub | `localhost:30801` |
+
+Helm 还会安装 cert-manager、Volcano、KEDA、KServe 等本地联调基础设施。Helm 不部署后端、Taskiq worker/scheduler 和前端，这三个进程都在本机启动。
 
 ## 3. 后端开发环境
 
@@ -75,6 +79,11 @@ MLFLOW_TRACKING_URI=http://localhost:30500
 
 # Harbor（开发环境可选）
 HARBOR_URL=http://harbor.kubeai.local
+
+# JupyterHub
+JUPYTERHUB_API_URL=http://localhost:30801/hub/api
+JUPYTERHUB_API_TOKEN=kubeai-dev-jupyterhub-token
+JUPYTERHUB_BASE_URL=http://localhost:30801
 ```
 
 安装依赖并启动：
@@ -88,6 +97,12 @@ uv run alembic upgrade head
 
 # 启动开发服务器（端口 8000）
 uv run uvicorn app.main:app --reload
+
+# 另开终端启动后台任务 worker
+uv run taskiq worker app.core.taskiq_app:broker --fs-discover
+
+# 另开终端启动定时任务 scheduler
+uv run taskiq scheduler app.core.taskiq_app:scheduler --skip-first-run
 ```
 
 验证后端启动成功：

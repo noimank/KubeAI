@@ -13,6 +13,11 @@ KubeAI is a Kubernetes-native AI/ML platform with multi-tenant RBAC. Monorepo wi
 ```bash
 uv sync
 uv run uvicorn app.main:app --reload          # dev server (port 8000)
+
+# Taskiq background tasks (must run alongside API for dev environments, inference, etc.)
+uv run taskiq worker app.core.taskiq_app:broker --fs-discover           # consumes async tasks
+uv run taskiq scheduler app.core.taskiq_app:scheduler --skip-first-run  # fires scheduled tasks
+
 uv run pytest                                  # all tests
 uv run pytest tests/unit/test_security.py::test_hash_password -v  # single test
 uv run alembic upgrade head                    # migrate
@@ -64,7 +69,10 @@ Pre-commit hooks (ruff+mypy on backend, eslint+prettier+tsc on frontend): `pre-c
 - **Multi-tenancy**: DB (`TenantMixin` + FK) → app (`TenantMiddleware` + `require_tenant_access`) → infra (K8s NetworkPolicy per namespace)
 - **Integrations** (`app/integrations/`): `k8s/` (async kubernetes_asyncio), `volcano/` (VCJob CRDs), `kserve/` + `keda/` (inference CRDs), `harbor/`, `minio/`, `mlflow/`, `jupyterhub/`, `labelstudio/`, `prometheus/` (DCGM GPU metrics), `storage/` (local filesystem). K8s calls are fully async; MinIO/Harbor/MLflow clients are sync — wrap in `asyncio.to_thread()` at service layer. Namespace prefix: `kubeai-`
 - **WebSocket**: `WS /api/ws?token=<jwt>`. Connection manager (`ws_manager.py`) groups by tenant+user (max 5/user). Redis Pub/Sub (`ws_pubsub.py`) bridges multi-replica broadcast on `kubeai:*` channels
-- **Startup** (`core/events.py`): seeds admin (`admin`/`Admin123456`), initializes Redis/Casbin/all external clients, starts background tasks (idle checker, resource cleaner, quota alerts, metrics push)
+- **Startup** (`core/events.py`): seeds admin (`admin`/`Admin123456`), delegates to `clients.init_clients()` for shared client init, initializes Casbin, starts WebSocket Pub/Sub and metrics push loop. Idle checker / resource cleaner moved to Taskiq scheduled tasks
+- **Taskiq background tasks** (`app/core/taskiq_app.py`): Three process types — FastAPI (API server), Worker (consumes async tasks), Scheduler (fires scheduled tasks). Worker/Scheduler use Redis Streams as broker (DB 1) and result backend (DB 2). Scheduler must be single-replica; Worker can scale. Config: `TASK_MAX_RETRIES` (default 3), `TASK_RETRY_BACKOFF_SECONDS` (default 10)
+- **Shared client lifecycle** (`app/core/clients.py`): Lazy-singleton `get_xxx_client()` for Harbor, MinIO, Prometheus, LabelStudio, MLflow. `init_clients()` / `close_clients()` called by both FastAPI `lifespan` and Taskiq `WORKER_STARTUP` / `WORKER_SHUTDOWN` events. **Critical**: Taskiq Worker does NOT run FastAPI lifespan — always import from `app.core.clients`, never from `app.core.events` for client access. `events.py` re-exports getters for backward compatibility only
+- **Task modules** (`app/tasks/`): `dev_environment_tasks` (provision + sync_statuses + check_idle), `inference_service_tasks` (deploy + sync_statuses), `resource_cleanup_tasks`. Enqueue from API endpoints via `enqueue_xxx()` helpers that call `.kiq()` on the registered broker task
 - **Tests**: `asyncio_mode = "auto"`. `conftest.py` provides `httpx.AsyncClient` with `ASGITransport` for in-process testing. Unit in `tests/unit/`, integration in `tests/integration/`
 - **Mounted routers**: auth, algorithms, annotations, audit_logs, credentials, dashboard, datasets, dev_environment_images, dev_environments, experiments, images, inference_proxy, inference_services, model_registry, monitoring, notifications, tenants, training_jobs, users
 
@@ -81,7 +89,8 @@ Pre-commit hooks (ruff+mypy on backend, eslint+prettier+tsc on frontend): `pre-c
 
 ### Infrastructure (`infra/`)
 
-- **Helm**: `infra/helm/kubeai/` — 10 chart dependencies (PostgreSQL, Redis, MinIO, Volcano, Harbor, kube-prometheus-stack, DCGM exporter, JupyterHub, backend, frontend)
+- **Helm**: `infra/helm/kubeai/` — 12 components (PostgreSQL, Redis, MinIO, Volcano, Harbor, kube-prometheus-stack, DCGM exporter, JupyterHub, backend, frontend, Taskiq worker, Taskiq scheduler)
+- **K8s manifests**: `infra/k8s/backend/` — `deployment.yaml` (FastAPI), `worker.yaml` (Taskiq worker: consumes async tasks), `beat.yaml` (Taskiq scheduler: single-replica, fires scheduled tasks). All three share `backend-config` ConfigMap and `backend-secret`
 - **Images**: Backend/frontend + Jupyter/VS Code/RStudio dev-environment images in `infra/images/`
 - **CI/CD**: `.github/workflows/` — `ci.yml` (PR: lint+test), `build.yml` (push to main/dev: GHCR images), `release.yml` (v* tag: versioned images + Helm package)
 

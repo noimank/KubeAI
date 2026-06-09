@@ -26,17 +26,22 @@
 
 ## 外部服务
 
-开发环境通过 Helm Chart 部署以下服务（`values-dev.yaml`）：
+开发环境通过 Helm Chart 部署以下本地调试依赖服务（`values-dev.yaml`），后端、Taskiq worker/scheduler 和前端在本机运行：
 
 | 服务 | 用途 | 开发环境端口 |
 |------|------|-------------|
 | PostgreSQL 17 | 主数据库 | NodePort 30432 |
 | Redis 7 | 缓存/会话/消息 | NodePort 30379 |
 | MinIO | 对象存储 | API: 30900, Console: 30901 |
+| cert-manager | KServe webhook TLS 证书 | 集群内服务 |
+| Volcano | 训练任务调度 | 集群内服务 |
+| KEDA | 推理服务自动伸缩 | 集群内服务 |
+| KServe | 模型推理服务 | 集群内服务 |
 | MLflow | 实验跟踪 | NodePort 30500 |
 | Label Studio | 数据标注 | NodePort 30800 |
-| KServe | 模型推理 | 集群内访问 |
 | JupyterHub | 开发环境 | NodePort 30801 |
+
+本地开发基础设施统一通过 `infra/helm/kubeai/` 安装；生产部署使用 `infra/k8s/`。
 
 ## 硬件建议
 

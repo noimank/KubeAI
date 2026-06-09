@@ -1,6 +1,6 @@
 # KubeAI 独立部署 YAML
 
-按需部署 KubeAI 平台的各个组件，替代 Helm 一键部署方式。每个组件独立维护，可单独部署。
+按需部署 KubeAI 生产环境组件。每个组件独立维护，可单独部署；本地调试依赖环境使用 `infra/helm/kubeai/`，后端、Taskiq 和前端生产部署统一使用本目录 manifests。
 
 ## 目录结构
 
@@ -18,8 +18,10 @@ infra/k8s/
 │   └── redis.yaml
 ├── minio/                       # MinIO 对象存储
 │   └── minio.yaml
-├── backend/                     # FastAPI 后端
-│   ├── deployment.yaml          #   含数据库迁移 initContainer + 健康检查
+├── backend/                     # FastAPI 后端 + Taskiq 后台任务
+│   ├── deployment.yaml          #   API Deployment，含数据库迁移 initContainer + 健康检查
+│   ├── worker.yaml              #   Taskiq Worker，执行开发环境创建/状态同步等async任务
+│   ├── beat.yaml                #   Taskiq Scheduler，单副本定时调度状态同步/空闲检查
 │   └── service.yaml
 ├── frontend/                    # React 前端 (Nginx 反向代理 /api → backend)
 │   ├── deployment.yaml
@@ -79,7 +81,7 @@ infra/k8s/
 |-------|------|
 | Kubernetes 集群 | 可正常连接，`kubectl cluster-info` 通过 |
 | 集群权限 | 需要 ClusterAdmin 权限（创建 ClusterRole、ClusterRoleBinding） |
-| 节点标签 | 运行 backend/frontend 的节点需打标签: `kubectl label node <node-name> kubeai=true` |
+| 节点标签 | 运行 backend/frontend/Taskiq 的节点需打标签: `kubectl label node <node-name> kubeai=true` |
 | 镜像就绪 | `kubeai-backend:0.1.0` 和 `kubeai-frontend:0.1.0` 已 build 或可拉取 |
 | SECRET_KEY | `backend-config.yaml` 中已替换为随机密钥 (`openssl rand -hex 32`) |
 | 数据库密码 | Secret 中 `DATABASE_URL` 密码与 `postgresql/postgresql.yaml` 一致 |
@@ -147,6 +149,8 @@ kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n k
 
 # 本地启动后端
 cd backend && uv run uvicorn app.main:app --reload --port 8000
+cd backend && uv run taskiq worker app.core.taskiq_app:broker --fs-discover
+cd backend && uv run taskiq scheduler app.core.taskiq_app:scheduler --skip-first-run
 ```
 
 #### 2. 完整集群内部署
@@ -167,7 +171,7 @@ kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n k
 kubectl apply -f infra/k8s/backend-config.yaml
 kubectl apply -f infra/k8s/backend-rbac.yaml
 
-# 5. 后端 + 前端
+# 5. 后端 API + Taskiq worker/scheduler + 前端
 kubectl apply -f infra/k8s/backend/
 kubectl apply -f infra/k8s/frontend/
 
@@ -197,6 +201,23 @@ kubectl apply -f infra/k8s/monitoring/00-namespace.yaml  # 监控命名空间
 kubectl apply -f infra/k8s/prometheus/prometheus.yaml  # 监控
 ```
 
+## 生产部署要点
+
+- `backend/deployment.yaml` 只运行 FastAPI API，可按接口流量水平扩容。
+- `backend/worker.yaml` 独立运行 Taskiq worker，按后台任务吞吐单独调整 `spec.replicas`。
+- `backend/beat.yaml` 独立运行 Taskiq scheduler，必须保持 `spec.replicas: 1`，避免重复投递定时任务。
+- Taskiq 复用 `REDIS_URL` 指向的 Redis，仅通过 `TASKIQ_BROKER_DB` 和 `TASKIQ_RESULT_BACKEND_DB` 区分 broker/result backend DB。
+- 已下放到 Taskiq 的后台流程包括开发环境创建、开发环境状态同步、空闲环境检查、推理服务部署、推理服务状态同步和训练任务历史资源清理。
+
+常用运维命令：
+
+```bash
+kubectl -n kubeai scale deploy/backend --replicas=3
+kubectl -n kubeai scale deploy/backend-taskiq-worker --replicas=2
+kubectl -n kubeai get pods -l app.kubernetes.io/component=taskiq-scheduler
+kubectl -n kubeai logs deploy/backend-taskiq-worker -f
+```
+
 ## 组件依赖关系
 
 ```
@@ -204,11 +225,11 @@ namespace.yaml
   │
   ├── 基础设施
   │   ├── postgresql/        ← mlflow/labelstudio 依赖此数据库
-  │   ├── redis/             ← backend 依赖
+  │   ├── redis/             ← backend + taskiq 依赖
   │   └── minio/             ← backend 依赖
   │
   ├── 应用层
-  │   ├── backend/           ← 依赖基础设施 + ConfigMap/Secret/RBAC
+  │   ├── backend/           ← API、Taskiq worker、Taskiq scheduler 独立部署，依赖基础设施 + ConfigMap/Secret/RBAC
   │   └── frontend/          ← 依赖 backend (nginx 代理 /api → backend:8000)
   │
   ├── 可选应用

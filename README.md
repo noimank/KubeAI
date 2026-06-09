@@ -13,38 +13,29 @@ Kubernetes-native AI/ML 平台。
 
 ## 快速开始
 
-### 1. 安装 K8s 基础设施组件
-
-所有组件可通过 `infra/scripts/setup-infra.sh` 一键安装：
+### 1. Helm 部署本地调试依赖
 
 ```bash
-# 完整安装（cert-manager, Volcano, KEDA, KServe）
-./infra/scripts/setup-infra.sh --all
-
-# 单独安装某个组件
-./infra/scripts/setup-infra.sh --kserve    # 仅 KServe
-./infra/scripts/setup-infra.sh --volcano    # 仅 Volcano
-./infra/scripts/setup-infra.sh --keda       # 仅 KEDA
-./infra/scripts/setup-infra.sh --uninstall  # 卸载所有组件
-```
-
-### 2. Helm 部署完整平台
-
-```bash
+helm repo add jetstack https://charts.jetstack.io
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo add volcano-sh https://volcano-sh.github.io/helm-charts
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/
+helm repo add nvidia https://nvidia.github.io/dcgm-exporter/helm-charts
+helm repo add harbor https://helm.goharbor.io
 helm dependency update infra/helm/kubeai/
 
-helm install kubeai infra/helm/kubeai/ \
+helm upgrade --install kubeai infra/helm/kubeai/ \
   -f infra/helm/kubeai/values-dev.yaml \
   -n kubeai --create-namespace
 ```
 
-一键部署 PostgreSQL、Redis、MinIO、Volcano 调度器、后端、前端。
+Helm 只部署本地调试基础设施，例如 cert-manager、PostgreSQL、Redis、MinIO、Volcano、KEDA、KServe、Prometheus、MLflow、Label Studio、JupyterHub。后端 API、Taskiq worker/scheduler 和前端不通过 Helm/K8s 部署。
 
-### 3. 本地开发（仅后端/前端热更新）
+### 2. 本地开发
 
-先确保集群中已部署基础服务（PostgreSQL、Redis、MinIO），然后：
+先确保集群中已部署基础依赖服务，然后：
 
 ```bash
 # 后端
@@ -53,18 +44,13 @@ cp .env.example .env          # 修改数据库/Redis/MinIO 连接地址
 uv sync                       # 安装依赖
 uv run alembic upgrade head   # 数据库迁移
 uv run uvicorn app.main:app --reload   # 启动 http://localhost:8000
+uv run taskiq worker app.core.taskiq_app:broker --fs-discover
+uv run taskiq scheduler app.core.taskiq_app:scheduler --skip-first-run
 
 # 前端
 cd frontend
 pnpm install                  # 安装依赖
 pnpm dev                      # 启动 http://localhost:3000，自动代理 /api → localhost:8000
-```
-
-或使用开发环境脚本一键配置：
-
-```bash
-./infra/scripts/dev-setup.sh              # 完整开发环境（Helm + K8s + 后端 + 前端）
-./infra/scripts/dev-setup.sh --k8s-only   # 仅安装 K8s 组件
 ```
 
 ### 默认账号
@@ -75,10 +61,10 @@ pnpm dev                      # 启动 http://localhost:3000，自动代理 /api
 
 | 组件 | 用途 | 安装方式 |
 |------|------|---------|
-| cert-manager | KServe webhook TLS 证书 | setup-infra.sh (自动) |
-| Volcano | 训练任务调度 (VCJob) | infra/k8s/volcano/ |
-| KEDA | 推理服务自动伸缩 | infra/k8s/keda/ |
-| KServe | 模型推理服务 | infra/k8s/kserve/ |
+| cert-manager | KServe webhook TLS 证书 | 本地 Helm / 生产 `infra/k8s` 前置 |
+| Volcano | 训练任务调度 (VCJob) | 本地 Helm / 生产 `infra/k8s/volcano/` |
+| KEDA | 推理服务自动伸缩 | 本地 Helm / 生产 `infra/k8s/keda/` |
+| KServe | 模型推理服务 | 本地 Helm / 生产 `infra/k8s/kserve/` |
 
 ## 常用命令
 
