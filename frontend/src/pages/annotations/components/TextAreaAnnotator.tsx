@@ -6,6 +6,7 @@ import type {
   AnnotationTask,
 } from '@/types/annotation'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
+import { appendAuthToken } from '@/utils/constants'
 
 interface TextAreaAnnotatorProps {
   task: AnnotationTask
@@ -48,7 +49,7 @@ export default function TextAreaAnnotator({
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Card size="small">
         {objectConfig?.tag === 'Image' && objectValue ? (
-          <Image src={objectValue} style={{ maxHeight: 520 }} />
+          <Image src={appendAuthToken(objectValue)} style={{ maxHeight: 520 }} />
         ) : (
           <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
             {objectValue || '无内容'}

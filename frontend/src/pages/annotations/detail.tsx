@@ -32,6 +32,7 @@ import ProjectInfo from './components/ProjectInfo'
 import TaskAssignModal from './components/TaskAssignModal'
 import type { AnnotationTask, AnnotationCallbackStatus } from '@/types/annotation'
 import type { ColumnsType } from 'antd/es/table'
+import { appendAuthToken } from '@/utils/constants'
 
 const { Text } = Typography
 
@@ -366,11 +367,11 @@ function TaskPreviewModal({
     : null
   const imageEntry = Object.entries(data).find(
     ([key, value]) =>
-      !key.startsWith('kubeai') && typeof value === 'string' && /^https?:\/\//.test(value),
+      !key.startsWith('kubeai') && typeof value === 'string' && /^(\/|https?:\/\/)/.test(value),
   )
   const textEntry = Object.entries(data).find(
     ([key, value]) =>
-      !key.startsWith('kubeai') && typeof value === 'string' && !/^https?:\/\//.test(value),
+      !key.startsWith('kubeai') && typeof value === 'string' && !/^(\/|https?:\/\/)/.test(value),
   )
 
   return (
@@ -402,7 +403,7 @@ function TaskPreviewModal({
 
       {imageEntry && (
         <div style={{ marginBottom: 16, textAlign: 'center' }}>
-          <Image src={imageEntry[1] as string} style={{ maxHeight: 420 }} />
+          <Image src={appendAuthToken(imageEntry[1] as string)} style={{ maxHeight: 420 }} />
         </div>
       )}
       {textEntry && (
@@ -412,19 +413,6 @@ function TaskPreviewModal({
           </Typography.Paragraph>
         </Card>
       )}
-      <Card size="small" title="任务数据">
-        <Descriptions size="small" column={1}>
-          {Object.entries(data)
-            .filter(([key]) => !key.startsWith('kubeai'))
-            .map(([key, value]) => (
-              <Descriptions.Item key={key} label={key}>
-                <Typography.Text style={{ wordBreak: 'break-all' }}>
-                  {typeof value === 'string' ? value : JSON.stringify(value)}
-                </Typography.Text>
-              </Descriptions.Item>
-            ))}
-        </Descriptions>
-      </Card>
     </Modal>
   )
 }
