@@ -7,8 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
-from app.core.config import settings
 from app.core.clients import get_minio_client
+from app.core.config import settings
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name

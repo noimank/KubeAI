@@ -304,7 +304,7 @@ class InferenceServiceService:
                 env_vars=svc.env_vars,
                 is_auto=is_auto,
                 auto_scaling=auto_scaling,
-        )
+            )
 
         svc.status = InferenceServiceStatus.DEPLOYING
         await self.db.commit()
