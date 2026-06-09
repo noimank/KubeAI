@@ -5,7 +5,7 @@ from typing import Any
 import structlog
 
 from app.core.config import settings
-from app.core.taskiq_app import _interval_to_cron, broker
+from app.core.taskiq_app import broker, interval_to_cron
 from app.services.resource_cleaner import cleanup_stale_training_jobs
 
 logger = structlog.get_logger(__name__)
@@ -13,7 +13,7 @@ logger = structlog.get_logger(__name__)
 
 @broker.task(
     task_name="app.tasks.resource_cleanup.run",
-    schedule=[{"cron": _interval_to_cron(settings.RESOURCE_CLEANUP_INTERVAL_SECONDS)}],
+    schedule=[{"cron": interval_to_cron(settings.RESOURCE_CLEANUP_INTERVAL_SECONDS)}],
 )
 async def run_resource_cleanup_task() -> dict[str, Any]:
     """定时清理过期训练任务的 K8s 资源."""
@@ -29,6 +29,6 @@ async def run_resource_cleanup_task() -> dict[str, Any]:
     }
 
 
-def enqueue_resource_cleanup() -> None:
+async def enqueue_resource_cleanup() -> None:
     """将资源清理任务入队 (从 API endpoint 调用)."""
-    run_resource_cleanup_task.kiq()
+    await run_resource_cleanup_task.kiq()

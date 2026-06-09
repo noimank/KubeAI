@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import async_session_factory
-from app.core.taskiq_app import _interval_to_cron, broker
+from app.core.taskiq_app import broker, interval_to_cron
 from app.models.dev_environment import DevEnvironment
 from app.models.enums import DevEnvironmentStatus
 from app.services.dev_environment_service import DevEnvironmentService
@@ -62,7 +62,7 @@ async def provision_dev_environment_task(
 
 @broker.task(
     task_name="app.tasks.dev_environment.sync_statuses",
-    schedule=[{"cron": _interval_to_cron(settings.DEV_ENV_STATUS_SYNC_INTERVAL_SECONDS)}],
+    schedule=[{"cron": interval_to_cron(settings.DEV_ENV_STATUS_SYNC_INTERVAL_SECONDS)}],
 )
 async def sync_dev_environment_statuses_task(limit: int = 200) -> dict[str, Any]:
     """定时同步非终态开发环境的 JupyterHub 状态."""
@@ -75,7 +75,7 @@ async def sync_dev_environment_statuses_task(limit: int = 200) -> dict[str, Any]
 
 @broker.task(
     task_name="app.tasks.dev_environment.check_idle",
-    schedule=[{"cron": _interval_to_cron(settings.DEV_ENV_IDLE_CHECK_INTERVAL_SECONDS)}],
+    schedule=[{"cron": interval_to_cron(settings.DEV_ENV_IDLE_CHECK_INTERVAL_SECONDS)}],
 )
 async def check_idle_dev_environments_task() -> dict[str, Any]:
     """定时检查并回收空闲开发环境."""

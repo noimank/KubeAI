@@ -135,6 +135,6 @@ async def trigger_cleanup(
     from app.core.config import settings
 
     if settings.RESOURCE_CLEANUP_ENABLED:
-        enqueue_resource_cleanup()
+        await enqueue_resource_cleanup()
         return BaseResponse(message="清理任务已提交")
     return BaseResponse(success=False, message="清理服务未启用")

@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import async_session_factory
-from app.core.taskiq_app import _interval_to_cron, broker
+from app.core.taskiq_app import broker, interval_to_cron
 from app.core.ws_pubsub import publish_ws_event
 from app.models.enums import InferenceServiceStatus
 from app.models.inference_service import InferenceService
@@ -86,7 +86,7 @@ async def deploy_inference_service_task(service_id: str, tenant_id: str) -> dict
 
 @broker.task(
     task_name="app.tasks.inference_service.sync_statuses",
-    schedule=[{"cron": _interval_to_cron(settings.INFERENCE_SERVICE_STATUS_SYNC_INTERVAL_SECONDS)}],
+    schedule=[{"cron": interval_to_cron(settings.INFERENCE_SERVICE_STATUS_SYNC_INTERVAL_SECONDS)}],
 )
 async def sync_inference_service_statuses_task(limit: int = 200) -> dict[str, Any]:
     """定时同步非终态推理服务的 K8s 状态."""
