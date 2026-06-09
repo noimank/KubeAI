@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import async_session_factory
+from app.core.ws_pubsub import publish_ws_event
 from app.integrations.jupyterhub.client import get_jupyterhub_client
 from app.models.dev_environment import DevEnvironment
 from app.models.enums import DevEnvironmentStatus
@@ -45,71 +46,88 @@ class IdleChecker:
                 await asyncio.sleep(60)
 
     async def _check_and_cull_idle(self) -> None:
-        timeout = timedelta(minutes=settings.DEV_ENV_IDLE_TIMEOUT_MINUTES)
-        now = datetime.now(UTC)
-        stopped_count = 0
-        checked_count = 0
+        await check_and_cull_idle_environments(self._semaphore)
 
-        async with async_session_factory() as db:
-            stmt = select(DevEnvironment).where(
-                DevEnvironment.status.in_(
-                    [
-                        DevEnvironmentStatus.RUNNING,
-                    ]
-                )
+
+async def check_and_cull_idle_environments(semaphore: asyncio.Semaphore | None = None) -> tuple[int, int]:
+    timeout = timedelta(minutes=settings.DEV_ENV_IDLE_TIMEOUT_MINUTES)
+    now = datetime.now(UTC)
+    stopped_count = 0
+    checked_count = 0
+    guard = semaphore or asyncio.Semaphore(5)
+
+    async with async_session_factory() as db:
+        stmt = select(DevEnvironment).where(
+            DevEnvironment.status.in_(
+                [
+                    DevEnvironmentStatus.RUNNING,
+                ]
             )
-            result = await db.execute(stmt)
-            environments = list(result.scalars().all())
-            checked_count = len(environments)
+        )
+        result = await db.execute(stmt)
+        environments = list(result.scalars().all())
+        checked_count = len(environments)
 
-            jh_client = get_jupyterhub_client()
+        jh_client = get_jupyterhub_client()
 
-            for env in environments:
-                async with self._semaphore:
-                    if env.status != DevEnvironmentStatus.RUNNING:
-                        continue
-                    jh_user = env.spawner_name
-                    if not jh_user:
-                        continue
+        for env in environments:
+            async with guard:
+                if env.status != DevEnvironmentStatus.RUNNING:
+                    continue
+                jh_user = env.spawner_name
+                if not jh_user:
+                    continue
+                try:
+                    last_activity_str = await jh_client.get_server_last_activity(jh_user)
+                except Exception:
+                    logger.warning("idle_check_jh_error", env_id=str(env.id))
+                    continue
+
+                if last_activity_str is None:
+                    continue
+
+                last_activity = datetime.fromisoformat(last_activity_str)
+                if last_activity.tzinfo is None:
+                    last_activity = last_activity.replace(tzinfo=UTC)
+
+                created_at = env.created_at
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=UTC)
+                reference_time = max(last_activity, created_at) if created_at else last_activity
+
+                idle_duration = now - reference_time
+                if idle_duration > timeout:
                     try:
-                        last_activity_str = await jh_client.get_server_last_activity(jh_user)
+                        await jh_client.stop_server(jh_user)
+                        old_status = env.status
+                        env.status = DevEnvironmentStatus.STOPPED
+                        env.stopped_reason = "idle_timeout"
+                        env.error_message = None
+                        await publish_ws_event(
+                            tenant_id=env.tenant_id,
+                            event="dev_environment.status_changed",
+                            payload={
+                                "id": str(env.id),
+                                "old_status": old_status,
+                                "new_status": DevEnvironmentStatus.STOPPED.value,
+                            },
+                        )
+                        stopped_count += 1
+                        logger.info(
+                            "env_auto_stopped_idle",
+                            env_id=str(env.id),
+                            env_name=env.name,
+                            idle_minutes=int(idle_duration.total_seconds() / 60),
+                        )
                     except Exception:
-                        logger.warning("idle_check_jh_error", env_id=str(env.id))
-                        continue
+                        logger.exception("auto_stop_failed", env_id=str(env.id))
 
-                    if last_activity_str is None:
-                        continue
+        if checked_count > 0:
+            await db.commit()
+            logger.info(
+                "idle_check_completed",
+                checked=checked_count,
+                stopped=stopped_count,
+            )
 
-                    last_activity = datetime.fromisoformat(last_activity_str)
-                    if last_activity.tzinfo is None:
-                        last_activity = last_activity.replace(tzinfo=UTC)
-
-                    created_at = env.created_at
-                    if created_at and created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=UTC)
-                    reference_time = max(last_activity, created_at) if created_at else last_activity
-
-                    idle_duration = now - reference_time
-                    if idle_duration > timeout:
-                        try:
-                            await jh_client.stop_server(jh_user)
-                            env.status = DevEnvironmentStatus.STOPPED
-                            env.stopped_reason = "idle_timeout"
-                            env.error_message = None
-                            stopped_count += 1
-                            logger.info(
-                                "env_auto_stopped_idle",
-                                env_id=str(env.id),
-                                env_name=env.name,
-                                idle_minutes=int(idle_duration.total_seconds() / 60),
-                            )
-                        except Exception:
-                            logger.exception("auto_stop_failed", env_id=str(env.id))
-
-            if checked_count > 0:
-                await db.commit()
-                logger.info(
-                    "idle_check_completed",
-                    checked=checked_count,
-                    stopped=stopped_count,
-                )
+    return checked_count, stopped_count

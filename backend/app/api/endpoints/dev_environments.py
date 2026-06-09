@@ -24,6 +24,7 @@ from app.schemas.dev_environment import (
     DevEnvironmentResponse,
 )
 from app.services.dev_environment_service import DevEnvironmentService
+from app.tasks.dev_environment_tasks import enqueue_dev_environment_provision
 
 router = APIRouter(prefix="/dev-environments", tags=["dev-environments"])
 
@@ -77,7 +78,7 @@ async def create_environment(
 ) -> BaseResponse[DevEnvironmentResponse]:
     tenant_id = _require_tenant_id(user)
     service = DevEnvironmentService(db)
-    env = await service.create_environment(
+    env = await service.create_environment_record(
         tenant_id=tenant_id,
         user_id=user.id,
         username=user.username,
@@ -89,9 +90,9 @@ async def create_environment(
         description=req.description,
         env_vars=req.env_vars,
         datasets=req.datasets,
-        algorithm_id=req.algorithm_id,
     )
-    return BaseResponse(data=_to_response(env), message="开发环境创建成功")
+    await enqueue_dev_environment_provision(env.id, tenant_id, req.algorithm_id)
+    return BaseResponse(data=_to_response(env), message="开发环境创建任务已提交")
 
 
 @router.get("", response_model=PageResponse[DevEnvironmentResponse])

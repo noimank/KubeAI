@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, case, func, or_, select
 
 from app.core.config import settings
-from app.core.events import get_harbor_client
+from app.core.clients import get_harbor_client
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.integrations.base import K8S_NAMESPACE_PREFIX, sanitize_k8s_name
 from app.integrations.k8s import job as k8s_job

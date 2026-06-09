@@ -19,7 +19,7 @@ from app.core.exceptions import (
     QuotaExceededException,
 )
 from app.core.security import create_access_token, decode_token
-from app.core.ws_pubsub import get_ws_pubsub
+from app.core.ws_pubsub import publish_ws_event
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.jupyterhub.client import get_jupyterhub_client
 from app.integrations.k8s.namespace import make_namespace_name
@@ -72,6 +72,73 @@ class DevEnvironmentService:
         datasets: list[DatasetMountRequest] | None = None,
         algorithm_id: uuid.UUID | None = None,
     ) -> DevEnvironment:
+        env, tenant = await self._create_environment_record(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            username=username,
+            name=name,
+            environment_image_id=environment_image_id,
+            gpu_count=gpu_count,
+            cpu=cpu,
+            memory=memory,
+            description=description,
+            env_vars=env_vars,
+            datasets=datasets,
+        )
+        await self._provision_environment(
+            env=env,
+            tenant=tenant,
+            username=username,
+            algorithm_id=algorithm_id,
+        )
+        await self.db.refresh(env)
+        return env
+
+    async def create_environment_record(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        username: str,
+        name: str,
+        environment_image_id: uuid.UUID,
+        gpu_count: int = 0,
+        cpu: str = "2",
+        memory: str = "4Gi",
+        description: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        datasets: list[DatasetMountRequest] | None = None,
+    ) -> DevEnvironment:
+        env, _ = await self._create_environment_record(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            username=username,
+            name=name,
+            environment_image_id=environment_image_id,
+            gpu_count=gpu_count,
+            cpu=cpu,
+            memory=memory,
+            description=description,
+            env_vars=env_vars,
+            datasets=datasets,
+        )
+        return env
+
+    async def _create_environment_record(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        username: str,
+        name: str,
+        environment_image_id: uuid.UUID,
+        gpu_count: int = 0,
+        cpu: str = "2",
+        memory: str = "4Gi",
+        description: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        datasets: list[DatasetMountRequest] | None = None,
+    ) -> tuple[DevEnvironment, Tenant]:
         dev_image = await self._get_dev_environment_image(environment_image_id, tenant_id)
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
@@ -82,10 +149,8 @@ class DevEnvironmentService:
         workspace_host_path = make_workspace_host_path(tenant.name)
         user_home_host_path = make_user_home_host_path(username)
         sanitized_username = sanitize_k8s_name(username)
-        home_path = self._home_path()
-        workspace_path = self._workspace_path()
 
-        extra_volumes, extra_volume_mounts, mounted_datasets_info = await self._build_volumes(
+        _, _, mounted_datasets_info = await self._build_volumes(
             datasets=datasets,
             tenant_id=tenant_id,
             tenant_name=tenant.name,
@@ -95,13 +160,6 @@ class DevEnvironmentService:
             username=username,
             sanitized_username=sanitized_username,
         )
-
-        if algorithm_id:
-            await self._extract_algorithm_to_home(
-                algorithm_id=algorithm_id,
-                tenant_id=tenant_id,
-                user_home_host_path=user_home_host_path,
-            )
 
         env = DevEnvironment(
             tenant_id=tenant_id,
@@ -121,6 +179,75 @@ class DevEnvironmentService:
         env.spawner_name = self._make_spawner_name(username=username, user_id=user_id, env_id=env.id)
         self.db.add(env)
         await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(env)
+        return env, tenant
+
+    async def provision_environment(
+        self,
+        env_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        *,
+        algorithm_id: uuid.UUID | None = None,
+    ) -> DevEnvironment:
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        user = await self._get_user_or_fail(env.created_by)
+        return await self._provision_environment(
+            env=env,
+            tenant=tenant,
+            username=user.username,
+            algorithm_id=algorithm_id,
+        )
+
+    async def _provision_environment(
+        self,
+        *,
+        env: DevEnvironment,
+        tenant: Tenant,
+        username: str,
+        algorithm_id: uuid.UUID | None = None,
+    ) -> DevEnvironment:
+        if env.status not in (DevEnvironmentStatus.PENDING, DevEnvironmentStatus.CREATING):
+            logger.info("skip_dev_environment_provision", env_id=str(env.id), status=env.status)
+            return env
+
+        old_status = env.status
+        env.status = DevEnvironmentStatus.CREATING
+        env.error_message = None
+        await self.db.commit()
+        if old_status != env.status:
+            await self._publish_status_change(env.tenant_id, env.id, old_status, env.status)
+
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        if env.gpu_count > 0:
+            await self._check_gpu_quota(namespace, tenant.gpu_limit, env.gpu_count)
+
+        workspace_host_path = make_workspace_host_path(tenant.name)
+        user_home_host_path = make_user_home_host_path(username)
+        sanitized_username = sanitize_k8s_name(username)
+        home_path = self._home_path()
+        workspace_path = self._workspace_path()
+
+        extra_volumes, extra_volume_mounts, _ = await self._build_volumes(
+            datasets=None,
+            tenant_id=env.tenant_id,
+            tenant_name=tenant.name,
+            namespace=namespace,
+            workspace_host_path=workspace_host_path,
+            user_home_host_path=user_home_host_path,
+            username=username,
+            sanitized_username=sanitized_username,
+            mounted_datasets=env.mounted_datasets,
+        )
+
+        if algorithm_id:
+            await self._extract_algorithm_to_home(
+                algorithm_id=algorithm_id,
+                tenant_id=env.tenant_id,
+                user_home_host_path=user_home_host_path,
+            )
 
         jh_client = get_jupyterhub_client()
         try:
@@ -129,35 +256,56 @@ class DevEnvironmentService:
 
             # Inject SSH keys for the user
             final_env_vars = self._build_env_vars(
-                env, env_vars, workspace_path=workspace_path, home_path=home_path, algorithm_id=algorithm_id
+                env, env.env_vars, workspace_path=workspace_path, home_path=home_path, algorithm_id=algorithm_id
             )
 
-            await jh_client.ensure_user(env.spawner_name)
+            await jh_client.ensure_user(env.spawner_name or "")
             await jh_client.start_server(
-                env.spawner_name,
-                image=dev_image.image_ref,
-                cpu=cpu,
-                memory=memory,
-                gpu_count=gpu_count,
+                env.spawner_name or "",
+                image=env.image,
+                cpu=env.cpu,
+                memory=env.memory,
+                gpu_count=env.gpu_count,
                 namespace=namespace,
                 extra_volumes=extra_volumes or None,
                 extra_volume_mounts=extra_volume_mounts or None,
-                environment_type=dev_image.environment_type,
+                environment_type=env.environment_type,
                 env_vars=final_env_vars,
                 image_pull_secret=pull_secret_name,
             )
         except Exception as e:
             logger.error("start_server_failed", spawner=env.spawner_name, error=str(e))
             try:
-                await jh_client.delete_user(env.spawner_name)
+                await jh_client.delete_user(env.spawner_name or "")
             except Exception:
                 logger.warning("cleanup_jupyterhub_user_failed", spawner=env.spawner_name)
+            await self.db.rollback()
+            try:
+                env = await self._get_environment_or_fail(env.id, env.tenant_id)
+            except Exception as refresh_error:
+                logger.warning(
+                    "reload_environment_after_start_failure_failed",
+                    env_id=str(env.id),
+                    error=str(refresh_error),
+                )
+            if env.status == DevEnvironmentStatus.STOPPED:
+                return env
+            old_status = env.status
             env.status = DevEnvironmentStatus.FAILED
             env.error_message = f"启动失败: {e}"
             await self.db.commit()
+            if old_status != env.status:
+                await self._publish_status_change(env.tenant_id, env.id, old_status, env.status)
             raise ExternalServiceException(f"启动失败: {e}") from e
 
-        env.status = DevEnvironmentStatus.CREATING
+        await self.db.refresh(env)
+        if env.status == DevEnvironmentStatus.STOPPED:
+            try:
+                await jh_client.stop_server(env.spawner_name or "")
+            except Exception:
+                logger.warning("stop_server_after_user_stop_failed", spawner=env.spawner_name)
+            return env
+
         await self.db.commit()
         await self.db.refresh(env)
         return env
@@ -216,6 +364,42 @@ class DevEnvironmentService:
             await self.db.commit()
             await self.db.refresh(env)
         return env
+
+    async def sync_non_terminal_environments(self, *, limit: int = 200) -> int:
+        result = await self.db.execute(
+            select(DevEnvironment)
+            .where(
+                DevEnvironment.status.in_(
+                    [DevEnvironmentStatus.PENDING, DevEnvironmentStatus.CREATING, DevEnvironmentStatus.RUNNING]
+                )
+            )
+            .order_by(DevEnvironment.updated_at.asc())
+            .limit(limit)
+        )
+        environments = list(result.scalars().all())
+        if not environments:
+            return 0
+
+        tenant_ids = {env.tenant_id for env in environments}
+        tenants_result = await self.db.execute(select(Tenant).where(Tenant.id.in_(tenant_ids)))
+        tenants = {tenant.id: tenant for tenant in tenants_result.scalars().all()}
+
+        synced_count = 0
+        for env in environments:
+            if not env.spawner_name:
+                continue
+            tenant = tenants.get(env.tenant_id)
+            if tenant is None:
+                continue
+            namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+            try:
+                await self._sync_environment_status(env, namespace)
+                synced_count += 1
+            except Exception as e:
+                logger.warning("sync_status_failed", spawner=env.spawner_name, error=str(e))
+
+        await self.db.commit()
+        return synced_count
 
     async def stop_environment(
         self, env_id: uuid.UUID, tenant_id: uuid.UUID, *, stopped_reason: str = "manual"
@@ -505,7 +689,7 @@ class DevEnvironmentService:
                 new_status=new_status,
             )
             env.status = new_status
-            self._publish_status_change(env.tenant_id, env.id, old_status, new_status.value)
+            await self._publish_status_change(env.tenant_id, env.id, old_status, new_status.value)
 
     def _mark_missing_server_status(self, env: DevEnvironment, message: str) -> None:
         if env.status in (DevEnvironmentStatus.PENDING, DevEnvironmentStatus.CREATING):
@@ -698,21 +882,14 @@ class DevEnvironmentService:
         return dataset, version
 
     @staticmethod
-    def _publish_status_change(
+    async def _publish_status_change(
         tenant_id: uuid.UUID,
         env_id: uuid.UUID,
         old_status: str,
         new_status: str,
     ) -> None:
-        pubsub = get_ws_pubsub()
-        if pubsub is None:
-            return
-        import asyncio
-
-        _task = asyncio.ensure_future(  # noqa: RUF006
-            pubsub.publish(
-                tenant_id=tenant_id,
-                event="dev_environment.status_changed",
-                payload={"id": str(env_id), "old_status": old_status, "new_status": new_status},
-            )
+        await publish_ws_event(
+            tenant_id=tenant_id,
+            event="dev_environment.status_changed",
+            payload={"id": str(env_id), "old_status": old_status, "new_status": new_status},
         )

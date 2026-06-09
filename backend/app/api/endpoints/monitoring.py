@@ -18,6 +18,7 @@ from app.schemas.monitoring import (
     TenantResourceSummary,
 )
 from app.services.monitoring_service import MonitoringService
+from app.tasks.resource_cleanup_tasks import enqueue_resource_cleanup
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
@@ -131,10 +132,9 @@ async def get_stale_jobs(
 async def trigger_cleanup(
     _user: Annotated[CurrentUser, Depends(require_permission("monitoring", "manage"))],
 ) -> BaseResponse[None]:
-    from app.core.events import get_resource_cleaner
+    from app.core.config import settings
 
-    cleaner = get_resource_cleaner()
-    if cleaner:
-        await cleaner.trigger_manual_cleanup()
-        return BaseResponse(message="清理任务已触发")
+    if settings.RESOURCE_CLEANUP_ENABLED:
+        enqueue_resource_cleanup()
+        return BaseResponse(message="清理任务已提交")
     return BaseResponse(success=False, message="清理服务未启用")

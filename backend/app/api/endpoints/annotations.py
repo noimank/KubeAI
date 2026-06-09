@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
-from app.core.events import get_labelstudio_client
+from app.core.clients import get_labelstudio_client
 from app.integrations.labelstudio.client import LabelStudioClient
 from app.integrations.labelstudio.templates import LABELING_TEMPLATES
 from app.schemas.annotation import (

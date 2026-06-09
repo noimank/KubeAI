@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
@@ -78,12 +78,10 @@ class TestDevEnvironmentPermission:
 
 class TestDevEnvironmentCRUD:
     @pytest.mark.asyncio(loop_scope="session")
-    @patch("app.services.dev_environment_service.ensure_registry_pull_secret", new_callable=AsyncMock)
-    @patch("app.services.dev_environment_service.create_tenant_network_policy", new_callable=AsyncMock)
-    @patch("app.services.dev_environment_service.get_jupyterhub_client")
+    @patch("app.api.endpoints.dev_environments.enqueue_dev_environment_provision")
     @patch("app.api.deps.CasbinEnforcer.enforce", return_value=True)
     async def test_create_and_get_environment(
-        self, _, mock_jh_client, mock_net_pol, mock_pull_secret, client: AsyncClient, admin_headers
+        self, _, mock_enqueue, client: AsyncClient, admin_headers
     ):
         from app.core.database import async_session_factory
         from app.models.tenant import Tenant
@@ -115,12 +113,6 @@ class TestDevEnvironmentCRUD:
             user.tenant_id = tenant_id
             await db.commit()
 
-        jh_mock = AsyncMock()
-        jh_mock.ensure_user = AsyncMock()
-        jh_mock.start_server = AsyncMock()
-        jh_mock.get_user = AsyncMock(return_value=None)
-        mock_jh_client.return_value = jh_mock
-
         from app.models.dev_environment_image import DevEnvironmentImage
 
         image_id = uuid.uuid4()
@@ -151,9 +143,11 @@ class TestDevEnvironmentCRUD:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["name"] == "my-notebook"
-        assert data["status"] == "creating"
+        assert data["status"] == "pending"
         env_id = data["id"]
-        assert jh_mock.start_server.call_args[1]["namespace"] == tenant_namespace
+        mock_enqueue.assert_called_once()
+        assert str(mock_enqueue.call_args.args[0]) == env_id
+        assert mock_enqueue.call_args.args[1] == tenant_id
 
         resp = await client.get(f"/api/dev-environments/{env_id}", headers=admin_headers)
         assert resp.status_code == 200

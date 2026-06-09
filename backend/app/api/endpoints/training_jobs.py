@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, SSECurrentUser, get_db, require_permission
-from app.core.events import get_prometheus_client
+from app.core.clients import get_prometheus_client
 from app.core.exceptions import ForbiddenException
 from app.integrations.base import sanitize_k8s_name
 from app.models.user import User

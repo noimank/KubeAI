@@ -72,7 +72,7 @@ class ResourceCleaner:
                 logger.exception("resource_cleanup_error")
                 await asyncio.sleep(60)
 
-    async def _run_cleanup(self) -> None:
+    async def run_cleanup(self) -> tuple[int, int]:
         namespaces = await list_tenant_namespaces()
         cleaned_jobs = 0
         scanned_namespaces = len(namespaces)
@@ -94,6 +94,10 @@ class ResourceCleaner:
             cleaned_jobs=cleaned_jobs,
             scanned_namespaces=scanned_namespaces,
         )
+        return cleaned_jobs, scanned_namespaces
+
+    async def _run_cleanup(self) -> None:
+        await self.run_cleanup()
 
     async def _cleanup_namespace_jobs(self, db: AsyncSession, namespace: str) -> int:
 
@@ -197,3 +201,8 @@ class ResourceCleaner:
 
     async def trigger_manual_cleanup(self) -> None:
         self._manual_task: asyncio.Task[None] | None = asyncio.create_task(self._run_cleanup())
+
+
+async def cleanup_stale_training_jobs() -> tuple[int, int]:
+    cleaner = ResourceCleaner()
+    return await cleaner.run_cleanup()

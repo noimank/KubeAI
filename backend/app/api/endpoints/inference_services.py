@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
-from app.core.events import get_prometheus_client
+from app.core.clients import get_prometheus_client
 from app.core.exceptions import ForbiddenException
 from app.integrations.k8s.deployment import list_deployment_events
 from app.integrations.k8s.namespace import make_namespace_name
@@ -32,6 +32,7 @@ from app.schemas.inference_service import (
     TokenRegenerateResponse,
 )
 from app.services.inference_service import InferenceServiceService
+from app.tasks.inference_service_tasks import enqueue_inference_service_deploy
 
 router = APIRouter(prefix="/inference-services", tags=["inference-services"])
 
@@ -78,7 +79,7 @@ async def create_inference_service(
 ) -> BaseResponse[InferenceServiceCreateResponse]:
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
-    svc, api_token = await service.create_inference_service(
+    svc, api_token = await service.create_inference_service_record(
         tenant_id=tenant_id,
         user_id=user.id,
         name=req.name,
@@ -97,11 +98,12 @@ async def create_inference_service(
         description=req.description,
         auto_scaling=req.auto_scaling,
     )
+    await enqueue_inference_service_deploy(svc.id, tenant_id)
     resp = InferenceServiceCreateResponse.model_validate(
         {**{k: v for k, v in svc.__dict__.items() if not k.startswith("_")}, "auth_token": api_token, "has_token": True}
     )
     await _enrich_with_model_version(db, resp)
-    return BaseResponse(data=resp, message="推理服务创建成功")
+    return BaseResponse(data=resp, message="推理服务创建任务已提交")
 
 
 @router.get("", response_model=PageResponse[InferenceServiceResponse])

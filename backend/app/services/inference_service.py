@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -14,7 +15,7 @@ from app.core.exceptions import (
     QuotaExceededException,
 )
 from app.core.security import generate_api_token, hash_api_token
-from app.core.ws_pubsub import get_ws_pubsub
+from app.core.ws_pubsub import publish_ws_event
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.deployment import (
     build_deployment,
@@ -47,6 +48,7 @@ from app.models.image import Image
 from app.models.inference_service import InferenceService
 from app.models.registered_model import ModelVersion, RegisteredModel
 from app.models.tenant import Tenant
+from app.schemas.inference_service import AutoScalingConfig
 
 if TYPE_CHECKING:
     import uuid
@@ -55,7 +57,6 @@ if TYPE_CHECKING:
 
     from app.integrations.prometheus.client import PrometheusClient
     from app.schemas.inference_service import (
-        AutoScalingConfig,
         AutoScalingUpdateRequest,
         CanaryStartRequest,
         CanaryTrafficUpdateRequest,
@@ -98,6 +99,92 @@ class InferenceServiceService:
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
     ) -> tuple[InferenceService, str]:
+        svc, tenant, api_token = await self._create_inference_service_record(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name=name,
+            service_type=service_type,
+            model_version_id=model_version_id,
+            gpu_count=gpu_count,
+            cpu=cpu,
+            memory=memory,
+            replicas=replicas,
+            image=image,
+            image_id=image_id,
+            container_port=container_port,
+            command=command,
+            args=args,
+            env_vars=env_vars,
+            description=description,
+            auto_scaling=auto_scaling,
+        )
+        await self._deploy_inference_service_resources(svc=svc, tenant=tenant)
+        await self.db.refresh(svc)
+        return svc, api_token
+
+    async def create_inference_service_record(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        name: str,
+        service_type: str = "model",
+        model_version_id: uuid.UUID | None = None,
+        gpu_count: int = 0,
+        cpu: str = "2",
+        memory: str = "4Gi",
+        replicas: int = 1,
+        image: str | None = None,
+        image_id: uuid.UUID | None = None,
+        container_port: int | None = None,
+        command: list[str] | None = None,
+        args: list[str] | None = None,
+        env_vars: dict[str, str] | None = None,
+        description: str | None = None,
+        auto_scaling: AutoScalingConfig | None = None,
+    ) -> tuple[InferenceService, str]:
+        svc, _, api_token = await self._create_inference_service_record(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name=name,
+            service_type=service_type,
+            model_version_id=model_version_id,
+            gpu_count=gpu_count,
+            cpu=cpu,
+            memory=memory,
+            replicas=replicas,
+            image=image,
+            image_id=image_id,
+            container_port=container_port,
+            command=command,
+            args=args,
+            env_vars=env_vars,
+            description=description,
+            auto_scaling=auto_scaling,
+        )
+        return svc, api_token
+
+    async def _create_inference_service_record(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        name: str,
+        service_type: str = "model",
+        model_version_id: uuid.UUID | None = None,
+        gpu_count: int = 0,
+        cpu: str = "2",
+        memory: str = "4Gi",
+        replicas: int = 1,
+        image: str | None = None,
+        image_id: uuid.UUID | None = None,
+        container_port: int | None = None,
+        command: list[str] | None = None,
+        args: list[str] | None = None,
+        env_vars: dict[str, str] | None = None,
+        description: str | None = None,
+        auto_scaling: AutoScalingConfig | None = None,
+    ) -> tuple[InferenceService, Tenant, str]:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
@@ -127,10 +214,9 @@ class InferenceServiceService:
             description=description,
             env_vars=env_vars,
             auth_token_hash=hash_api_token(api_token),
+            proxy_endpoint=f"{settings.API_BASE_URL}/api/inference-proxy/",
         )
         if service_type == "custom":
-            import json
-
             if image_id is not None:
                 resolved_image = await self._resolve_image_ref(image_id, tenant_id)
                 svc_kwargs["image"] = resolved_image
@@ -146,47 +232,84 @@ class InferenceServiceService:
         svc = InferenceService(**svc_kwargs)
         self.db.add(svc)
         await self.db.flush()
+        svc.proxy_endpoint = f"{settings.API_BASE_URL}/api/inference-proxy/{svc.id}/"
+        await self.db.commit()
+        await self.db.refresh(svc)
+        return svc, tenant, api_token
 
-        k8s_name = f"inference-{sanitize_k8s_name(name)}"
-        resources = build_resource_spec(cpu, memory, gpu_count)
+    async def deploy_inference_service(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> InferenceService:
+        svc = await self._get_service_or_fail(service_id, tenant_id)
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        return await self._deploy_inference_service_resources(svc=svc, tenant=tenant)
 
-        if service_type == "model":
+    async def _deploy_inference_service_resources(self, *, svc: InferenceService, tenant: Tenant) -> InferenceService:
+        if svc.status not in (InferenceServiceStatus.PENDING, InferenceServiceStatus.DEPLOYING):
+            logger.info("skip_inference_service_deploy", extra={"service_id": str(svc.id), "status": svc.status})
+            return svc
+
+        old_status = svc.status
+        svc.status = InferenceServiceStatus.DEPLOYING
+        svc.error_message = None
+        await self.db.commit()
+        if old_status != svc.status:
+            await self._publish_status_change(svc.tenant_id, svc.id, old_status, svc.status)
+
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        is_auto = svc.scaling_mode == "auto"
+        auto_scaling = (
+            AutoScalingConfig(
+                scaling_mode="auto",
+                min_replicas=svc.min_replicas,
+                max_replicas=svc.max_replicas,
+                target_metric_type=svc.target_metric_type,  # type: ignore[arg-type]
+                target_metric_value=svc.target_metric_value,
+                cooldown_period=svc.cooldown_period,
+                polling_interval=svc.polling_interval,
+            )
+            if is_auto
+            else None
+        )
+        k8s_name = svc.kserve_name or svc.k8s_deployment_name or f"inference-{sanitize_k8s_name(svc.name)}"
+        resources = build_resource_spec(svc.cpu, svc.memory, svc.gpu_count)
+
+        if svc.service_type == "model":
             await self._create_model_k8s_resources(
                 svc=svc,
                 namespace=namespace,
                 k8s_name=k8s_name,
-                model_version_id=model_version_id,  # type: ignore[arg-type]
+                model_version_id=svc.model_version_id,  # type: ignore[arg-type]
                 resources=resources,
-                replicas=replicas,
-                min_rep=min_rep,
-                max_rep=max_rep,
-                env_vars=env_vars,
+                replicas=svc.replicas,
+                min_rep=svc.min_replicas,
+                max_rep=svc.max_replicas,
+                env_vars=svc.env_vars,
                 is_auto=is_auto,
                 auto_scaling=auto_scaling,
             )
         else:
+            command = json.loads(svc.command) if svc.command else None
+            args = json.loads(svc.args) if svc.args else None
             await self._create_custom_k8s_resources(
                 svc=svc,
                 namespace=namespace,
                 k8s_name=k8s_name,
                 image=svc.image,  # type: ignore[arg-type]
-                container_port=container_port,  # type: ignore[arg-type]
+                container_port=svc.container_port,  # type: ignore[arg-type]
                 command=command,
                 args=args,
                 resources=resources,
-                replicas=replicas,
-                min_rep=min_rep,
-                max_rep=max_rep,
-                env_vars=env_vars,
+                replicas=svc.replicas,
+                min_rep=svc.min_replicas,
+                max_rep=svc.max_replicas,
+                env_vars=svc.env_vars,
                 is_auto=is_auto,
                 auto_scaling=auto_scaling,
-            )
+        )
 
-        svc.proxy_endpoint = f"{settings.API_BASE_URL}/api/inference-proxy/{svc.id}/"
         svc.status = InferenceServiceStatus.DEPLOYING
         await self.db.commit()
         await self.db.refresh(svc)
-        return svc, api_token
+        return svc
 
     async def _create_model_k8s_resources(
         self,
@@ -803,6 +926,37 @@ class InferenceServiceService:
             await self.db.refresh(svc)
         return svc
 
+    async def sync_non_terminal_inference_services(self, *, limit: int = 200) -> int:
+        result = await self.db.execute(
+            select(InferenceService)
+            .where(
+                InferenceService.status.in_([status.value for status in NON_TERMINAL_STATUSES]),
+                or_(
+                    InferenceService.kserve_name.is_not(None),
+                    InferenceService.k8s_deployment_name.is_not(None),
+                ),
+            )
+            .order_by(InferenceService.updated_at.asc())
+            .limit(limit)
+        )
+        services = list(result.scalars().all())
+        if not services:
+            return 0
+
+        synced_count = 0
+        for svc in services:
+            try:
+                tenant = await self._get_tenant_or_fail(svc.tenant_id)
+                namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+                await self._sync_service_status(svc, namespace)
+                synced_count += 1
+            except Exception as e:
+                res_name = svc.kserve_name or svc.k8s_deployment_name
+                logger.warning("Failed to sync status for inference service %s: %s", res_name, e)
+
+        await self.db.commit()
+        return synced_count
+
     async def start_inference_service(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> InferenceService:
         svc = await self._get_service_or_fail(service_id, tenant_id)
 
@@ -1067,7 +1221,7 @@ class InferenceServiceService:
             svc.status = new_status
             if new_status == InferenceServiceStatus.FAILED:
                 await self._send_failure_notification(svc)
-            self._publish_status_change(svc.tenant_id, svc.id, old_status, new_status.value)
+            await self._publish_status_change(svc.tenant_id, svc.id, old_status, new_status.value)
 
     async def _sync_model_service_status(self, svc: InferenceService, namespace: str) -> None:
         if not svc.kserve_name:
@@ -1130,7 +1284,7 @@ class InferenceServiceService:
             svc.status = new_status
             if new_status == InferenceServiceStatus.FAILED:
                 await self._send_failure_notification(svc)
-            self._publish_status_change(svc.tenant_id, svc.id, old_status, new_status.value)
+            await self._publish_status_change(svc.tenant_id, svc.id, old_status, new_status.value)
         if svc.canary_kserve_name:
             canary_obj = await get_inferenceservice(namespace, svc.canary_kserve_name)
             if canary_obj is None:
@@ -1418,21 +1572,14 @@ class InferenceServiceService:
         return timedelta(minutes=20)
 
     @staticmethod
-    def _publish_status_change(
+    async def _publish_status_change(
         tenant_id: uuid.UUID,
         service_id: uuid.UUID,
         old_status: str,
         new_status: str,
     ) -> None:
-        pubsub = get_ws_pubsub()
-        if pubsub is None:
-            return
-        import asyncio
-
-        _task = asyncio.ensure_future(  # noqa: RUF006
-            pubsub.publish(
-                tenant_id=tenant_id,
-                event="inference.status_changed",
-                payload={"id": str(service_id), "old_status": old_status, "new_status": new_status},
-            )
+        await publish_ws_event(
+            tenant_id=tenant_id,
+            event="inference.status_changed",
+            payload={"id": str(service_id), "old_status": old_status, "new_status": new_status},
         )
