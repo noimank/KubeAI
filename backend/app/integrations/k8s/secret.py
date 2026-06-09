@@ -101,7 +101,7 @@ def make_secret_name(tenant_name: str, credential_name: str) -> str:
 
 async def ensure_registry_pull_secret(namespace: str) -> str:
     """Ensure a docker-registry pull secret exists in the tenant namespace using Harbor credentials."""
-    from app.core.events import get_harbor_client
+    from app.core.clients import get_harbor_client
 
     harbor_client = get_harbor_client()
     docker_config = harbor_client.make_harbor_dockerconfig()

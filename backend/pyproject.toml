@@ -26,6 +26,8 @@ dependencies = [
     "python-multipart>=0.0.27",
     "label-studio-sdk>=2.0.0",
     "aiofiles>=25.1.0",
+    "taskiq>=0.12.0,<1.0.0",
+    "taskiq-redis>=1.2.0,<2.0.0",
 ]
 
 [dependency-groups]

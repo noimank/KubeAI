@@ -7,6 +7,7 @@ from typing import Any
 import redis.asyncio as aioredis
 import structlog
 
+from app.core.config import settings
 from app.core.ws_manager import get_ws_manager
 
 logger = structlog.get_logger()
@@ -21,6 +22,43 @@ def get_ws_pubsub() -> "WebSocketPubSub | None":
 def set_ws_pubsub(pubsub: "WebSocketPubSub | None") -> None:
     global _pubsub
     _pubsub = pubsub
+
+
+def _build_ws_message(
+    tenant_id: uuid.UUID,
+    event: str,
+    payload: dict[str, Any],
+    target_user_id: uuid.UUID | None = None,
+) -> tuple[str, dict[str, Any]]:
+    message = {
+        "event": event,
+        "payload": payload,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "tenant_id": str(tenant_id),
+        "target_user_id": str(target_user_id) if target_user_id else None,
+    }
+    channel = f"kubeai:{tenant_id}:{event.split('.')[0]}"
+    return channel, message
+
+
+async def publish_ws_event(
+    tenant_id: uuid.UUID,
+    event: str,
+    payload: dict[str, Any],
+    target_user_id: uuid.UUID | None = None,
+) -> None:
+    if _pubsub is not None:
+        await _pubsub.publish(tenant_id, event, payload, target_user_id)
+        return
+
+    channel, message = _build_ws_message(tenant_id, event, payload, target_user_id)
+    redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    try:
+        await redis.publish(channel, json.dumps(message))
+    except Exception:
+        logger.warning("ws_pubsub_publish_failed", channel=channel, event=event)
+    finally:
+        await redis.aclose()
 
 
 class WebSocketPubSub:
@@ -38,14 +76,7 @@ class WebSocketPubSub:
         payload: dict[str, Any],
         target_user_id: uuid.UUID | None = None,
     ) -> None:
-        message = {
-            "event": event,
-            "payload": payload,
-            "timestamp": datetime.now(UTC).isoformat(),
-            "tenant_id": str(tenant_id),
-            "target_user_id": str(target_user_id) if target_user_id else None,
-        }
-        channel = f"kubeai:{tenant_id}:{event.split('.')[0]}"
+        channel, message = _build_ws_message(tenant_id, event, payload, target_user_id)
         try:
             await self._redis.publish(channel, json.dumps(message))
         except Exception:

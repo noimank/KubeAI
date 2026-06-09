@@ -4,65 +4,30 @@ import structlog
 from sqlalchemy import select
 
 from app.core.casbin import CasbinEnforcer
+from app.core.clients import close_clients, init_clients
 from app.core.config import settings
 from app.core.database import async_session_factory, close_db
-from app.core.redis import _redis_pool, close_redis, init_redis
 from app.core.security import hash_password
 from app.core.ws_manager import ConnectionManager, set_ws_manager
 from app.core.ws_pubsub import WebSocketPubSub, set_ws_pubsub
-from app.integrations.harbor.client import HarborClient
-from app.integrations.jupyterhub.client import close_jupyterhub_client
 from app.integrations.k8s.client import close_k8s_clients
-from app.integrations.labelstudio import LabelStudioClient
-from app.integrations.minio import MinIOClient
-from app.integrations.mlflow.client import MLflowClient
-from app.integrations.prometheus.client import PrometheusClient
 from app.models.enums import TenantStatus, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.services.idle_checker import IdleChecker
-from app.services.resource_cleaner import ResourceCleaner
 
 logger = structlog.get_logger()
 
-minio_client: MinIOClient | None = None
-harbor_client: HarborClient | None = None
-prometheus_client: PrometheusClient | None = None
-labelstudio_client: LabelStudioClient | None = None
-mlflow_client: MLflowClient | None = None
-idle_checker: IdleChecker | None = None
-resource_cleaner: ResourceCleaner | None = None
 _metrics_push_task: asyncio.Task[None] | None = None
 
-
-def get_minio_client() -> MinIOClient:
-    if minio_client is None:
-        raise RuntimeError("MinIO client not initialized")
-    return minio_client
-
-
-def get_harbor_client() -> HarborClient:
-    if harbor_client is None:
-        raise RuntimeError("Harbor client not initialized")
-    return harbor_client
-
-
-def get_prometheus_client() -> PrometheusClient | None:
-    return prometheus_client
-
-
-def get_labelstudio_client() -> LabelStudioClient:
-    if labelstudio_client is None:
-        raise RuntimeError("LabelStudio 客户端未初始化")
-    return labelstudio_client
-
-
-def get_mlflow_client() -> MLflowClient | None:
-    return mlflow_client
-
-
-def get_resource_cleaner() -> ResourceCleaner | None:
-    return resource_cleaner
+# Re-export client getters for backward compatibility — prefer importing from
+# ``app.core.clients`` directly in new code.
+from app.core.clients import (  # noqa: E402, F401
+    get_harbor_client,
+    get_labelstudio_client,
+    get_minio_client,
+    get_mlflow_client,
+    get_prometheus_client,
+)
 
 
 async def _init_admin_user() -> None:
@@ -139,15 +104,18 @@ async def _metrics_push_loop() -> None:
 
 
 async def on_startup() -> None:
-    global minio_client, prometheus_client, labelstudio_client
-    global harbor_client, mlflow_client, idle_checker, resource_cleaner
-    await init_redis()
+    global _metrics_push_task
+
+    await init_clients()
     CasbinEnforcer.initialize(settings.DATABASE_URL)
     await _init_admin_user()
 
     # WebSocket infrastructure
     ws_manager = ConnectionManager()
     set_ws_manager(ws_manager)
+
+    from app.core.redis import _redis_pool
+
     if _redis_pool is not None:
         ws_pubsub = WebSocketPubSub(_redis_pool)
         set_ws_pubsub(ws_pubsub)
@@ -155,31 +123,14 @@ async def on_startup() -> None:
     else:
         set_ws_pubsub(None)
 
-    minio_client = MinIOClient()
-    harbor_client = HarborClient()
-    if settings.PROMETHEUS_URL:
-        prometheus_client = PrometheusClient()
-    if settings.LABEL_STUDIO_API_TOKEN:
-        labelstudio_client = LabelStudioClient()
-    if settings.MLFLOW_ENABLED:
-        mlflow_client = MLflowClient()
-    idle_checker = IdleChecker()
-    idle_checker.start()
-
-    if settings.RESOURCE_CLEANUP_ENABLED:
-        resource_cleaner = ResourceCleaner()
-        resource_cleaner.start()
-
     # Start cluster metrics push background task
-    global _metrics_push_task
     _metrics_push_task = asyncio.create_task(_metrics_push_loop())
 
     logger.info("application_startup", app="KubeAI")
 
 
 async def on_shutdown() -> None:
-    global prometheus_client, labelstudio_client, harbor_client, minio_client, mlflow_client
-    global idle_checker, resource_cleaner, _metrics_push_task
+    global _metrics_push_task
 
     if _metrics_push_task:
         _metrics_push_task.cancel()
@@ -192,29 +143,7 @@ async def on_shutdown() -> None:
         await ws_pubsub.close()
         set_ws_pubsub(None)
 
-    if idle_checker:
-        await idle_checker.stop()
-        idle_checker = None
-    if resource_cleaner:
-        await resource_cleaner.stop()
-        resource_cleaner = None
-    if prometheus_client:
-        await prometheus_client.close()
-        prometheus_client = None
-    if labelstudio_client:
-        await labelstudio_client.close()
-        labelstudio_client = None
-    if harbor_client:
-        await harbor_client.close()
-        harbor_client = None
-    if minio_client:
-        minio_client.close()
-        minio_client = None
-    if mlflow_client:
-        await mlflow_client.close()
-        mlflow_client = None
-    await close_jupyterhub_client()
     await close_k8s_clients()
+    await close_clients()
     await close_db()
-    await close_redis()
     logger.info("application_shutdown", app="KubeAI")
