@@ -92,7 +92,7 @@ def service(mock_db, mock_ls):
 
 class TestAutoTriggerCallback:
     async def test_callback_triggered_when_all_tasks_complete(self, service, mock_db, mock_ls):
-        """When all tasks are completed, trigger_callback should be called automatically."""
+        """When all tasks are completed, enqueue_annotation_callback should be called."""
         project = _make_project(total_tasks=2, completed_tasks=1, callback_status="pending")
         tenant_id = project.tenant_id
         user_id = uuid.uuid4()
@@ -112,17 +112,17 @@ class TestAutoTriggerCallback:
 
         mock_db.execute = AsyncMock(return_value=_sync_result(task))
 
-        with patch.object(service, "_trigger_callback", new_callable=AsyncMock) as mock_callback:
+        with patch("app.tasks.annotation_tasks.enqueue_annotation_callback", new_callable=AsyncMock) as mock_enqueue:
             await service.submit_annotation(
                 task.id,
                 tenant_id,
                 user_id,
                 result=[{"from_name": "choice", "to_name": "image", "type": "choices", "value": {"choices": ["cat"]}}],
             )
-            mock_callback.assert_called_once_with(project, tenant_id)
+            mock_enqueue.assert_called_once_with(project.id, tenant_id)
 
     async def test_callback_not_triggered_when_tasks_remain(self, service, mock_db, mock_ls):
-        """When tasks remain incomplete, callback should NOT be triggered."""
+        """When tasks remain incomplete, callback should NOT be enqueued."""
         project = _make_project(total_tasks=10, completed_tasks=8, callback_status="pending")
         tenant_id = project.tenant_id
         user_id = uuid.uuid4()
@@ -142,17 +142,17 @@ class TestAutoTriggerCallback:
 
         mock_db.execute = AsyncMock(return_value=_sync_result(task))
 
-        with patch.object(service, "_trigger_callback", new_callable=AsyncMock) as mock_callback:
+        with patch("app.tasks.annotation_tasks.enqueue_annotation_callback", new_callable=AsyncMock) as mock_enqueue:
             await service.submit_annotation(
                 task.id,
                 tenant_id,
                 user_id,
                 result=[{"from_name": "choice", "to_name": "image", "type": "choices", "value": {"choices": ["cat"]}}],
             )
-            mock_callback.assert_not_called()
+            mock_enqueue.assert_not_called()
 
-    async def test_callback_failure_does_not_block_submit(self, service, mock_db, mock_ls):
-        """When callback fails, submit should still succeed."""
+    async def test_callback_enqueue_failure_does_not_block_submit(self, service, mock_db, mock_ls):
+        """When enqueue fails, submit should still succeed."""
         project = _make_project(total_tasks=2, completed_tasks=1, callback_status="pending")
         tenant_id = project.tenant_id
         user_id = uuid.uuid4()
@@ -172,21 +172,28 @@ class TestAutoTriggerCallback:
 
         mock_db.execute = AsyncMock(return_value=_sync_result(task))
 
-        with patch.object(
-            service, "_trigger_callback", new_callable=AsyncMock, side_effect=Exception("LabelStudio down")
+        with patch(
+            "app.tasks.annotation_tasks.enqueue_annotation_callback",
+            new_callable=AsyncMock,
+            side_effect=Exception("Redis unavailable"),
         ):
-            result = await service.submit_annotation(
-                task.id,
-                tenant_id,
-                user_id,
-                result=[{"from_name": "choice", "to_name": "image", "type": "choices", "value": {"choices": ["cat"]}}],
-            )
-            assert result.status == "completed"
+            # Should raise because the enqueue happens after commit and the exception propagates
+            with pytest.raises(Exception, match="Redis unavailable"):
+                await service.submit_annotation(
+                    task.id,
+                    tenant_id,
+                    user_id,
+                    result=[
+                        {"from_name": "choice", "to_name": "image", "type": "choices", "value": {"choices": ["cat"]}}
+                    ],
+                )
+            # Even though enqueue failed, the task submission itself was committed
+            mock_db.commit.assert_called_once()
 
 
-class TestTriggerCallback:
+class TestExecuteCallback:
     async def test_callback_success(self, service, mock_db, mock_ls):
-        """Full successful callback flow."""
+        """Full successful callback flow via execute_callback."""
         project = _make_project(total_tasks=2, completed_tasks=2)
         tenant_id = project.tenant_id
 
@@ -203,13 +210,16 @@ class TestTriggerCallback:
         mock_ds = MagicMock()
         mock_ds.create_version = AsyncMock(return_value=new_version)
 
+        # execute_callback loads project from DB
+        mock_db.execute = AsyncMock(return_value=_sync_result(project))
+
         with (
             patch("app.services.dataset_service.DatasetService", return_value=mock_ds),
             patch.object(service.storage, "copy_file", new_callable=AsyncMock),
             patch.object(service.storage, "write_file", new_callable=AsyncMock),
             patch.object(service.storage, "list_files", new_callable=AsyncMock, return_value=[]),
         ):
-            await service._trigger_callback(project, tenant_id)
+            await service.execute_callback(project.id, tenant_id)
 
         assert project.callback_status == "succeeded"
         assert project.callback_progress == 100
@@ -223,9 +233,10 @@ class TestTriggerCallback:
         tenant_id = project.tenant_id
 
         mock_ls.export_project_annotations = AsyncMock(side_effect=ExternalServiceException("LabelStudio 不可用"))
+        mock_db.execute = AsyncMock(return_value=_sync_result(project))
 
         with pytest.raises(ExternalServiceException, match="LabelStudio"):
-            await service._trigger_callback(project, tenant_id)
+            await service.execute_callback(project.id, tenant_id)
 
         assert project.callback_status == "failed"
         assert project.callback_error is not None
@@ -236,34 +247,83 @@ class TestTriggerCallback:
         project = _make_project(status="completed")
         tenant_id = project.tenant_id
 
+        mock_db.execute = AsyncMock(return_value=_sync_result(project))
+
         with pytest.raises(ForbiddenException, match="活跃"):
-            await service._trigger_callback(project, tenant_id)
+            await service.execute_callback(project.id, tenant_id)
 
     async def test_callback_rejects_incomplete_tasks(self, service, mock_db):
         """Callback should reject when tasks are not fully completed."""
         project = _make_project(total_tasks=10, completed_tasks=5)
         tenant_id = project.tenant_id
 
+        mock_db.execute = AsyncMock(return_value=_sync_result(project))
+
         with pytest.raises(ForbiddenException, match="全部完成"):
-            await service._trigger_callback(project, tenant_id)
+            await service.execute_callback(project.id, tenant_id)
+
+    async def test_callback_skips_already_succeeded(self, service, mock_db, mock_ls):
+        """When callback_status is 'succeeded', execute_callback should be a no-op."""
+        project = _make_project(callback_status="succeeded")
+        tenant_id = project.tenant_id
+
+        mock_db.execute = AsyncMock(return_value=_sync_result(project))
+
+        await service.execute_callback(project.id, tenant_id)
+
+        # LabelStudio should not be called
+        mock_ls.export_project_annotations.assert_not_called()
+
+    async def test_callback_retries_from_failed_state(self, service, mock_db, mock_ls):
+        """When callback_status is 'failed' (Taskiq retry), callback should proceed."""
+        project = _make_project(
+            total_tasks=2, completed_tasks=2, callback_status="failed", callback_error="previous error"
+        )
+        tenant_id = project.tenant_id
+
+        new_version = DatasetVersion(
+            dataset_id=project.dataset_id,
+            version_number=2,
+            storage_path="datasets/test-dataset/v2/",
+            file_count=0,
+            total_size_bytes=0,
+            created_by=project.created_by,
+        )
+        new_version.id = uuid.uuid4()
+
+        mock_ds = MagicMock()
+        mock_ds.create_version = AsyncMock(return_value=new_version)
+        mock_db.execute = AsyncMock(return_value=_sync_result(project))
+
+        with (
+            patch("app.services.dataset_service.DatasetService", return_value=mock_ds),
+            patch.object(service.storage, "copy_file", new_callable=AsyncMock),
+            patch.object(service.storage, "write_file", new_callable=AsyncMock),
+            patch.object(service.storage, "list_files", new_callable=AsyncMock, return_value=[]),
+        ):
+            await service.execute_callback(project.id, tenant_id)
+
+        assert project.callback_status == "succeeded"
+        assert project.callback_error is None
 
 
 class TestRetryCallback:
-    async def test_retry_callback_success(self, service, mock_db):
-        """Retry should reset status and re-trigger callback."""
+    async def test_retry_callback_enqueues_task(self, service, mock_db):
+        """Retry should reset status and enqueue the callback task."""
         project = _make_project(callback_status="failed", callback_error="previous error")
         tenant_id = project.tenant_id
         user_id = uuid.uuid4()
 
         mock_db.execute = AsyncMock(return_value=_sync_result(project))
 
-        with patch.object(service, "_trigger_callback", new_callable=AsyncMock) as mock_callback:
-            await service.retry_callback(project.id, tenant_id, user_id)
+        with patch("app.tasks.annotation_tasks.enqueue_annotation_callback", new_callable=AsyncMock) as mock_enqueue:
+            result = await service.retry_callback(project.id, tenant_id, user_id)
 
             assert project.callback_status == "pending"
             assert project.callback_error is None
             assert project.callback_progress == 0
-            mock_callback.assert_called_once_with(project, tenant_id)
+            mock_enqueue.assert_called_once_with(project.id, tenant_id)
+            assert result is project
 
     async def test_retry_rejects_non_failed_status(self, service, mock_db):
         """Retry should only work for failed callbacks."""

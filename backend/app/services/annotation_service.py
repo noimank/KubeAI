@@ -680,20 +680,21 @@ class AnnotationService:
 
         await self.db.flush()
 
-        # Auto-trigger callback when all tasks completed
+        # Auto-trigger callback when all tasks completed (async via Taskiq)
         should_callback = (
             project.total_tasks > 0
             and project.completed_tasks >= project.total_tasks
             and project.callback_status == "pending"
         )
-        if should_callback:
-            try:
-                await self._trigger_callback(project, tenant_id)
-            except Exception as e:
-                logger.error("标注回流自动触发失败 project=%s: %s", project.id, e)
 
         task = await self._reload_task_for_response(task.id, tenant_id)
         await self.db.commit()
+
+        if should_callback:
+            from app.tasks.annotation_tasks import enqueue_annotation_callback
+
+            await enqueue_annotation_callback(project.id, tenant_id)
+
         return task
 
     async def get_next_task(
@@ -750,11 +751,39 @@ class AnnotationService:
         project.callback_error = None
         project.callback_progress = 0
         await self.db.flush()
+        await self.db.commit()
 
-        await self._trigger_callback(project, tenant_id)
+        # Enqueue callback as async task instead of running synchronously
+        from app.tasks.annotation_tasks import enqueue_annotation_callback
+
+        await enqueue_annotation_callback(project.id, tenant_id)
         return project
 
-    async def _trigger_callback(self, project: AnnotationProject, tenant_id: uuid.UUID) -> None:
+    async def execute_callback(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+        """执行标注回流 (幂等, 可由 Taskiq worker 异步调用).
+
+        步骤: 导出 LabelStudio 标注 → 创建新数据集版本 → 复制原始文件 → 写入 annotations.json.
+        支持 Taskiq 重试: 若前次尝试已创建版本, 则跳过版本创建步骤继续后续流程.
+        """
+        # Load project with relationships
+        result = await self.db.execute(
+            select(AnnotationProject)
+            .options(selectinload(AnnotationProject.dataset), selectinload(AnnotationProject.dataset_version))
+            .where(AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise NotFoundException("标注项目不存在")
+
+        # Idempotency: already succeeded → no-op
+        if project.callback_status == "succeeded":
+            return
+
+        # Taskiq retry: previous attempt failed → reset and retry
+        if project.callback_status == "failed":
+            project.callback_error = None
+
+        # Validate
         if project.status != "active":
             raise ForbiddenException("项目状态不是活跃, 无法触发回流")
         if project.total_tasks <= 0 or project.completed_tasks < project.total_tasks:
@@ -777,17 +806,30 @@ class AnnotationService:
             source_version = project.dataset_version
             tenant_name = await self._get_tenant_name(tenant_id)
 
-            # 3. Create new dataset version
-            from app.services.dataset_service import DatasetService
+            # 3. Create new dataset version (skip if already created on retry)
+            new_version: DatasetVersion
+            if project.callback_version_id is None:
+                from app.services.dataset_service import DatasetService
 
-            ds_service = DatasetService(self.db)
-            description = f"v{source_version.version_number}-annotated"
-            new_version = await ds_service.create_version(
-                tenant_id=tenant_id,
-                dataset_id=dataset.id,
-                user_id=project.created_by,
-                description=description,
-            )
+                ds_service = DatasetService(self.db)
+                description = f"v{source_version.version_number}-annotated"
+                new_version = await ds_service.create_version(
+                    tenant_id=tenant_id,
+                    dataset_id=dataset.id,
+                    user_id=project.created_by,
+                    description=description,
+                )
+                project.callback_version_id = new_version.id
+            else:
+                # Retry: reload the partially-created version
+                new_version_result = await self.db.execute(
+                    select(DatasetVersion).where(DatasetVersion.id == project.callback_version_id)
+                )
+                loaded = new_version_result.scalar_one_or_none()
+                if loaded is None:
+                    raise ExternalServiceException("回流目标版本不存在, 无法继续")
+                new_version = loaded
+
             project.callback_progress = 20
             await self.db.flush()
 
@@ -831,7 +873,6 @@ class AnnotationService:
             # 7. Mark callback succeeded
             project.callback_status = "succeeded"
             project.callback_progress = 100
-            project.callback_version_id = new_version.id
             project.callback_at = datetime.now(timezone.utc)  # noqa: UP017
             project.status = "completed"
             await self.db.flush()
