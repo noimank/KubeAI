@@ -109,18 +109,19 @@ def service(mock_db):
 
 
 class TestCreateTrainingJobQuotaCheck:
-    @patch("app.services.training_job_service.get_quota_used")
     @patch("app.services.training_job_service.create_vcjob")
     @patch("app.services.training_job_service.build_vcjob")
-    async def test_single_job_gpu_quota(self, mock_build, mock_create, mock_quota, service, mock_db):
+    @patch("app.services.training_job_service.get_quota_used")
+    async def test_single_job_gpu_quota(self, mock_quota, mock_build, mock_create, service, mock_db):
         tenant = _make_tenant(gpu_limit=10)
         image = _make_image()
         user = _make_user()
         mock_quota.return_value = {"requests.nvidia.com/gpu": "3"}
+        mock_build.return_value = {"metadata": {"name": "test"}}
 
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
 
-        await service.create_training_job(
+        job = await service.create_training_job_record(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             name="test-job",
@@ -129,7 +130,16 @@ class TestCreateTrainingJobQuotaCheck:
             gpu_count=2,
             worker_count=1,
         )
+        assert job.status == TrainingJobStatus.PENDING
 
+        # Reset execute mock for execute phase
+        mock_db.execute.side_effect = [
+            _sync_result(job),
+            _sync_result(tenant),
+            _sync_result(user),
+            _sync_result(image),
+        ]
+        await service.execute_training_job_submission(job.id, tenant.id)
         mock_create.assert_called_once()
 
     @patch("app.services.training_job_service.get_quota_used")
@@ -141,29 +151,7 @@ class TestCreateTrainingJobQuotaCheck:
 
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
 
-        with pytest.raises(QuotaExceededException):
-            await service.create_training_job(
-                tenant_id=tenant.id,
-                user_id=uuid.uuid4(),
-                name="dist-job",
-                image_id=image.id,
-                command="python train.py",
-                gpu_count=2,
-                worker_count=4,
-            )
-
-    @patch("app.services.training_job_service.get_quota_used")
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    async def test_distributed_quota_passes(self, mock_build, mock_create, mock_quota, service, mock_db):
-        tenant = _make_tenant(gpu_limit=20)
-        image = _make_image()
-        user = _make_user()
-        mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
-
-        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
-
-        await service.create_training_job(
+        job = await service.create_training_job_record(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             name="dist-job",
@@ -173,6 +161,44 @@ class TestCreateTrainingJobQuotaCheck:
             worker_count=4,
         )
 
+        mock_db.execute.side_effect = [
+            _sync_result(job),
+            _sync_result(tenant),
+            _sync_result(user),
+            _sync_result(image),
+        ]
+        with pytest.raises(QuotaExceededException):
+            await service.execute_training_job_submission(job.id, tenant.id)
+
+    @patch("app.services.training_job_service.create_vcjob")
+    @patch("app.services.training_job_service.build_vcjob")
+    @patch("app.services.training_job_service.get_quota_used")
+    async def test_distributed_quota_passes(self, mock_quota, mock_build, mock_create, service, mock_db):
+        tenant = _make_tenant(gpu_limit=20)
+        image = _make_image()
+        user = _make_user()
+        mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
+        mock_build.return_value = {"metadata": {"name": "test"}}
+
+        mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
+
+        job = await service.create_training_job_record(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            name="dist-job",
+            image_id=image.id,
+            command="python train.py",
+            gpu_count=2,
+            worker_count=4,
+        )
+
+        mock_db.execute.side_effect = [
+            _sync_result(job),
+            _sync_result(tenant),
+            _sync_result(user),
+            _sync_result(image),
+        ]
+        await service.execute_training_job_submission(job.id, tenant.id)
         mock_create.assert_called_once()
 
     async def test_zero_gpu_skips_quota(self, service, mock_db):
@@ -181,32 +207,39 @@ class TestCreateTrainingJobQuotaCheck:
         user = _make_user()
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
 
+        job = await service.create_training_job_record(
+            tenant_id=tenant.id,
+            user_id=uuid.uuid4(),
+            name="cpu-job",
+            image_id=image.id,
+            command="python train.py",
+            gpu_count=0,
+            worker_count=1,
+        )
+        assert job.status == TrainingJobStatus.PENDING
+
+        # No quota check needed for 0 GPU - just verify submission works
+        mock_db.execute.side_effect = [
+            _sync_result(job),
+            _sync_result(tenant),
+            _sync_result(user),
+            _sync_result(image),
+        ]
         with (
             patch("app.services.training_job_service.create_vcjob"),
             patch("app.services.training_job_service.build_vcjob"),
         ):
-            await service.create_training_job(
-                tenant_id=tenant.id,
-                user_id=uuid.uuid4(),
-                name="cpu-job",
-                image_id=image.id,
-                command="python train.py",
-                gpu_count=0,
-                worker_count=1,
-            )
+            await service.execute_training_job_submission(job.id, tenant.id)
 
 
 class TestCreateTrainingJobWorkerCount:
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    async def test_worker_count_saved_to_db(self, mock_build, mock_create, service, mock_db):
+    async def test_worker_count_saved_to_db(self, service, mock_db):
         tenant = _make_tenant()
         image = _make_image()
         user = _make_user()
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
-        mock_build.return_value = {"metadata": {"name": "test"}}
 
-        job = await service.create_training_job(
+        job = await service.create_training_job_record(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             name="dist-job",
@@ -218,16 +251,14 @@ class TestCreateTrainingJobWorkerCount:
 
         assert job.worker_count == 4
 
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    async def test_worker_count_passed_to_builder(self, mock_build, mock_create, service, mock_db):
+    async def test_worker_count_passed_to_builder(self, mock_db):
+        """worker_count is a DB-only attribute in create_training_job_record, verified via saved job."""
         tenant = _make_tenant()
         image = _make_image()
         user = _make_user()
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
-        mock_build.return_value = {"metadata": {"name": "test"}}
 
-        await service.create_training_job(
+        job = await TrainingJobService(mock_db).create_training_job_record(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             name="dist-job",
@@ -237,25 +268,21 @@ class TestCreateTrainingJobWorkerCount:
             worker_count=8,
         )
 
-        call_kwargs = mock_build.call_args[1]
-        assert call_kwargs["worker_count"] == 8
+        assert job.worker_count == 8
 
 
 class TestStopTrainingJob:
-    @patch("app.services.training_job_service.delete_vcjob")
-    async def test_stop_distributed_job(self, mock_delete, service, mock_db):
+    async def test_stop_distributed_job(self, service, mock_db):
         job = _make_job(
             status=TrainingJobStatus.RUNNING,
             vcjob_name="training-dist-job",
             worker_count=4,
         )
-        tenant = _make_tenant()
-        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant)]
+        mock_db.execute.return_value = _sync_result(job)
 
-        result = await service.stop_training_job(job.id, job.tenant_id)
+        result = await service.stop_training_job_record(job.id, job.tenant_id)
 
         assert result.status == TrainingJobStatus.STOPPED
-        mock_delete.assert_called_once()
 
 
 class TestStreamLogs:
@@ -508,32 +535,26 @@ class TestSyncJobStatusWithFailureReason:
 
 
 class TestRetryTrainingJob:
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    @patch("app.services.training_job_service.get_quota_used")
-    async def test_retry_failed_job(self, mock_quota, mock_build, mock_create, service, mock_db):
+    async def test_retry_failed_job(self, service, mock_db):
         original_job = _make_job(status=TrainingJobStatus.FAILED, vcjob_name="training-test-job")
         original_job.hyperparameters = {"lr": "0.001", "epochs": "10"}
         original_job.description = "测试任务"
         original_job.metrics_port = 6006
-        tenant = _make_tenant()
+        tenant = _make_tenant(id=original_job.tenant_id)
         image = _make_image(id=original_job.image_id)
-        user = _make_user()
 
         mock_db.execute.side_effect = [
-            _sync_result(original_job),
-            _sync_result(image),
-            _sync_result(tenant),
-            _sync_result(user),
+            _sync_result(original_job),  # _get_job_or_fail
+            _sync_result(tenant),  # _get_tenant_or_fail (清理旧 VCJob)
+            _sync_result(image),  # _get_image_or_fail (创建新任务)
         ]
-        mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
-        mock_build.return_value = {"metadata": {"name": "test-retry"}}
 
         result = await service.retry_training_job(original_job.id, original_job.tenant_id, uuid.uuid4())
 
         assert "retry-" in result.name
         assert result.name.startswith(original_job.name)
-        mock_create.assert_called_once()
+        assert result.status == TrainingJobStatus.PENDING
+        assert result.worker_count == original_job.worker_count
 
     async def test_retry_running_job_raises(self, service, mock_db):
         job = _make_job(status=TrainingJobStatus.RUNNING)
@@ -551,17 +572,14 @@ class TestRetryTrainingJob:
 
 
 class TestCreateTrainingJobWithSourceExperiment:
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    async def test_source_experiment_id_appended_to_description(self, mock_build, mock_create, service, mock_db):
+    async def test_source_experiment_id_appended_to_description(self, service, mock_db):
         tenant = _make_tenant()
         image = _make_image()
         user = _make_user()
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
-        mock_build.return_value = {"metadata": {"name": "test"}}
         source_exp_id = uuid.uuid4()
 
-        job = await service.create_training_job(
+        job = await service.create_training_job_record(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             name="reproduce-job",
@@ -572,19 +590,14 @@ class TestCreateTrainingJobWithSourceExperiment:
 
         assert f"基于实验 #{source_exp_id} 复现" in job.description
 
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    async def test_source_experiment_id_appends_to_existing_description(
-        self, mock_build, mock_create, service, mock_db
-    ):
+    async def test_source_experiment_id_appends_to_existing_description(self, service, mock_db):
         tenant = _make_tenant()
         image = _make_image()
         user = _make_user()
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
-        mock_build.return_value = {"metadata": {"name": "test"}}
         source_exp_id = uuid.uuid4()
 
-        job = await service.create_training_job(
+        job = await service.create_training_job_record(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             name="reproduce-job",
@@ -596,16 +609,13 @@ class TestCreateTrainingJobWithSourceExperiment:
 
         assert job.description == f"原始描述（基于实验 #{source_exp_id} 复现）"  # noqa: RUF001
 
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    async def test_no_source_experiment_id_keeps_description(self, mock_build, mock_create, service, mock_db):
+    async def test_no_source_experiment_id_keeps_description(self, service, mock_db):
         tenant = _make_tenant()
         image = _make_image()
         user = _make_user()
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
-        mock_build.return_value = {"metadata": {"name": "test"}}
 
-        job = await service.create_training_job(
+        job = await service.create_training_job_record(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             name="normal-job",
@@ -618,16 +628,13 @@ class TestCreateTrainingJobWithSourceExperiment:
 
 
 class TestSourceFieldDefaults:
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    async def test_manual_source_by_default(self, mock_build, mock_create, service, mock_db):
+    async def test_manual_source_by_default(self, service, mock_db):
         tenant = _make_tenant()
         image = _make_image()
         user = _make_user()
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
-        mock_build.return_value = {"metadata": {"name": "test"}}
 
-        job = await service.create_training_job(
+        job = await service.create_training_job_record(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             name="manual-job",
@@ -638,17 +645,14 @@ class TestSourceFieldDefaults:
         assert job.source == "manual"
         assert job.source_env_id is None
 
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    async def test_experiment_reproduction_source(self, mock_build, mock_create, service, mock_db):
+    async def test_experiment_reproduction_source(self, service, mock_db):
         tenant = _make_tenant()
         image = _make_image()
         user = _make_user()
         mock_db.execute.side_effect = [_sync_result(image), _sync_result(tenant), _sync_result(user)]
-        mock_build.return_value = {"metadata": {"name": "test"}}
         source_exp_id = uuid.uuid4()
 
-        job = await service.create_training_job(
+        job = await service.create_training_job_record(
             tenant_id=tenant.id,
             user_id=uuid.uuid4(),
             name="reproduce-job",

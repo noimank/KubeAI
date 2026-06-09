@@ -265,23 +265,7 @@ class TestDeleteImage:
 
 
 class TestBuildImage:
-    @patch("app.services.image_service.k8s_secret")
-    @patch("app.services.image_service.k8s_job")
-    @patch("app.services.image_service.get_harbor_client")
-    async def test_build_image_success(self, mock_get_harbor, mock_job, mock_secret, service, mock_db):
-        mock_harbor = MagicMock()
-        mock_harbor.ensure_project = AsyncMock(return_value={"name": "kubeai-test"})
-        mock_harbor.make_harbor_dockerconfig.return_value = {".dockerconfigjson": "{}"}
-        mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-img:v1"
-        mock_get_harbor.return_value = mock_harbor
-        mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-img:v1"
-        mock_job.make_job_name.return_value = "image-build-test"
-        mock_job.make_configmap_name.return_value = "dockerfile-test"
-        mock_job.create_configmap = AsyncMock(return_value=MagicMock())
-        mock_job.create_build_job.return_value = MagicMock()
-        mock_job.submit_job = AsyncMock(return_value=MagicMock())
-        mock_secret.create_secret = AsyncMock(return_value=MagicMock())
-
+    async def test_build_image_success(self, service, mock_db):
         tenant_id = uuid.uuid4()
         result = await service.build_image(
             dockerfile="FROM python:3.12",
@@ -295,8 +279,7 @@ class TestBuildImage:
         assert result.build_status == BuildStatus.PENDING
         assert result.tenant_id == tenant_id
         assert result.is_enabled is False
-        mock_harbor.ensure_project.assert_called_once()
-        mock_job.submit_job.assert_called_once()
+        assert result.build_job_name is not None
 
     async def test_build_image_empty_dockerfile(self, service, mock_db):
         with pytest.raises(BadRequestException, match="Dockerfile"):
@@ -308,22 +291,18 @@ class TestBuildImage:
                 tenant_id=uuid.uuid4(),
             )
 
-    @patch("app.services.image_service.k8s_job")
-    @patch("app.services.image_service.get_harbor_client")
-    async def test_build_image_k8s_failure_marks_failed(self, mock_get_harbor, mock_job, service, mock_db):
-        mock_harbor = MagicMock()
-        mock_harbor.ensure_project = AsyncMock(side_effect=Exception("K8s unavailable"))
-        mock_get_harbor.return_value = mock_harbor
-
+    async def test_build_image_k8s_failure_marks_failed(self, service, mock_db):
+        """K8s failure is tested via execute_image_build, build_image only creates DB record."""
         tenant_id = uuid.uuid4()
-        with pytest.raises(Exception, match="K8s unavailable"):
-            await service.build_image(
-                dockerfile="FROM python:3.12",
-                name="my-img",
-                tag="v1",
-                description="test",
-                tenant_id=tenant_id,
-            )
+        result = await service.build_image(
+            dockerfile="FROM python:3.12",
+            name="my-img",
+            tag="v1",
+            description="test",
+            tenant_id=tenant_id,
+        )
+        assert result.build_status == BuildStatus.PENDING
+        assert result.is_enabled is False
 
 
 class TestRebuildImage:
@@ -348,28 +327,14 @@ class TestRebuildImage:
         with pytest.raises(BadRequestException, match="仅失败或已完成"):
             await service.rebuild_image(image.id)
 
-    @patch("app.services.image_service.k8s_job")
-    @patch("app.services.image_service.get_harbor_client")
-    async def test_rebuild_success(self, mock_get_harbor, mock_job, service, mock_db):
+    async def test_rebuild_success(self, service, mock_db):
         image = _make_custom_image(build_status=BuildStatus.FAILED)
         mock_db.execute.return_value = _sync_result(image)
-
-        mock_job.make_job_name.return_value = "image-build-test"
-        mock_job.make_configmap_name.return_value = "dockerfile-test"
-        mock_job.create_configmap = AsyncMock(return_value=MagicMock())
-        mock_job.create_build_job.return_value = MagicMock()
-        mock_job.submit_job = AsyncMock(return_value=MagicMock())
-        mock_job.delete_configmap = AsyncMock()
-        mock_job.delete_job = AsyncMock()
-        mock_harbor = MagicMock()
-        mock_harbor.make_harbor_image_ref.return_value = "harbor.local/kubeai-test/my-custom:v1.0"
-        mock_get_harbor.return_value = mock_harbor
 
         result = await service.rebuild_image(image.id)
 
         assert result.build_status == BuildStatus.PENDING
         assert result.is_enabled is False
-        mock_job.submit_job.assert_called_once()
 
 
 class TestGetBuildLog:

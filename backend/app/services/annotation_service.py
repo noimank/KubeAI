@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import BadRequestException, ExternalServiceException, ForbiddenException, NotFoundException
+from app.core.exceptions import ExternalServiceException, ForbiddenException, NotFoundException
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.labelstudio.templates import (
     TEXT_OBJECT_TAGS,
@@ -69,50 +69,96 @@ class AnnotationService:
         label_config: str,
         audit_context: dict[str, Any] | None = None,
     ) -> AnnotationProject:
-        # Validate dataset and version
-        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
-        version = await self._get_version_or_fail(dataset_version_id, dataset_id)
+        """创建标注项目 DB 记录 (仅验证 + 记录, LabelStudio 交互由 Taskiq worker 异步执行)."""
+        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        await self._get_version_or_fail(dataset_version_id, dataset_id)
 
         config_info = parse_label_config(label_config)
-        annotation_type = config_info.annotation_type
 
-        # Enumerate files from filesystem
-        tenant_name = await self._get_tenant_name(tenant_id)
-        files = await self.storage.list_files(tenant_name, dataset.name, version.version_number)
-        if not files:
-            raise BadRequestException("数据集版本没有可标注文件")
-
-        # Prepare task data
-        tasks = await self._prepare_task_data(
-            files, dataset_id, dataset_version_id, config_info, tenant_name, dataset.name, version.version_number
-        )
-
-        # Create project in LabelStudio
-        try:
-            ls_project_id = await self.ls_client.create_project(name, description or "", label_config)
-        except ExternalServiceException:
-            raise
-        except Exception as e:
-            raise ExternalServiceException(f"创建 LabelStudio 项目失败: {e}") from e
-
-        # Create DB record
         project = AnnotationProject(
             name=name,
             description=description,
             dataset_id=dataset_id,
             dataset_version_id=dataset_version_id,
-            annotation_type=annotation_type,
-            label_studio_project_id=ls_project_id,
+            annotation_type=config_info.annotation_type,
+            label_studio_project_id=None,
             label_config=label_config,
-            total_tasks=len(tasks),
+            total_tasks=0,
             completed_tasks=0,
-            status="active",
+            status="pending",
             tenant_id=tenant_id,
             created_by=user_id,
         )
         self.db.add(project)
         await self.db.flush()
         await self.db.refresh(project)
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.CREATE,
+                resource_type=ResourceType.ANNOTATION_PROJECT,
+                resource_id=str(project.id),
+                detail={"name": name, "annotation_type": config_info.annotation_type},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        await self.db.commit()
+        return project
+
+    async def execute_project_setup(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+        """由 Taskiq worker 调用: 枚举文件 + 创建 LabelStudio 项目 + 导入任务."""
+        from app.models.annotation_task import AnnotationTask
+
+        result = await self.db.execute(
+            select(AnnotationProject)
+            .options(selectinload(AnnotationProject.dataset), selectinload(AnnotationProject.dataset_version))
+            .where(AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            return
+
+        dataset = project.dataset
+        version = project.dataset_version
+        tenant_name = await self._get_tenant_name(tenant_id)
+
+        # Enumerate files from filesystem
+        files = await self.storage.list_files(tenant_name, dataset.name, version.version_number)
+        if not files:
+            project.status = "active"
+            await self.db.commit()
+            return
+
+        # Prepare task data
+        config_info = parse_label_config(project.label_config)
+        tasks = await self._prepare_task_data(
+            files,
+            dataset.id,
+            version.id,
+            config_info,
+            tenant_name,
+            dataset.name,
+            version.version_number,
+        )
+
+        # Create project in LabelStudio
+        try:
+            ls_project_id = await self.ls_client.create_project(
+                project.name,
+                project.description or "",
+                project.label_config,
+            )
+        except ExternalServiceException:
+            project.status = "failed"
+            await self.db.commit()
+            raise
+        except Exception as e:
+            project.status = "failed"
+            await self.db.commit()
+            raise ExternalServiceException(f"创建 LabelStudio 项目失败: {e}") from e
+
+        project.label_studio_project_id = ls_project_id
 
         # Import tasks to LabelStudio and create DB records
         if tasks:
@@ -133,32 +179,20 @@ class AnnotationService:
                     ]
                 )
                 project.total_tasks = len(ls_tasks)
-                await self.db.flush()
             except Exception as e:
                 logger.warning("导入 LabelStudio tasks 失败, 准备清理项目: %s", e)
                 await self.ls_client.delete_project(ls_project_id)
+                project.status = "failed"
+                await self.db.commit()
                 raise ExternalServiceException(f"导入 LabelStudio tasks 失败: {e}") from e
 
-        if audit_context:
-            await self._log_audit(
-                action=AuditAction.CREATE,
-                resource_type=ResourceType.ANNOTATION_PROJECT,
-                resource_id=str(project.id),
-                detail={"name": name, "annotation_type": annotation_type},
-                tenant_id=tenant_id,
-                **audit_context,
-            )
-
+        project.status = "active"
         await self.db.commit()
-        return project
 
-    async def sync_project_tasks(
-        self,
-        project_id: uuid.UUID,
-        tenant_id: uuid.UUID,
-        audit_context: dict[str, Any] | None = None,
-    ) -> int:
-        """Sync new files from the dataset version into the annotation project."""
+    async def execute_sync_tasks(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> int:
+        """由 Taskiq worker 调用: 同步新文件到标注项目."""
+        from app.models.annotation_task import AnnotationTask
+
         result = await self.db.execute(
             select(AnnotationProject)
             .options(selectinload(AnnotationProject.dataset), selectinload(AnnotationProject.dataset_version))
@@ -166,33 +200,29 @@ class AnnotationService:
         )
         project = result.scalar_one_or_none()
         if not project:
-            raise NotFoundException("标注项目不存在")
+            return 0
 
         ls_project_id = project.label_studio_project_id
         if ls_project_id is None:
-            raise ExternalServiceException("LabelStudio 项目 ID 不存在")
+            return 0
 
         dataset = project.dataset
         version = project.dataset_version
         tenant_name = await self._get_tenant_name(tenant_id)
 
-        # List current files from filesystem
         files = await self.storage.list_files(tenant_name, dataset.name, version.version_number)
         if not files:
             return 0
 
-        # Get existing object names for deduplication
         existing_result = await self.db.execute(
             select(AnnotationTask.kubeai_object_name).where(AnnotationTask.project_id == project_id)
         )
         existing_names = set(existing_result.scalars().all())
 
-        # Filter to only new files
         new_files = [f for f in files if f["file_name"] not in existing_names]
         if not new_files:
             return 0
 
-        # Prepare and import new tasks
         config_info = parse_label_config(project.label_config)
         tasks = await self._prepare_task_data(
             new_files,
@@ -220,18 +250,6 @@ class AnnotationService:
             ]
         )
         project.total_tasks = (project.total_tasks or 0) + len(ls_tasks)
-        await self.db.flush()
-
-        if audit_context:
-            await self._log_audit(
-                action=AuditAction.UPDATE,
-                resource_type=ResourceType.ANNOTATION_PROJECT,
-                resource_id=str(project.id),
-                detail={"action": "sync_tasks", "new_task_count": len(ls_tasks)},
-                tenant_id=tenant_id,
-                **audit_context,
-            )
-
         await self.db.commit()
         return len(ls_tasks)
 

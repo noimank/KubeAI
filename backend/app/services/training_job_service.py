@@ -56,17 +56,17 @@ class TrainingJobService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_training_job(
+    async def create_training_job_record(
         self,
         *,
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str,
+        image_id: uuid.UUID,
+        command: str,
         description: str | None = None,
         dataset_id: uuid.UUID | None = None,
         dataset_version_id: uuid.UUID | None = None,
-        image_id: uuid.UUID,
-        command: str,
         hyperparameters: list[dict[str, str]] | None = None,
         gpu_count: int = 1,
         gpu_mode: str = "exclusive",
@@ -79,28 +79,22 @@ class TrainingJobService:
         source: str = "manual",
         source_env_id: uuid.UUID | None = None,
     ) -> TrainingJob:
-        image = await self._get_image_or_fail(image_id)
+        """创建训练任务 DB 记录 (仅校验 + 写入, 不执行 K8s 操作).
 
-        dataset_host_path: str | None = None
-        mount_path: str | None = None
-        tenant = await self._get_tenant_or_fail(tenant_id)
+        Volcano VCJob 提交由 Taskiq worker 异步执行.
+        """
+        await self._get_image_or_fail(image_id)
+
+        # Resolve dataset version
+        resolved_dataset_id = dataset_id
+        resolved_dataset_version_id = dataset_version_id
         if dataset_id:
-            dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
+            await self._get_dataset_or_fail(dataset_id, tenant_id)
             if dataset_version_id:
-                version = await self._get_version_or_fail(dataset_version_id, dataset_id)
+                await self._get_version_or_fail(dataset_version_id, dataset_id)
             else:
                 version = await self._get_latest_version(dataset_id)
-                dataset_version_id = version.id
-            dataset_host_path = make_dataset_host_path(tenant.name, dataset.name, version.version_number)
-            mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
-
-        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-        user = await self._get_user_or_fail(user_id)
-
-        workspace_host_path = make_workspace_host_path(tenant.name)
-        user_home_host_path = make_user_home_host_path(user.username)
-
-        await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_count * worker_count)
+                resolved_dataset_version_id = version.id
 
         hp_dict: dict[str, str] | None = None
         if hyperparameters:
@@ -117,8 +111,8 @@ class TrainingJobService:
             name=name,
             description=final_description,
             created_by=user_id,
-            dataset_id=dataset_id,
-            dataset_version_id=dataset_version_id,
+            dataset_id=resolved_dataset_id,
+            dataset_version_id=resolved_dataset_version_id,
             image_id=image_id,
             command=command,
             hyperparameters=hp_dict,
@@ -134,7 +128,45 @@ class TrainingJobService:
             source_env_id=source_env_id,
         )
         self.db.add(job)
-        await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(job)
+        return job
+
+    async def execute_training_job_submission(
+        self,
+        job_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> TrainingJob:
+        """由 Taskiq worker 调用: 提交 Volcano VCJob + 创建 MLflow 实验."""
+        job = await self._get_job_or_fail(job_id, tenant_id)
+
+        # 防止竞态: 任务在队列中积压期间被用户停止
+        if job.status == TrainingJobStatus.STOPPED:
+            logger.info("Job %s was stopped before submission, skipping K8s submission", job_id)
+            return job
+
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        user = await self._get_user_or_fail(job.created_by)
+        image = await self._get_image_or_fail(job.image_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        # GPU 配额检查
+        await self._check_gpu_quota(namespace, tenant.gpu_limit, job.gpu_count * job.worker_count)
+
+        # 构建数据集挂载信息
+        dataset_host_path: str | None = None
+        mount_path: str | None = None
+        if job.dataset_id:
+            dataset = await self._get_dataset_or_fail(job.dataset_id, tenant_id)
+            if job.dataset_version_id:
+                version = await self._get_version_or_fail(job.dataset_version_id, job.dataset_id)
+            else:
+                version = await self._get_latest_version(job.dataset_id)
+            dataset_host_path = make_dataset_host_path(tenant.name, dataset.name, version.version_number)
+            mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
+
+        workspace_host_path = make_workspace_host_path(tenant.name)
+        user_home_host_path = make_user_home_host_path(user.username)
 
         vcjob_name = f"training-{sanitize_k8s_name(job.name)}"
 
@@ -146,25 +178,27 @@ class TrainingJobService:
             mlflow_experiment_name = f"kubeai-{tenant_id_short}-{sanitize_k8s_name(job.name)}"
             mlflow_run_name = f"job-{str(job.id)[:8]}"
 
+        hp_dict = job.hyperparameters
+
         vcjob_body = build_vcjob(
             vcjob_name=vcjob_name,
             namespace=namespace,
             image_ref=image.image_ref,
-            command=command,
-            cpu=cpu,
-            memory=memory,
-            gpu_count=gpu_count,
-            gpu_mode=gpu_mode,
+            command=job.command,
+            cpu=job.cpu,
+            memory=job.memory,
+            gpu_count=job.gpu_count,
+            gpu_mode=job.gpu_mode,
             job_id=str(job.id),
-            worker_count=worker_count,
+            worker_count=job.worker_count,
             hyperparameters=hp_dict,
-            priority=priority,
+            priority=job.priority,
             dataset_host_path=dataset_host_path,
             dataset_mount_path=mount_path,
             workspace_host_path=workspace_host_path,
             user_home_host_path=user_home_host_path,
             username=user.username,
-            metrics_port=metrics_port,
+            metrics_port=job.metrics_port,
             mlflow_tracking_uri=mlflow_tracking_uri,
             mlflow_experiment_name=mlflow_experiment_name,
             mlflow_run_name=mlflow_run_name,
@@ -179,6 +213,7 @@ class TrainingJobService:
             await self.db.commit()
             raise
 
+        old_status = job.status
         job.vcjob_name = vcjob_name
         job.status = TrainingJobStatus.QUEUED
 
@@ -195,6 +230,7 @@ class TrainingJobService:
 
         await self.db.commit()
         await self.db.refresh(job)
+        self._publish_status_change(job.tenant_id, job.id, old_status, job.status)
         return job
 
     async def list_training_jobs(
@@ -227,7 +263,7 @@ class TrainingJobService:
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
             vcjob_names = [j.vcjob_name for j in non_terminal if j.vcjob_name]
             phases = await batch_get_vcjob_phases(namespace, vcjob_names)
-            modified_jobs: list[TrainingJob] = []
+            modified_jobs: list[tuple[TrainingJob, str]] = []
             for job in non_terminal:
                 if not job.vcjob_name:
                     continue
@@ -254,12 +290,12 @@ class TrainingJobService:
                             await experiment_service.sync_experiment_status(job.id, new_status)
                         except Exception as e:
                             logger.warning("Failed to sync experiment status for job %s: %s", job.id, e)
-                    modified_jobs.append(job)
+                    modified_jobs.append((job, old_status))
             if modified_jobs:
                 await self.db.commit()
-                for job in modified_jobs:
+                for job, old_status in modified_jobs:
                     await self.db.refresh(job)
-                    self._publish_status_change(job.tenant_id, job.id, job.status, job.status)
+                    self._publish_status_change(job.tenant_id, job.id, old_status, job.status)
 
         return jobs, total
 
@@ -270,24 +306,66 @@ class TrainingJobService:
         await self.db.refresh(job)
         return job
 
-    async def stop_training_job(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> TrainingJob:
+    async def stop_training_job_record(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> TrainingJob:
+        """标记训练任务为已停止 (仅 DB 操作, K8s 删除由 Taskiq worker 异步执行)."""
         job = await self._get_job_or_fail(job_id, tenant_id)
 
         if job.status not in ALLOWED_STOP_STATUSES:
             raise ConflictException(f"当前状态为 {job.status}, 无法停止任务")
 
-        if job.vcjob_name:
-            tenant = await self._get_tenant_or_fail(tenant_id)
-            namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-            try:
-                await delete_vcjob(namespace, job.vcjob_name)
-            except Exception as e:
-                logger.warning("Failed to delete VCJob %s: %s", job.vcjob_name, e)
-
+        old_status = job.status
         job.status = TrainingJobStatus.STOPPED
         await self.db.commit()
         await self.db.refresh(job)
+        self._publish_status_change(job.tenant_id, job.id, old_status, job.status)
         return job
+
+    async def execute_training_job_stop(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+        """由 Taskiq worker 调用: 删除 K8s Volcano VCJob (best-effort)."""
+        job = await self._get_job_or_fail(job_id, tenant_id)
+
+        if not job.vcjob_name:
+            return
+
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        try:
+            await delete_vcjob(namespace, job.vcjob_name)
+            logger.info("Deleted VCJob %s for stopped job %s", job.vcjob_name, job.id)
+        except Exception as e:
+            logger.warning("Failed to delete VCJob %s: %s", job.vcjob_name, e)
+
+    async def delete_training_job_record(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> tuple[str | None, str]:
+        """标记训练任务为已删除 (DB 操作), 返回 vcjob_name 和 namespace 供 Taskiq 清理 K8s.
+
+        仅允许删除终态任务 (已成功/已失败/已停止).
+        """
+        job = await self._get_job_or_fail(job_id, tenant_id)
+
+        if job.status not in TERMINAL_STATUSES:
+            raise ConflictException(f"当前状态为 {job.status}, 仅终态任务可以删除. 请先停止任务.")
+
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        vcjob_name = job.vcjob_name
+
+        await self.db.delete(job)
+        await self.db.commit()
+        return vcjob_name, namespace
+
+    async def execute_training_job_delete(self, vcjob_name: str | None, namespace: str) -> None:
+        """由 Taskiq worker 调用: 清理 K8s VCJob 资源 (best-effort).
+
+        DB 记录已由 API 同步删除, 此处仅做 K8s 资源清理.
+        """
+        if not vcjob_name:
+            return
+        try:
+            await delete_vcjob(namespace, vcjob_name)
+            logger.info("Deleted VCJob %s for deleted training job", vcjob_name)
+        except Exception as e:
+            logger.warning("Failed to delete VCJob %s for deleted job: %s", vcjob_name, e)
+            # Best-effort: 资源清理器最终会处理孤儿 VCJob
 
     async def retry_training_job(self, job_id: uuid.UUID, tenant_id: uuid.UUID, user_id: uuid.UUID) -> TrainingJob:
         job = await self._get_job_or_fail(job_id, tenant_id)
@@ -295,10 +373,22 @@ class TrainingJobService:
         if job.status not in (TrainingJobStatus.FAILED, TrainingJobStatus.STOPPED):
             raise ConflictException(f"当前状态为 {job.status}, 仅失败或已停止的任务可以重试")
 
+        # Best-effort 清理旧 VCJob, 避免孤儿 K8s 资源
+        if job.vcjob_name:
+            try:
+                tenant = await self._get_tenant_or_fail(tenant_id)
+                namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+                await delete_vcjob(namespace, job.vcjob_name)
+                logger.info("Cleaned up old VCJob %s for retry of job %s", job.vcjob_name, job.id)
+            except Exception as e:
+                logger.warning("Failed to clean up old VCJob %s: %s", job.vcjob_name, e)
+
         timestamp = datetime.now().strftime("%Y%m%d%H%M")
         new_name = f"{job.name}-retry-{timestamp}"
 
-        return await self.create_training_job(
+        hp_list = [{"key": k, "value": v} for k, v in job.hyperparameters.items()] if job.hyperparameters else None
+
+        return await self.create_training_job_record(
             tenant_id=tenant_id,
             user_id=user_id,
             name=new_name,
@@ -307,9 +397,7 @@ class TrainingJobService:
             dataset_version_id=job.dataset_version_id,
             image_id=job.image_id,
             command=job.command,
-            hyperparameters=[{"key": k, "value": v} for k, v in job.hyperparameters.items()]
-            if job.hyperparameters
-            else None,
+            hyperparameters=hp_list,
             gpu_count=job.gpu_count,
             gpu_mode=job.gpu_mode,
             cpu=job.cpu,
@@ -357,7 +445,7 @@ class TrainingJobService:
         resolved_cpu = cpu or env.cpu
         resolved_memory = memory or env.memory
 
-        return await self.create_training_job(
+        return await self.create_training_job_record(
             tenant_id=tenant_id,
             user_id=user_id,
             name=name,
@@ -440,7 +528,7 @@ class TrainingJobService:
                         logger.warning("Failed to send notification for job %s: %s", job.id, e)
 
                     # WebSocket push
-                    self._publish_status_change(job.tenant_id, job.id, old_status, new_status.value)
+                    self._publish_status_change(job.tenant_id, job.id, old_status, job.status)
         except Exception as e:
             logger.warning("Failed to sync VCJob status for %s: %s", job.vcjob_name, e)
 

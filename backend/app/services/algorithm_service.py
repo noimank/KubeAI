@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
 import tempfile
-import uuid
 import zipfile
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, NotFoundException
@@ -56,20 +58,55 @@ class AlgorithmService:
     # ------------------------------------------------------------------
     # Create
     # ------------------------------------------------------------------
-    async def create_algorithm(
+    async def create_algorithm_record(
         self,
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str,
         description: str | None,
         tags: list[str],
-        file_content: bytes,
-        filename: str,
         audit_context: dict[str, Any] | None = None,
     ) -> Algorithm:
-        algo_id = uuid.uuid4()
+        """创建算法 DB 记录 (仅 DB 操作, 文件处理由 Taskiq worker 异步执行)."""
+        algo = Algorithm(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name=name,
+            description=description,
+            tags=tags,
+            source_type="upload",
+            status="uploading",
+        )
+        self.db.add(algo)
+        await self.db.flush()
+        await self.db.refresh(algo)
 
-        # Compress uploaded file (or directory archive) to zip
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.UPLOAD,
+                resource_type=ResourceType.ALGORITHM,
+                resource_id=str(algo.id),
+                detail={"name": algo.name},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        await self.db.commit()
+        return algo
+
+    async def execute_algorithm_upload(
+        self,
+        algo_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        temp_file_path: str,
+        filename: str,
+    ) -> Algorithm:
+        """由 Taskiq worker 调用: 压缩 + 上传算法文件到存储."""
+        algo = await self.get_algorithm(algo_id, tenant_id)
+
+        with open(temp_file_path, "rb") as f:
+            file_content = f.read()
+
         zip_path = _compress_to_zip(file_content, filename, algo_id)
 
         try:
@@ -79,36 +116,23 @@ class AlgorithmService:
 
         tenant_name = await self._get_tenant_name(tenant_id)
         storage = AlgorithmStorageService(tenant_name)
-        storage_path = await storage.upload_algorithm_zip(user_id, algo_id, zip_path)
-
-        algo = Algorithm(
-            id=algo_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            name=name,
-            description=description,
-            tags=tags,
-            source_type="upload",
-            storage_path=storage_path,
-            size_bytes=size_bytes,
+        storage_path = await storage.upload_algorithm_zip(
+            user_id=algo.user_id, algorithm_id=algo_id, file_path=zip_path
         )
-        self.db.add(algo)
-        await self.db.flush()
+
+        algo.storage_path = storage_path
+        algo.size_bytes = size_bytes
+        algo.status = "available"
+        await self.db.commit()
         await self.db.refresh(algo)
 
         _cleanup_temp(zip_path)
-
-        if audit_context:
-            await self._log_audit(
-                action=AuditAction.UPLOAD,
-                resource_type=ResourceType.ALGORITHM,
-                resource_id=str(algo.id),
-                detail={"name": algo.name, "size_bytes": algo.size_bytes},
-                tenant_id=tenant_id,
-                **audit_context,
-            )
+        with contextlib.suppress(OSError):
+            os.remove(temp_file_path)
 
         return algo
+
+    # ── Original create_algorithm (removed) ───────────────────────────────────
 
     # ------------------------------------------------------------------
     # List

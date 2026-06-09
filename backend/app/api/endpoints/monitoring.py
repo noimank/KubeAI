@@ -18,6 +18,7 @@ from app.schemas.monitoring import (
     TenantResourceSummary,
 )
 from app.services.monitoring_service import MonitoringService
+from app.tasks.monitoring_tasks import enqueue_quota_transfer
 from app.tasks.resource_cleanup_tasks import enqueue_resource_cleanup
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
@@ -96,11 +97,15 @@ async def transfer_quota(
     user: Annotated[CurrentUser, Depends(require_permission("monitoring", "manage"))],
 ) -> BaseResponse[None]:
     service = MonitoringService(db)
-    audit_context = {
-        "user_id": user.id,
-        "ip_address": "",
-    }
+    audit_context = {"user_id": user.id, "ip_address": ""}
     await service.transfer_quota(req, audit_context)
+    await enqueue_quota_transfer(
+        req.source_tenant_id,
+        req.target_tenant_id,
+        req.resource_type,
+        req.amount,
+        req.force,
+    )
     return BaseResponse(message="配额调配成功")
 
 

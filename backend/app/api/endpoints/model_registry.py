@@ -1,4 +1,4 @@
-import io
+import tempfile
 import uuid
 from typing import Annotated, Any
 
@@ -32,6 +32,7 @@ from app.schemas.model_registry import (
     RegisteredModelResponse,
 )
 from app.services.audit_service import AuditService
+from app.tasks.model_registry_tasks import enqueue_model_files_upload, enqueue_model_objects_delete
 
 router = APIRouter(prefix="/model-registry", tags=["model-registry"])
 
@@ -321,13 +322,11 @@ async def register_model_local(
     training_job_id: uuid.UUID | None = Form(None),  # noqa: B008
     files: list[UploadFile] = File(..., min_length=1),  # noqa: B008
 ) -> BaseResponse[ModelVersionResponse]:
-    """本地上传模型文件到 MinIO，同步完成上传后标记为 AVAILABLE。"""  # noqa: RUF002
+    """本地上传模型文件 — 文件保存到临时目录, MinIO 上传由 Taskiq worker 异步执行."""
     if not model_id and not name:
         raise BadRequestException("请提供模型名称或模型 ID")
     tenant_id = _require_tenant_id(user)
-    tenant = await _get_tenant_or_fail(db, tenant_id)
 
-    # 关联训练任务（可选）  # noqa: RUF003
     dataset_id: uuid.UUID | None = None
     dataset_version_id: uuid.UUID | None = None
     image_id: uuid.UUID | None = None
@@ -345,44 +344,30 @@ async def register_model_local(
         result = await db.execute(select(RegisteredModel).where(RegisteredModel.id == model_id))
         model = result.scalar_one()
     else:
-        assert name is not None  # validated above
+        assert name is not None
         model = await _get_or_create_registered_model(db, tenant_id, user.id, name)
 
     version_number = await _next_version_number(db, model.id)
     storage_path = f"models/{sanitize_k8s_name(model.name)}/v{version_number}"
 
-    # 确保 MinIO bucket 存在
-    await minio.ensure_bucket(tenant.name)
+    # 保存文件到临时目录供 Taskiq worker 处理
+    temp_dir = tempfile.mkdtemp(prefix=f"kubeai_model_{model.id}_")
+    for f in files:
+        content = await f.read()
+        file_path = f"{temp_dir}/{f.filename}"
+        with open(file_path, "wb") as dest:
+            dest.write(content)
 
-    # 逐个上传文件到 MinIO
-    total_size = 0
-    file_count = 0
-    for file in files:
-        content = await file.read()
-        object_name = f"{storage_path}/{file.filename}"
-        try:
-            await minio.upload_stream(
-                tenant_name=tenant.name,
-                object_name=object_name,
-                data=io.BytesIO(content),
-                length=len(content),
-                content_type=file.content_type or "application/octet-stream",
-            )
-        except Exception as e:
-            raise BadRequestException(f"文件上传失败: {file.filename} - {e}") from e
-        total_size += len(content)
-        file_count += 1
-
-    # 创建模型版本记录（直接标记为 AVAILABLE）  # noqa: RUF003
+    # 创建模型版本记录 (UPLOADING 状态)
     version = ModelVersion(
         registered_model_id=model.id,
         version_number=version_number,
         description=description,
         storage_path=storage_path,
-        status=ModelVersionStatus.AVAILABLE,
+        status=ModelVersionStatus.UPLOADING,
         upload_job_name=None,
-        file_count=file_count,
-        total_size_bytes=total_size,
+        file_count=0,
+        total_size_bytes=0,
         training_job_id=training_job_id,
         dataset_id=dataset_id,
         dataset_version_id=dataset_version_id,
@@ -392,7 +377,6 @@ async def register_model_local(
     )
     db.add(version)
 
-    # 审计日志
     audit_service = AuditService(db)
     await audit_service.log_action(
         action="register",
@@ -401,20 +385,16 @@ async def register_model_local(
         user_id=user.id,
         tenant_id=tenant_id,
         resource_id=str(version.id),
-        detail={
-            "model_name": model.name,
-            "version_number": version_number,
-            "file_count": file_count,
-            "total_size_bytes": total_size,
-            "upload_method": "local",
-        },
+        detail={"model_name": model.name, "version_number": version_number, "upload_method": "local"},
         user_agent=_audit_ctx(request, user).get("user_agent"),
         request_id=_audit_ctx(request, user).get("request_id"),
     )
 
     await db.flush()
     await db.refresh(version)
-    return BaseResponse(data=_build_version_response(version), message="模型本地上传成功")
+    await enqueue_model_files_upload(version.id, tenant_id, temp_dir)
+
+    return BaseResponse(data=_build_version_response(version), message="模型上传任务已提交")
 
 
 @router.get("", response_model=PageResponse[RegisteredModelResponse])
@@ -689,26 +669,26 @@ async def delete_model_version(
     minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "manage"))],
 ) -> BaseResponse[None]:
-    """删除指定模型版本及其 MinIO 文件。"""
+    """删除指定模型版本 — DB 记录立即删除, MinIO 清理由 Taskiq worker 异步执行."""
     tenant_id = _require_tenant_id(user)
     await _verify_model_tenant(db, model_id, tenant_id)
     version = await _get_version_or_fail(db, version_id, model_id)
 
-    # 检查是否还有其它版本 — 至少保留一个版本时不能删最后一个版本通过模型级删除
     result = await db.execute(select(func.count(ModelVersion.id)).where(ModelVersion.registered_model_id == model_id))
     version_count = result.scalar_one()
     if version_count <= 1:
-        raise BadRequestException("模型至少需要保留一个版本，请直接删除整个模型")  # noqa: RUF001
+        raise BadRequestException("模型至少需要保留一个版本, 请直接删除整个模型")
 
-    # 删除 MinIO 文件
     tenant = await _get_tenant_or_fail(db, tenant_id)
-    deleted_count = await _delete_version_minio_objects(minio, tenant.name, version.storage_path)
+    storage_path = version.storage_path
 
-    # 删除 DB 记录
     await db.delete(version)
     await db.commit()
 
-    return BaseResponse(message=f"版本 v{version.version_number} 已删除（清理了 {deleted_count} 个文件）")  # noqa: RUF001
+    # 异步清理 MinIO 文件
+    await enqueue_model_objects_delete(tenant.name, [storage_path])
+
+    return BaseResponse(message=f"版本 v{version.version_number} 已删除")
 
 
 @router.delete("/{model_id}", response_model=BaseResponse[None])
@@ -719,20 +699,16 @@ async def delete_registered_model(
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("models", "manage"))],
 ) -> BaseResponse[None]:
-    """删除整个模型及其所有版本和 MinIO 文件。"""
+    """删除整个模型 — DB 记录立即删除, MinIO 清理由 Taskiq worker 异步执行."""
     tenant_id = _require_tenant_id(user)
     await _verify_model_tenant(db, model_id, tenant_id)
 
     result = await db.execute(select(RegisteredModel).where(RegisteredModel.id == model_id))
     model = result.scalar_one()
 
-    # 删除所有版本的 MinIO 文件
     tenant = await _get_tenant_or_fail(db, tenant_id)
-    total_deleted = 0
-    for version in model.versions:
-        total_deleted += await _delete_version_minio_objects(minio, tenant.name, version.storage_path)
+    storage_paths = [v.storage_path for v in model.versions]
 
-    # 审计日志
     audit_service = AuditService(db)
     await audit_service.log_action(
         action="delete",
@@ -741,19 +717,14 @@ async def delete_registered_model(
         user_id=user.id,
         tenant_id=tenant_id,
         resource_id=str(model_id),
-        detail={
-            "model_name": model.name,
-            "version_count": len(model.versions),
-            "files_deleted": total_deleted,
-        },
+        detail={"model_name": model.name, "version_count": len(model.versions)},
         user_agent=_audit_ctx(request, user).get("user_agent"),
         request_id=_audit_ctx(request, user).get("request_id"),
     )
 
-    # 级联删除(RegisteredModel -> ModelVersion via cascade)
     await db.delete(model)
     await db.commit()
 
-    return BaseResponse(
-        message=f"模型 {model.name} 已删除（清理了 {len(model.versions)} 个版本、{total_deleted} 个文件）"  # noqa: RUF001
-    )
+    await enqueue_model_objects_delete(tenant.name, storage_paths)
+
+    return BaseResponse(message=f"模型 {model.name} 已删除")

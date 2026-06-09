@@ -24,6 +24,7 @@ from app.schemas.annotation import (
 )
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.services.annotation_service import AnnotationService
+from app.tasks.annotation_tasks import enqueue_annotation_project_create, enqueue_annotation_project_sync
 
 router = APIRouter(prefix="/annotations", tags=["annotations"])
 
@@ -115,6 +116,7 @@ async def create_project(
         label_config=req.label_config,
         audit_context=_audit_ctx(request, user),
     )
+    await enqueue_annotation_project_create(project.id, tenant_id)
     base = _build_project_response(project)
     detail = AnnotationProjectDetailResponse(
         **base.model_dump(),
@@ -412,17 +414,14 @@ async def sync_project_tasks(
     project_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
 ) -> BaseResponse[SyncTasksResponse]:
     tenant_id = _require_tenant_id(user)
     service = AnnotationService(db, ls)
-    count = await service.sync_project_tasks(
-        project_id=project_id,
-        tenant_id=tenant_id,
-        audit_context=_audit_ctx(request, user),
-    )
+    # Validate project exists
+    await service.get_project(project_id=project_id, tenant_id=tenant_id)
+    await enqueue_annotation_project_sync(project_id, tenant_id)
     return BaseResponse(
-        data=SyncTasksResponse(synced_count=count),
-        message=f"同步完成, 新增 {count} 个任务",
+        data=SyncTasksResponse(synced_count=0),
+        message="任务同步已提交",
     )

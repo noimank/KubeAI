@@ -1,3 +1,5 @@
+import os
+import tempfile
 import uuid
 from datetime import date
 from typing import Annotated, Any
@@ -23,6 +25,7 @@ from app.schemas.dataset import (
     VersionStatsResponse,
 )
 from app.services.dataset_service import DatasetService
+from app.tasks.dataset_tasks import enqueue_dataset_files_upload
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -197,14 +200,24 @@ async def upload_files(
 ) -> BaseResponse[list[FileUploadResponse]]:
     tenant_id = _require_tenant_id(user)
     service = DatasetService(db)
-    results = await service.upload_files_to_version(
-        tenant_id=tenant_id,
-        dataset_id=dataset_id,
-        version_id=version_id,
-        files=files,
-    )
-    data = [FileUploadResponse(**r) for r in results]
-    return BaseResponse(data=data, message="文件上传成功")
+    # Validate dataset/version exists
+    await service.get_dataset(dataset_id=dataset_id, tenant_id=tenant_id)
+
+    # Save files to temp directory for Taskiq worker
+    temp_dir = tempfile.mkdtemp(prefix=f"kubeai_dataset_{dataset_id}_")
+    for f in files:
+        content = await f.read()
+        file_path = os.path.join(temp_dir, f.filename or "file")
+        with open(file_path, "wb") as dest:
+            dest.write(content)
+
+    await enqueue_dataset_files_upload(version_id, tenant_id, temp_dir)
+
+    placeholder = [
+        FileUploadResponse(file_name=f.filename or "file", storage_path="", size_bytes=0, content_type="")
+        for f in files
+    ]
+    return BaseResponse(data=placeholder, message="文件上传任务已提交")
 
 
 @router.delete("/{dataset_id}/versions/{version_id}", response_model=BaseResponse[None])

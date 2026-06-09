@@ -211,10 +211,9 @@ class ImageService:
         tenant_id: uuid.UUID,
         audit_context: dict[str, Any] | None = None,
     ) -> Image:
+        """创建镜像构建记录 (仅 DB 操作, 构建由 Taskiq worker 异步执行)."""
         if not dockerfile.strip():
             raise BadRequestException("Dockerfile 内容不能为空")
-
-        tenant_name = await self._get_tenant_name(tenant_id)
 
         image = Image(
             name=name,
@@ -231,9 +230,29 @@ class ImageService:
         await self.db.flush()
         await self.db.refresh(image)
 
-        namespace = f"{K8S_NAMESPACE_PREFIX}{sanitize_k8s_name(tenant_name)}"
+        # 设置 build_job_name (K8s 资源名, 确定性生成)
         job_name = k8s_job.make_job_name(name)
-        cm_name = k8s_job.make_configmap_name(name)
+        image.build_job_name = job_name
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.BUILD,
+                resource_id=str(image.id),
+                detail={"name": name},
+                **audit_context,
+            )
+
+        await self.db.commit()
+        await self.db.refresh(image)
+        return image
+
+    async def execute_image_build(self, image_id: uuid.UUID, tenant_id: uuid.UUID) -> Image:
+        """由 Taskiq worker 调用: 执行 Harbor + K8s 镜像构建操作链."""
+        image = await self._get_image_or_fail(image_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
+        namespace = f"{K8S_NAMESPACE_PREFIX}{sanitize_k8s_name(tenant_name)}"
+        cm_name = k8s_job.make_configmap_name(image.name)
+        job_name = image.build_job_name or k8s_job.make_job_name(image.name)
 
         try:
             harbor_project = f"{settings.HARBOR_PROJECT_PREFIX}{sanitize_k8s_name(tenant_name)}"
@@ -246,12 +265,16 @@ class ImageService:
                 data=harbor_dockerconfig,
             )
 
-            await k8s_job.create_configmap(namespace=namespace, name=cm_name, data={"Dockerfile": dockerfile})
+            await k8s_job.create_configmap(
+                namespace=namespace,
+                name=cm_name,
+                data={"Dockerfile": image.dockerfile or ""},
+            )
 
             destination = get_harbor_client().make_harbor_image_ref(
                 tenant_name=tenant_name,
-                name=name,
-                tag=tag,
+                name=image.name,
+                tag=image.tag,
             )
             job_obj = k8s_job.create_build_job(
                 namespace=namespace,
@@ -263,22 +286,13 @@ class ImageService:
             await k8s_job.submit_job(namespace=namespace, job=job_obj)
 
             image.build_job_name = job_name
-            await self.db.flush()
+            await self.db.commit()
+            await self.db.refresh(image)
         except Exception:
             image.build_status = BuildStatus.FAILED
-            await self.db.flush()
+            await self.db.commit()
             raise
 
-        if audit_context:
-            await self._log_audit(
-                action=AuditAction.BUILD,
-                resource_id=str(image.id),
-                detail={"name": name},
-                **audit_context,
-            )
-
-        await self.db.commit()
-        await self.db.refresh(image)
         return image
 
     async def get_build_log(self, image_id: uuid.UUID) -> str:
@@ -296,6 +310,7 @@ class ImageService:
         image_id: uuid.UUID,
         audit_context: dict[str, Any] | None = None,
     ) -> Image:
+        """标记镜像重新构建 (仅 DB 操作, 构建由 Taskiq worker 异步执行)."""
         image = await self._get_image_or_fail(image_id)
 
         if image.source != "custom":
@@ -305,42 +320,9 @@ class ImageService:
         if image.build_status not in (BuildStatus.FAILED, BuildStatus.SUCCEEDED):
             raise BadRequestException("仅失败或已完成的镜像可重新构建")
 
-        tenant_name = await self._get_tenant_name(image.tenant_id)
-        namespace = f"{K8S_NAMESPACE_PREFIX}{sanitize_k8s_name(tenant_name)}"
-        if image.build_job_name:
-            old_cm_name = k8s_job.make_configmap_name(image.name)
-            try:
-                await k8s_job.delete_configmap(namespace=namespace, name=old_cm_name)
-            except Exception:
-                logger.warning("Failed to delete old ConfigMap %s in rebuild", old_cm_name, exc_info=True)
-            await k8s_job.delete_job(namespace=namespace, job_name=image.build_job_name)
-
-        job_name = k8s_job.make_job_name(image.name)
-        cm_name = k8s_job.make_configmap_name(image.name)
-
-        await k8s_job.create_configmap(
-            namespace=namespace,
-            name=cm_name,
-            data={"Dockerfile": image.dockerfile or ""},
-        )
-
-        destination = get_harbor_client().make_harbor_image_ref(
-            tenant_name=tenant_name,
-            name=image.name,
-            tag=image.tag,
-        )
-        job_obj = k8s_job.create_build_job(
-            namespace=namespace,
-            job_name=job_name,
-            dockerfile_configmap=cm_name,
-            destination=destination,
-            harbor_url=settings.HARBOR_URL,
-        )
-        await k8s_job.submit_job(namespace=namespace, job=job_obj)
-
         image.build_status = BuildStatus.PENDING
-        image.build_job_name = job_name
         image.is_enabled = False
+        image.build_job_name = k8s_job.make_job_name(image.name)
         await self.db.flush()
 
         if audit_context:
@@ -353,6 +335,68 @@ class ImageService:
 
         await self.db.commit()
         await self.db.refresh(image)
+        return image
+
+    async def execute_image_rebuild(self, image_id: uuid.UUID, tenant_id: uuid.UUID) -> Image:
+        """由 Taskiq worker 调用: 清理旧 K8s 资源 + 重新执行 Harbor + K8s 构建操作链."""
+        image = await self._get_image_or_fail(image_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
+        namespace = f"{K8S_NAMESPACE_PREFIX}{sanitize_k8s_name(tenant_name)}"
+
+        # 清理旧的构建资源
+        old_cm_name = k8s_job.make_configmap_name(image.name)
+        try:
+            await k8s_job.delete_configmap(namespace=namespace, name=old_cm_name)
+        except Exception:
+            logger.warning("Failed to delete old ConfigMap %s in rebuild", old_cm_name, exc_info=True)
+        if image.build_job_name:
+            try:
+                await k8s_job.delete_job(namespace=namespace, job_name=image.build_job_name)
+            except Exception:
+                logger.warning("Failed to delete old Job %s in rebuild", image.build_job_name, exc_info=True)
+
+        job_name = k8s_job.make_job_name(image.name)
+        cm_name = k8s_job.make_configmap_name(image.name)
+
+        try:
+            harbor_project = f"{settings.HARBOR_PROJECT_PREFIX}{sanitize_k8s_name(tenant_name)}"
+            await get_harbor_client().ensure_project(harbor_project)
+
+            harbor_dockerconfig = get_harbor_client().make_harbor_dockerconfig()
+            await k8s_secret.create_secret(
+                namespace=namespace,
+                name=k8s_job.HARBOR_SECRET_NAME,
+                data=harbor_dockerconfig,
+            )
+
+            await k8s_job.create_configmap(
+                namespace=namespace,
+                name=cm_name,
+                data={"Dockerfile": image.dockerfile or ""},
+            )
+
+            destination = get_harbor_client().make_harbor_image_ref(
+                tenant_name=tenant_name,
+                name=image.name,
+                tag=image.tag,
+            )
+            job_obj = k8s_job.create_build_job(
+                namespace=namespace,
+                job_name=job_name,
+                dockerfile_configmap=cm_name,
+                destination=destination,
+                harbor_url=settings.HARBOR_URL,
+            )
+            await k8s_job.submit_job(namespace=namespace, job=job_obj)
+
+            image.build_job_name = job_name
+            await self.db.commit()
+            await self.db.refresh(image)
+        except Exception:
+            image.build_status = BuildStatus.FAILED
+            await self.db.commit()
+            raise
+
         return image
 
     async def sync_build_status(self, image: Image) -> Image:

@@ -46,3 +46,44 @@ async def run_annotation_callback_task(project_id: str, tenant_id: str) -> dict[
 async def enqueue_annotation_callback(project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
     """将标注回流任务入队 (从 API endpoint 或 service 调用)."""
     await run_annotation_callback_task.kiq(str(project_id), str(tenant_id))
+
+
+# ── Project creation / sync tasks ─────────────────────────────────────────────
+
+
+@broker.task(
+    task_name="app.tasks.annotation.create_project",
+    retry_on_error=True,
+    max_retries=settings.TASK_MAX_RETRIES,
+)
+async def create_annotation_project_task(project_id: str, tenant_id: str) -> dict[str, Any]:
+    """创建标注项目的 LabelStudio 资源 + 导入任务 (由 Taskiq worker 执行)."""
+    async with async_session_factory() as db:
+        ls_client = get_labelstudio_client()
+        svc = AnnotationService(db, ls_client)
+        await svc.execute_project_setup(uuid.UUID(project_id), uuid.UUID(tenant_id))
+
+    return {"project_id": project_id, "status": "completed"}
+
+
+@broker.task(
+    task_name="app.tasks.annotation.sync_tasks",
+    retry_on_error=True,
+    max_retries=1,
+)
+async def sync_annotation_project_tasks_task(project_id: str, tenant_id: str) -> dict[str, Any]:
+    """同步标注项目任务 (枚举新文件 + 导入 LabelStudio, 由 Taskiq worker 执行)."""
+    async with async_session_factory() as db:
+        ls_client = get_labelstudio_client()
+        svc = AnnotationService(db, ls_client)
+        await svc.execute_sync_tasks(uuid.UUID(project_id), uuid.UUID(tenant_id))
+
+    return {"project_id": project_id, "status": "synced"}
+
+
+async def enqueue_annotation_project_create(project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    await create_annotation_project_task.kiq(str(project_id), str(tenant_id))
+
+
+async def enqueue_annotation_project_sync(project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    await sync_annotation_project_tasks_task.kiq(str(project_id), str(tenant_id))

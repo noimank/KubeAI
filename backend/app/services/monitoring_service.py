@@ -243,6 +243,7 @@ class MonitoringService:
         }
 
     async def transfer_quota(self, req: QuotaTransferRequest, audit_context: dict[str, Any]) -> None:
+        """调配配额 — 校验 + DB 写入。K8s ResourceQuota 同步由 Taskiq worker 异步执行."""
         if req.source_tenant_id == req.target_tenant_id:
             raise BadRequestException("源租户和目标租户不能相同")
 
@@ -306,23 +307,6 @@ class MonitoringService:
         self._set_tenant_quota_value(target, resource_type, target_new_quota)
         await self.db.flush()
 
-        # Sync K8s ResourceQuota for both tenants
-        for tenant in [source, target]:
-            try:
-                await update_resource_quota(
-                    namespace=tenant.k8s_namespace_name,  # type: ignore[arg-type]
-                    gpu_limit=tenant.gpu_limit,
-                    cpu_limit=tenant.cpu_limit,
-                    memory_limit=tenant.memory_limit,
-                    storage_limit=tenant.storage_limit,
-                )
-            except Exception:
-                logger.error(
-                    "K8s ResourceQuota 同步失败: tenant=%s",
-                    tenant.id,
-                    exc_info=True,
-                )
-
         # Audit log
         audit_svc = AuditService(self.db)
         await audit_svc.log_action(
@@ -340,6 +324,23 @@ class MonitoringService:
             tenant_id=source.id,
             **audit_context,
         )
+
+    async def execute_quota_transfer(self, req: QuotaTransferRequest) -> None:
+        """由 Taskiq worker 调用: 同步 K8s ResourceQuota (仅写操作)."""
+        source = await self._get_active_tenant(req.source_tenant_id)
+        target = await self._get_active_tenant(req.target_tenant_id)
+
+        for tenant in [source, target]:
+            try:
+                await update_resource_quota(
+                    namespace=tenant.k8s_namespace_name,  # type: ignore[arg-type]
+                    gpu_limit=tenant.gpu_limit,
+                    cpu_limit=tenant.cpu_limit,
+                    memory_limit=tenant.memory_limit,
+                    storage_limit=tenant.storage_limit,
+                )
+            except Exception:
+                logger.error("K8s ResourceQuota 同步失败: tenant=%s", tenant.id, exc_info=True)
 
     def _parse_amount(self, resource_type: str, amount: str) -> int | float:
         if resource_type == "gpu":

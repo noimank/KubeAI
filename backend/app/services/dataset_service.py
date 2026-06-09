@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -68,6 +69,45 @@ class DatasetService:
 
         await self.db.commit()
         return dataset
+
+    async def execute_files_upload(
+        self,
+        version_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        temp_dir: str,
+    ) -> None:
+        """由 Taskiq worker 调用: 上传文件到存储并更新版本统计."""
+        from app.models.dataset import DatasetVersion
+
+        result = await self.db.execute(select(DatasetVersion).where(DatasetVersion.id == version_id))
+        version = result.scalar_one_or_none()
+        if not version:
+            return
+
+        dataset = await self._get_dataset_or_fail(version.dataset_id, tenant_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
+
+        total_size = 0
+        file_count = 0
+        for entry in os.scandir(temp_dir):
+            if entry.is_file():
+                with open(entry.path, "rb") as f:
+                    content = f.read()
+                await self.storage.upload_file(
+                    tenant_name=tenant_name,
+                    dataset_name=dataset.name,
+                    version_number=version.version_number,
+                    filename=entry.name,
+                    content=content,
+                    content_type="application/octet-stream",
+                )
+                total_size += len(content)
+                file_count += 1
+
+        version.file_count += file_count
+        version.total_size_bytes += total_size
+        await self.db.flush()
+        await self.db.commit()
 
     async def upload_files_to_version(
         self,

@@ -32,7 +32,16 @@ from app.schemas.inference_service import (
     TokenRegenerateResponse,
 )
 from app.services.inference_service import InferenceServiceService
-from app.tasks.inference_service_tasks import enqueue_inference_service_deploy
+from app.tasks.inference_service_tasks import (
+    enqueue_canary_promote,
+    enqueue_canary_rollback,
+    enqueue_canary_start,
+    enqueue_inference_service_delete,
+    enqueue_inference_service_deploy,
+    enqueue_inference_service_scale,
+    enqueue_inference_service_start,
+    enqueue_inference_service_stop,
+)
 
 router = APIRouter(prefix="/inference-services", tags=["inference-services"])
 
@@ -156,6 +165,7 @@ async def start_inference_service(
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
     svc = await service.start_inference_service(service_id, tenant_id)
+    await enqueue_inference_service_start(svc.id, tenant_id)
     resp = _to_response(svc)
     return BaseResponse(data=resp, message="推理服务启动中")
 
@@ -169,6 +179,7 @@ async def stop_inference_service(
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
     svc = await service.stop_inference_service(service_id, tenant_id)
+    await enqueue_inference_service_stop(svc.id, tenant_id)
     resp = _to_response(svc)
     return BaseResponse(data=resp, message="推理服务已停止")
 
@@ -183,6 +194,7 @@ async def scale_inference_service(
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
     svc = await service.scale_inference_service(service_id, tenant_id, req.replicas)
+    await enqueue_inference_service_scale(svc.id, tenant_id, req.replicas)
     resp = InferenceServiceScaleResponse.model_validate(svc)
     resp.has_token = svc.auth_token_hash is not None
     return BaseResponse(data=resp, message="副本数调整成功")
@@ -196,7 +208,22 @@ async def delete_inference_service(
 ) -> BaseResponse[InferenceServiceResponse]:
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
+    tenant = await db.get(Tenant, tenant_id)
+    namespace = (tenant.k8s_namespace_name or make_namespace_name(tenant.name)) if tenant else ""
+
+    # 提取 K8s 资源名 (DB 删除后无法再查询)
+    svc = await service.get_inference_service(service_id, tenant_id)
+
     svc = await service.delete_inference_service(service_id, tenant_id)
+    await enqueue_inference_service_delete(
+        service_type=svc.service_type,
+        namespace=namespace,
+        scaling_mode=svc.scaling_mode,
+        kserve_name=svc.kserve_name,
+        k8s_deployment_name=svc.k8s_deployment_name,
+        k8s_service_name=svc.k8s_service_name,
+        canary_kserve_name=svc.canary_kserve_name,
+    )
     resp = _to_response(svc)
     return BaseResponse(data=resp, message="推理服务已删除")
 
@@ -301,6 +328,7 @@ async def start_canary(
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
     svc = await service.start_canary(service_id, tenant_id, req)
+    await enqueue_canary_start(svc.id, tenant_id)
     resp = _to_response(svc)
     await _enrich_with_model_version(db, resp)
     return BaseResponse(data=resp, message="金丝雀版本部署中")
@@ -316,6 +344,11 @@ async def update_canary_traffic(
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
     svc = await service.update_canary_traffic(service_id, tenant_id, req)
+    # 100% → 触发异步 promote, 0% → 触发异步 rollback
+    if req.canary_traffic_percent == 100:
+        await enqueue_canary_promote(svc.id, tenant_id)
+    elif req.canary_traffic_percent == 0:
+        await enqueue_canary_rollback(svc.id, tenant_id)
     resp = _to_response(svc)
     await _enrich_with_model_version(db, resp)
     return BaseResponse(data=resp, message="金丝雀流量已调整")
@@ -330,6 +363,7 @@ async def promote_canary(
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
     svc = await service.promote_canary(service_id, tenant_id)
+    await enqueue_canary_promote(svc.id, tenant_id)
     resp = _to_response(svc)
     await _enrich_with_model_version(db, resp)
     return BaseResponse(data=resp, message="金丝雀版本已提升为稳定版本")
@@ -344,6 +378,7 @@ async def rollback_canary(
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
     svc = await service.rollback_canary(service_id, tenant_id)
+    await enqueue_canary_rollback(svc.id, tenant_id)
     resp = _to_response(svc)
     await _enrich_with_model_version(db, resp)
     return BaseResponse(data=resp, message="金丝雀版本已回滚")

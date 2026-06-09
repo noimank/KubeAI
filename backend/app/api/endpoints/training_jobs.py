@@ -23,6 +23,11 @@ from app.schemas.training_job import (
     TrainingMetricsResponse,
 )
 from app.services.training_job_service import TrainingJobService
+from app.tasks.training_job_tasks import (
+    enqueue_delete_training_job,
+    enqueue_stop_training_job,
+    enqueue_submit_training_job,
+)
 
 router = APIRouter(prefix="/training-jobs", tags=["training-jobs"])
 
@@ -56,7 +61,7 @@ async def create_training_job(
         hyperparams = [{"key": h.key, "value": h.value} for h in req.hyperparameters]
 
     tenant_id = _require_tenant_id(user)
-    job = await service.create_training_job(
+    job = await service.create_training_job_record(
         tenant_id=tenant_id,
         user_id=user.id,
         name=req.name,
@@ -75,6 +80,7 @@ async def create_training_job(
         metrics_port=req.metrics_port,
         source_experiment_id=req.source_experiment_id,
     )
+    await enqueue_submit_training_job(job.id, tenant_id)
     username = getattr(user, "username", "")
     return BaseResponse(
         data=_to_response(job, workspace_path="/workspace", home_path=f"/home/{sanitize_k8s_name(username)}"),
@@ -112,6 +118,7 @@ async def create_from_environment(
         hyperparameters=hyperparams,
         metrics_port=req.metrics_port,
     )
+    await enqueue_submit_training_job(job.id, tenant_id)
     return BaseResponse(data=_to_response(job), message="训练任务创建成功")
 
 
@@ -162,7 +169,8 @@ async def stop_training_job(
 ) -> BaseResponse[TrainingJobResponse]:
     service = TrainingJobService(db)
     tenant_id = _require_tenant_id(user)
-    job = await service.stop_training_job(training_job_id, tenant_id)
+    job = await service.stop_training_job_record(training_job_id, tenant_id)
+    await enqueue_stop_training_job(job.id, tenant_id)
     return BaseResponse(data=_to_response(job), message="任务已停止")
 
 
@@ -175,7 +183,21 @@ async def retry_training_job(
     service = TrainingJobService(db)
     tenant_id = _require_tenant_id(user)
     job = await service.retry_training_job(training_job_id, tenant_id, user.id)
+    await enqueue_submit_training_job(job.id, tenant_id)
     return BaseResponse(data=_to_response(job), message="重试任务已创建")
+
+
+@router.delete("/{training_job_id}", response_model=BaseResponse[None])
+async def delete_training_job(
+    training_job_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("training_jobs", "write"))],
+) -> BaseResponse[None]:
+    service = TrainingJobService(db)
+    tenant_id = _require_tenant_id(user)
+    vcjob_name, namespace = await service.delete_training_job_record(training_job_id, tenant_id)
+    await enqueue_delete_training_job(vcjob_name, namespace)
+    return BaseResponse(message="训练任务已删除")
 
 
 @router.get("/{training_job_id}/pods", response_model=BaseResponse[list[PodInfoResponse]])

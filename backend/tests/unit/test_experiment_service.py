@@ -411,9 +411,9 @@ class TestEnrichExperimentNewFields:
 
 class TestMLflowClientDegradation:
     async def test_get_mlflow_client_returns_none_when_not_initialized(self):
-        from app.core.events import get_mlflow_client
+        from app.core.clients import get_mlflow_client
 
-        with patch("app.core.events.mlflow_client", None):
+        with patch("app.core.clients.settings.MLFLOW_ENABLED", False), patch("app.core.clients._mlflow_client", None):
             assert get_mlflow_client() is None
 
     async def test_search_experiments_returns_empty_on_failure(self):

@@ -17,6 +17,7 @@ from app.schemas.image import (
     ImageUpdateRequest,
 )
 from app.services.image_service import ImageService
+from app.tasks.image_tasks import enqueue_image_build, enqueue_image_rebuild
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -156,6 +157,7 @@ async def build_image(
         tenant_id=tenant_id,
         audit_context=_audit_ctx(request, user),
     )
+    await enqueue_image_build(image.id, tenant_id)
     return BaseResponse(data=_to_response(image), message="构建任务已提交")
 
 
@@ -189,6 +191,8 @@ async def rebuild_image(
         image_id=image_id,
         audit_context=_audit_ctx(request, user),
     )
+    if image.tenant_id:
+        await enqueue_image_rebuild(image.id, image.tenant_id)
     return BaseResponse(data=_to_response(image), message="重新构建已提交")
 
 

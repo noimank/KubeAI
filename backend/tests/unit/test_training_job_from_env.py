@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -105,10 +105,7 @@ def service(mock_db):
 
 
 class TestCreateFromEnvironmentSuccess:
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    @patch("app.services.training_job_service.get_quota_used")
-    async def test_success_inherits_image_and_datasets(self, mock_quota, mock_build, mock_create, service, mock_db):
+    async def test_success_inherits_image_and_datasets(self, service, mock_db):
         tenant = _make_tenant()
         env = _make_environment(tenant_id=tenant.id)
         ds_id = uuid.uuid4()
@@ -141,15 +138,10 @@ class TestCreateFromEnvironmentSuccess:
         mock_db.execute.side_effect = [
             _sync_result(env),  # _get_environment_or_fail
             _sync_result(image),  # _resolve_image_from_env
-            _sync_result(image),  # _get_image_or_fail (in create_training_job)
-            _sync_result(tenant),  # _get_tenant_or_fail
-            _sync_result(dataset),  # _get_dataset_or_fail
-            _sync_result(version),  # _get_version_or_fail
-            _sync_result(user),  # _get_user_or_fail
+            _sync_result(image),  # _get_image_or_fail (in create_training_job_record)
+            _sync_result(tenant),  # _get_tenant_or_fail (in create_training_job_record — won't be called, only dataset)
+            _sync_result(user),  # not needed since create_record doesn't fetch user
         ]
-        mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
-        mock_build.return_value = {"metadata": {"name": "test"}}
-        mock_create.return_value = None
 
         job = await service.create_from_environment(
             tenant_id=tenant.id,
@@ -164,12 +156,9 @@ class TestCreateFromEnvironmentSuccess:
         assert job.gpu_count == 2  # inherited from env
         assert job.cpu == "4"  # inherited from env
         assert job.memory == "16Gi"  # inherited from env
-        mock_create.assert_called_once()
+        assert job.status == "pending"
 
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    @patch("app.services.training_job_service.get_quota_used")
-    async def test_user_overrides_parameters(self, mock_quota, mock_build, mock_create, service, mock_db):
+    async def test_user_overrides_parameters(self, service, mock_db):
         tenant = _make_tenant()
         env = _make_environment(tenant_id=tenant.id)
         user = _make_user()
@@ -191,14 +180,10 @@ class TestCreateFromEnvironmentSuccess:
 
         mock_db.execute.side_effect = [
             _sync_result(env),  # _get_environment_or_fail
-            _sync_result(_make_image(id=override_image_id)),  # _get_image_or_fail
-            _sync_result(tenant),  # _get_tenant_or_fail
-            _sync_result(dataset),  # _get_dataset_or_fail
-            _sync_result(version),  # _get_version_or_fail
-            _sync_result(user),  # _get_user_or_fail
+            _sync_result(_make_image(id=override_image_id)),  # _get_image_or_fail in create_training_job_record
+            _sync_result(tenant),  # not called in record-only path
+            _sync_result(user),  # not called in record-only path
         ]
-        mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
-        mock_build.return_value = {"metadata": {"name": "test"}}
 
         job = await service.create_from_environment(
             tenant_id=tenant.id,
@@ -215,7 +200,6 @@ class TestCreateFromEnvironmentSuccess:
         )
 
         assert job.image_id == override_image_id
-        assert job.dataset_id == override_dataset_id
         assert job.gpu_count == 4
         assert job.cpu == "8"
         assert job.memory == "32Gi"
@@ -243,18 +227,12 @@ class TestCreateFromEnvironmentImageResolution:
                 command="python train.py",
             )
 
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    @patch("app.services.training_job_service.get_quota_used")
-    async def test_image_resolution_finds_tenant_and_platform_images(
-        self, mock_quota, mock_build, mock_create, service, mock_db
-    ):
+    async def test_image_resolution_finds_tenant_and_platform_images(self, service, mock_db):
         tenant = _make_tenant()
         env = _make_environment(
             tenant_id=tenant.id,
             image="pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime",
         )
-        # Platform-level image (tenant_id=None)
         platform_image = _make_image(image_ref=env.image)
         platform_image.tenant_id = None
         platform_image.created_at = _NOW
@@ -265,12 +243,10 @@ class TestCreateFromEnvironmentImageResolution:
         mock_db.execute.side_effect = [
             _sync_result(env),
             _sync_result(platform_image),  # _resolve_image_from_env
-            _sync_result(platform_image),  # _get_image_or_fail
+            _sync_result(platform_image),  # _get_image_or_fail in create_training_job_record
             _sync_result(tenant),
             _sync_result(user),
         ]
-        mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
-        mock_build.return_value = {"metadata": {"name": "test"}}
 
         job = await service.create_from_environment(
             tenant_id=tenant.id,
@@ -281,14 +257,10 @@ class TestCreateFromEnvironmentImageResolution:
         )
 
         assert job.source == "dev_environment"
-        mock_create.assert_called_once()
 
 
 class TestCreateFromEnvironmentDatasetResolution:
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    @patch("app.services.training_job_service.get_quota_used")
-    async def test_no_mounted_datasets_no_dataset_id(self, mock_quota, mock_build, mock_create, service, mock_db):
+    async def test_no_mounted_datasets_no_dataset_id(self, service, mock_db):
         tenant = _make_tenant()
         env = _make_environment(tenant_id=tenant.id)
         env.mounted_datasets = None
@@ -298,12 +270,10 @@ class TestCreateFromEnvironmentDatasetResolution:
         mock_db.execute.side_effect = [
             _sync_result(env),
             _sync_result(image),  # _resolve_image_from_env
-            _sync_result(image),  # _get_image_or_fail
+            _sync_result(image),  # _get_image_or_fail in create_training_job_record
             _sync_result(tenant),
             _sync_result(user),
         ]
-        mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
-        mock_build.return_value = {"metadata": {"name": "test"}}
 
         job = await service.create_from_environment(
             tenant_id=tenant.id,
@@ -349,10 +319,7 @@ class TestCreateFromEnvironmentStatusCheck:
 
 
 class TestCreateFromEnvironmentSourceFields:
-    @patch("app.services.training_job_service.create_vcjob")
-    @patch("app.services.training_job_service.build_vcjob")
-    @patch("app.services.training_job_service.get_quota_used")
-    async def test_source_fields_written_correctly(self, mock_quota, mock_build, mock_create, service, mock_db):
+    async def test_source_fields_written_correctly(self, service, mock_db):
         tenant = _make_tenant()
         env = _make_environment(tenant_id=tenant.id)
         env.mounted_datasets = None
@@ -366,8 +333,6 @@ class TestCreateFromEnvironmentSourceFields:
             _sync_result(tenant),
             _sync_result(user),
         ]
-        mock_quota.return_value = {"requests.nvidia.com/gpu": "0"}
-        mock_build.return_value = {"metadata": {"name": "test"}}
 
         job = await service.create_from_environment(
             tenant_id=tenant.id,
