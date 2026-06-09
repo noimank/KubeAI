@@ -6,6 +6,7 @@ import { Header } from './components/Header'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
 import { useRbacStore } from '@/stores/rbacStore'
 import { useThemeStore } from '@/stores/themeStore'
+import { APP_TITLE } from '@/utils/constants'
 
 const NAVIGATE_MAP: Record<string, string> = {
   '/dashboard': '工作台',
@@ -45,7 +46,7 @@ export default function MainLayout() {
 
   return (
     <ProLayout
-      title="KubeAI"
+      title={APP_TITLE}
       logo="/favicon.svg"
       layout="mix"
       navTheme="realDark"

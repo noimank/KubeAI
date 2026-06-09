@@ -24,6 +24,7 @@ infra/k8s/
 │   ├── beat.yaml                #   Taskiq Scheduler，单副本定时调度状态同步/空闲检查
 │   └── service.yaml
 ├── frontend/                    # React 前端 (Nginx 反向代理 /api → backend)
+│   ├── configmap.yaml           #   前端运行时 ConfigMap (APP_TITLE 等，部署前按需修改)
 │   ├── deployment.yaml
 │   └── service.yaml
 ├── mlflow/                      # MLflow 实验追踪 (可选)
