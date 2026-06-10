@@ -5,6 +5,7 @@ _bmad
 _bmad-output
 data
 infra
+!infra/images/
 *.md
 !README.md
 frontend/node_modules
