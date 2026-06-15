@@ -7,10 +7,11 @@ import structlog
 
 from app.core.config import settings
 from app.core.database import async_session_factory
-from app.core.taskiq_app import broker, interval_to_cron
+from app.core.taskiq_app import broker
 from app.core.ws_pubsub import publish_ws_event
 from app.services.dev_environment_service import DevEnvironmentService
-from app.services.idle_checker import check_and_cull_idle_environments
+
+# from app.services.idle_checker import check_and_cull_idle_environments  # NOTE: 空闲检测暂时停用
 
 logger = structlog.get_logger(__name__)
 
@@ -106,14 +107,15 @@ async def delete_dev_environment_task(
     return {"env_id": env_id, "status": "deleted"}
 
 
-@broker.task(
-    task_name="app.tasks.dev_environment.check_idle",
-    schedule=[{"cron": interval_to_cron(settings.DEV_ENV_IDLE_CHECK_INTERVAL_SECONDS)}],
-)
-async def check_idle_dev_environments_task() -> dict[str, Any]:
-    """Periodically check and cull idle dev environments."""
-    checked_count, stopped_count = await check_and_cull_idle_environments()
-    return {"checked_count": checked_count, "stopped_count": stopped_count}
+# NOTE: 空闲开发环境检测任务暂时停用 (2026-06-15)
+# @broker.task(
+#     task_name="app.tasks.dev_environment.check_idle",
+#     schedule=[{"cron": interval_to_cron(settings.DEV_ENV_IDLE_CHECK_INTERVAL_SECONDS)}],
+# )
+# async def check_idle_dev_environments_task() -> dict[str, Any]:
+#     """Periodically check and cull idle dev environments."""
+#     checked_count, stopped_count = await check_and_cull_idle_environments()
+#     return {"checked_count": checked_count, "stopped_count": stopped_count}
 
 
 async def enqueue_dev_environment_provision(
