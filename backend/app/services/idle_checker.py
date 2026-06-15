@@ -3,6 +3,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import uuid
 
 import structlog
 from sqlalchemy import select
@@ -10,7 +14,8 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.ws_pubsub import publish_ws_event
-from app.integrations.jupyterhub.client import get_jupyterhub_client
+from app.integrations.k8s.dev_pod import get_dev_pod_manager
+from app.integrations.k8s.namespace import make_namespace_name
 from app.models.dev_environment import DevEnvironment
 from app.models.enums import DevEnvironmentStatus
 
@@ -68,19 +73,29 @@ async def check_and_cull_idle_environments(semaphore: asyncio.Semaphore | None =
         environments = list(result.scalars().all())
         checked_count = len(environments)
 
-        jh_client = get_jupyterhub_client()
+        pod_mgr = get_dev_pod_manager()
+        from app.models.tenant import Tenant
+
+        # Batch-load tenants to avoid N individual queries
+        tenant_ids = {env.tenant_id for env in environments}
+        tenant_result = await db.execute(select(Tenant).where(Tenant.id.in_(tenant_ids)))
+        tenant_map: dict[uuid.UUID, str] = {}
+        for t in tenant_result.scalars().all():
+            if isinstance(t, Tenant):
+                ns = t.k8s_namespace_name or make_namespace_name(t.name)
+                tenant_map[t.id] = ns
 
         for env in environments:
             async with guard:
                 if env.status != DevEnvironmentStatus.RUNNING:
                     continue
-                jh_user = env.spawner_name
-                if not jh_user:
+                namespace = tenant_map.get(env.tenant_id)
+                if not namespace:
                     continue
                 try:
-                    last_activity_str = await jh_client.get_server_last_activity(jh_user)
+                    last_activity_str = await pod_mgr.get_pod_last_activity(env.id, namespace)
                 except Exception:
-                    logger.warning("idle_check_jh_error", env_id=str(env.id))
+                    logger.warning("idle_check_pod_error", env_id=str(env.id))
                     continue
 
                 if last_activity_str is None:
@@ -98,7 +113,7 @@ async def check_and_cull_idle_environments(semaphore: asyncio.Semaphore | None =
                 idle_duration = now - reference_time
                 if idle_duration > timeout:
                     try:
-                        await jh_client.stop_server(jh_user)
+                        await pod_mgr.stop_server(env.id, namespace)
                         old_status = env.status
                         env.status = DevEnvironmentStatus.STOPPED
                         env.stopped_reason = "idle_timeout"

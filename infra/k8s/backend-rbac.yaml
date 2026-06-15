@@ -56,7 +56,7 @@ rules:
     resources: [jobs]
     verbs: [get, list, watch, create, delete]
   - apiGroups: [networking.k8s.io]
-    resources: [networkpolicies]
+    resources: [networkpolicies, ingresses]
     verbs: [get, list, watch, create, update, delete]
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [roles, rolebindings]

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 import zipfile
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import urlencode
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import uuid
 
 import structlog
 from sqlalchemy import func, select
@@ -18,10 +19,9 @@ from app.core.exceptions import (
     NotFoundException,
     QuotaExceededException,
 )
-from app.core.security import create_access_token, decode_token
 from app.core.ws_pubsub import publish_ws_event
 from app.integrations.base import sanitize_k8s_name
-from app.integrations.jupyterhub.client import get_jupyterhub_client
+from app.integrations.k8s.dev_pod import dev_access_url, get_dev_pod_manager
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.network_policy import create_tenant_network_policy
 from app.integrations.k8s.pvc import (
@@ -248,36 +248,35 @@ class DevEnvironmentService:
                 user_home_host_path=user_home_host_path,
             )
 
-        jh_client = get_jupyterhub_client()
+        pod_mgr = get_dev_pod_manager()
         try:
             await create_tenant_network_policy(namespace)
             pull_secret_name = await ensure_registry_pull_secret(namespace)
 
-            # Inject SSH keys for the user
             final_env_vars = self._build_env_vars(
                 env, env.env_vars, workspace_path=workspace_path, home_path=home_path, algorithm_id=algorithm_id
             )
 
-            await jh_client.ensure_user(env.spawner_name or "")
-            await jh_client.start_server(
-                env.spawner_name or "",
+            await pod_mgr.create(
+                env_id=env.id,
+                namespace=namespace,
                 image=env.image,
+                environment_type=env.environment_type,
                 cpu=env.cpu,
                 memory=env.memory,
                 gpu_count=env.gpu_count,
-                namespace=namespace,
-                extra_volumes=extra_volumes or None,
-                extra_volume_mounts=extra_volume_mounts or None,
-                environment_type=env.environment_type,
                 env_vars=final_env_vars,
+                volumes=extra_volumes or [],
+                volume_mounts=extra_volume_mounts or [],
                 image_pull_secret=pull_secret_name,
+                node_selector={"kubeai": "true"},
             )
         except Exception as e:
-            logger.error("start_server_failed", spawner=env.spawner_name, error=str(e))
+            logger.error("start_server_failed", env_id=str(env.id), error=str(e))
             try:
-                await jh_client.delete_user(env.spawner_name or "")
+                await pod_mgr.delete(env.id, namespace)
             except Exception:
-                logger.warning("cleanup_jupyterhub_user_failed", spawner=env.spawner_name)
+                logger.warning("cleanup_dev_pod_failed", env_id=str(env.id))
             await self.db.rollback()
             try:
                 env = await self._get_environment_or_fail(env.id, env.tenant_id)
@@ -300,9 +299,10 @@ class DevEnvironmentService:
         await self.db.refresh(env)
         if env.status == DevEnvironmentStatus.STOPPED:
             try:
-                await jh_client.stop_server(env.spawner_name or "")
+                pod_mgr = get_dev_pod_manager()
+                await pod_mgr.stop_server(env.id, namespace)
             except Exception:
-                logger.warning("stop_server_after_user_stop_failed", spawner=env.spawner_name)
+                logger.warning("stop_server_after_user_stop_failed", env_id=str(env.id))
             return env
 
         await self.db.commit()
@@ -362,8 +362,6 @@ class DevEnvironmentService:
 
         synced_count = 0
         for env in environments:
-            if not env.spawner_name:
-                continue
             tenant = tenants.get(env.tenant_id)
             if tenant is None:
                 continue
@@ -372,7 +370,7 @@ class DevEnvironmentService:
                 await self._sync_environment_status(env, namespace)
                 synced_count += 1
             except Exception as e:
-                logger.warning("sync_status_failed", spawner=env.spawner_name, error=str(e))
+                logger.warning("sync_status_failed", env_id=str(env.id), error=str(e))
 
         await self.db.commit()
         return synced_count
@@ -399,7 +397,7 @@ class DevEnvironmentService:
     async def stop_environment_async(
         self, env_id: uuid.UUID, tenant_id: uuid.UUID, *, stopped_reason: str = "manual"
     ) -> None:
-        """真实停止 JupyterHub server, 由 task 调用."""
+        """真实停止 dev pod, 由 task 调用."""
         env = await self._get_environment_or_fail(env_id, tenant_id)
 
         if env.status not in (
@@ -410,12 +408,13 @@ class DevEnvironmentService:
             logger.info("skip_dev_environment_stop", env_id=str(env.id), status=env.status)
             return
 
-        if env.spawner_name:
-            jh_client = get_jupyterhub_client()
-            try:
-                await jh_client.stop_server(env.spawner_name)
-            except Exception as e:
-                logger.warning("stop_server_failed", spawner=env.spawner_name, error=str(e))
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        pod_mgr = get_dev_pod_manager()
+        try:
+            await pod_mgr.stop_server(env.id, namespace)
+        except Exception as e:
+            logger.warning("stop_server_failed", env_id=str(env.id), error=str(e))
 
         env.status = DevEnvironmentStatus.STOPPED
         env.stopped_reason = stopped_reason
@@ -436,7 +435,7 @@ class DevEnvironmentService:
         return env
 
     async def start_environment_async(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """真实启动 JupyterHub server, 由 task 调用."""
+        """真实启动 dev pod, 由 task 调用."""
         env = await self._get_environment_or_fail(env_id, tenant_id)
 
         if env.status != DevEnvironmentStatus.STOPPED:
@@ -468,29 +467,29 @@ class DevEnvironmentService:
             mounted_datasets=env.mounted_datasets,
         )
 
-        jh_client = get_jupyterhub_client()
+        pod_mgr = get_dev_pod_manager()
         try:
             await create_tenant_network_policy(namespace)
             pull_secret_name = await ensure_registry_pull_secret(namespace)
-            await jh_client.ensure_user(env.spawner_name or "")
 
             final_env_vars = self._build_env_vars(env, env.env_vars, workspace_path=workspace_path, home_path=home_path)
 
-            await jh_client.start_server(
-                env.spawner_name or "",
+            await pod_mgr.create(
+                env_id=env.id,
+                namespace=namespace,
                 image=env.image,
+                environment_type=env.environment_type,
                 cpu=env.cpu,
                 memory=env.memory,
                 gpu_count=env.gpu_count,
-                namespace=namespace,
-                extra_volumes=extra_volumes or None,
-                extra_volume_mounts=extra_volume_mounts or None,
-                environment_type=env.environment_type,
                 env_vars=final_env_vars,
+                volumes=extra_volumes or [],
+                volume_mounts=extra_volume_mounts or [],
                 image_pull_secret=pull_secret_name,
+                node_selector={"kubeai": "true"},
             )
         except Exception as e:
-            logger.error("start_server_failed", spawner=env.spawner_name, error=str(e))
+            logger.error("start_server_failed", env_id=str(env.id), error=str(e))
             old_status = env.status
             env.status = DevEnvironmentStatus.FAILED
             env.error_message = f"启动失败: {e}"
@@ -503,107 +502,39 @@ class DevEnvironmentService:
         await self.db.refresh(env)
 
     async def delete_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
-        """API 路径: 仅校验存在性, 由 task 负责真实删除 (JupyterHub + DB)."""
+        """API 路径: 仅校验存在性, 由 task 负责真实删除 Pod + Service + Ingress + DB."""
         env = await self._get_environment_or_fail(env_id, tenant_id)
         return env
 
     async def delete_environment_async(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """真实删除 JupyterHub user + DB 记录, 由 task 调用."""
+        """真实删除 Pod + Service + Ingress + DB 记录, 由 task 调用."""
         env = await self._get_environment_or_fail(env_id, tenant_id)
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
-        if env.spawner_name:
-            jh_client = get_jupyterhub_client()
-            try:
-                await jh_client.stop_server(env.spawner_name)
-            except Exception as e:
-                logger.warning("stop_server_failed", spawner=env.spawner_name, error=str(e))
-            try:
-                await jh_client.delete_user(env.spawner_name)
-            except Exception as e:
-                logger.warning("delete_user_failed", spawner=env.spawner_name, error=str(e))
+        pod_mgr = get_dev_pod_manager()
+        try:
+            await pod_mgr.delete(env.id, namespace)
+        except Exception as e:
+            logger.warning("delete_dev_pod_failed", env_id=str(env.id), error=str(e))
 
         await self.db.delete(env)
         await self.db.commit()
 
-    async def create_open_ticket(self, env_id: uuid.UUID, tenant_id: uuid.UUID, user_id: uuid.UUID) -> str:
-        env = await self._get_environment_or_fail(env_id, tenant_id)
+    def build_access_url(self, env: DevEnvironment) -> str:
+        return dev_access_url(env.id)
 
-        if env.status != DevEnvironmentStatus.RUNNING:
-            raise ConflictException("环境未运行, 无法获取访问地址")
+    def _home_path(self) -> str:
+        return f"{KUBEAI_CONTAINER_ROOT}/home"
 
-        if not env.spawner_name:
-            raise ConflictException("环境未关联 Spawner")
+    def _workspace_path(self) -> str:
+        return f"{KUBEAI_CONTAINER_ROOT}/workspace"
 
-        if not settings.JUPYTERHUB_BASE_URL:
-            raise ExternalServiceException("未配置 JupyterHub 访问地址")
+    def _dataset_mount_path(self, dataset_name: str, version_number: int) -> str:
+        return f"{KUBEAI_CONTAINER_ROOT}/datasets/{sanitize_k8s_name(dataset_name)}/v{version_number}"
 
-        expires_delta = timedelta(seconds=max(30, settings.DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS))
-        return create_access_token(
-            {
-                "sub": str(user_id),
-                "purpose": "dev_environment_open",
-                "env_id": str(env.id),
-                "tenant_id": str(env.tenant_id),
-                "spawner_name": env.spawner_name,
-            },
-            expires_delta=expires_delta,
-        )
-
-    async def build_hub_login_url_from_ticket(
-        self,
-        ticket: str,
-        expected_env_id: uuid.UUID,
-        *,
-        login_token: str,
-    ) -> tuple[str, str]:
-        env = await self._get_open_environment_from_ticket(ticket, expected_env_id)
-        if not settings.JUPYTERHUB_BASE_URL:
-            raise ExternalServiceException("未配置 JupyterHub 访问地址")
-
-        next_url = self._build_user_redirect_url(env.environment_type)
-        login_url = f"{settings.JUPYTERHUB_BASE_URL.rstrip('/')}/hub/login"
-        return f"{login_url}?{urlencode({'login_token': login_token, 'next': next_url})}", env.spawner_name or ""
-
-    async def _get_open_environment_from_ticket(self, ticket: str, expected_env_id: uuid.UUID) -> DevEnvironment:
-        try:
-            payload = decode_token(ticket)
-        except ValueError:
-            raise ConflictException("访问票据无效或已过期") from None
-
-        if payload.get("purpose") != "dev_environment_open":
-            raise ConflictException("访问票据无效")
-
-        try:
-            env_id = uuid.UUID(str(payload["env_id"]))
-            tenant_id = uuid.UUID(str(payload["tenant_id"]))
-        except (KeyError, ValueError, TypeError):
-            raise ConflictException("访问票据无效") from None
-        if env_id != expected_env_id:
-            raise ConflictException("访问票据无效")
-
-        env = await self._get_environment_or_fail(env_id, tenant_id)
-        spawner_name = payload.get("spawner_name")
-        if env.status != DevEnvironmentStatus.RUNNING or not env.spawner_name or spawner_name != env.spawner_name:
-            raise ConflictException("环境未运行, 无法获取访问地址")
-
-        return env
-
-    def _normalize_access_url(self, url: str) -> str:
-        if url.startswith(("http://", "https://")):
-            return url
-        if settings.JUPYTERHUB_BASE_URL:
-            return f"{settings.JUPYTERHUB_BASE_URL.rstrip('/')}/{url.lstrip('/')}"
-        return url
-
-    def _build_user_redirect_url(self, environment_type: str | None) -> str:
-        base_url = "/hub/user-redirect/"
-        if environment_type == "jupyter":
-            return f"{base_url}lab"
-        if environment_type == "vscode":
-            return f"{base_url}codeserver/"
-        if environment_type == "rstudio":
-            return f"{base_url}rstudio/"
-        return base_url
+    def _make_spawner_name(self, *, username: str, user_id: uuid.UUID, env_id: uuid.UUID) -> str:
+        return f"devenv-{sanitize_k8s_name(username, max_length=40)}-{str(user_id)[:8]}-{str(env_id)[:8]}"
 
     async def _build_volumes(
         self,
@@ -668,33 +599,29 @@ class DevEnvironmentService:
         return extra_volumes, extra_volume_mounts, mounted_datasets_info or None
 
     async def _sync_environment_status(self, env: DevEnvironment, namespace: str) -> None:
-        if not env.spawner_name:
+        pod_mgr = get_dev_pod_manager()
+        pod_status = await pod_mgr.get_pod_status(env.id, namespace)
+
+        if not pod_status:
+            self._mark_missing_server_status(env, "Pod 不存在, 启动可能已失败")
             return
 
-        jh_client = get_jupyterhub_client()
-        user_data = await jh_client.get_user(env.spawner_name)
-        if user_data is None:
-            self._mark_missing_server_status(env, "JupyterHub 用户不存在, 启动可能已被清理")
-            return
+        phase = pod_status["phase"]
+        ready = pod_status["ready"]
 
-        server_data = user_data.get("servers", {}).get("", {})
-        if not server_data:
-            self._mark_missing_server_status(env, "JupyterHub 未返回 Server 信息, 启动可能已被清理")
-            return
-
-        new_status = jh_client.map_server_status(server_data if server_data else None)
-
-        if new_status == DevEnvironmentStatus.RUNNING:
-            server_url = server_data.get("url") if server_data else None
-            if server_url:
-                env.access_url = self._normalize_access_url(cast("str", server_url))
-            jh_last_activity = server_data.get("last_activity") if server_data else None
-            if jh_last_activity:
-                env.last_active_at = jh_last_activity
-            else:
-                env.last_active_at = datetime.now(UTC).isoformat()
+        if phase in ("Running", "Succeeded") and ready:
+            new_status = DevEnvironmentStatus.RUNNING
+            env.access_url = self.build_access_url(env)
+            last_activity = pod_status.get("last_activity")
+            env.last_active_at = last_activity or datetime.now(UTC).isoformat()
             env.error_message = None
             env.stopped_reason = None
+        elif phase in ("Pending", "ContainerCreating"):
+            new_status = DevEnvironmentStatus.CREATING
+        elif phase == "Failed":
+            new_status = DevEnvironmentStatus.FAILED
+        else:
+            return  # no change
 
         if new_status != env.status:
             old_status = env.status
@@ -747,6 +674,8 @@ class DevEnvironmentService:
             merged["KUBEAI_WORKSPACE_PATH"] = workspace_path
         if home_path:
             merged["KUBEAI_HOME_PATH"] = home_path
+            merged["HOME"] = home_path  # Ensure shell/tools use persistent home
+        merged["SHELL"] = "/bin/bash"  # Explicit shell for terminal integration
         if algorithm_id:
             merged["KUBEAI_ALGORITHM_ID"] = str(algorithm_id)
         return merged
@@ -803,18 +732,6 @@ class DevEnvironmentService:
             algorithm_id=str(algorithm_id),
             dest=str(dest_dir),
         )
-
-    def _home_path(self) -> str:
-        return f"{KUBEAI_CONTAINER_ROOT}/home"
-
-    def _workspace_path(self) -> str:
-        return f"{KUBEAI_CONTAINER_ROOT}/workspace"
-
-    def _dataset_mount_path(self, dataset_name: str, version_number: int) -> str:
-        return f"{KUBEAI_CONTAINER_ROOT}/datasets/{sanitize_k8s_name(dataset_name)}/v{version_number}"
-
-    def _make_spawner_name(self, *, username: str, user_id: uuid.UUID, env_id: uuid.UUID) -> str:
-        return f"devenv-{sanitize_k8s_name(username, max_length=40)}-{str(user_id)[:8]}-{str(env_id)[:8]}"
 
     async def _get_dev_environment_image(self, image_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironmentImage:
         from sqlalchemy import or_

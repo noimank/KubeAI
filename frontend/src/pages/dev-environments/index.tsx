@@ -186,6 +186,13 @@ export default function DevEnvironmentsPage() {
     try {
       const res = await getAccessUrl(envId)
       if (res.accessUrl) {
+        // Set auth cookie for APISIX forward-auth on the same domain.
+        // Only use `secure` on HTTPS — insecure HTTP would reject it.
+        const token = useAuthStore.getState().accessToken
+        if (token) {
+          const securePart = location.protocol === 'https:' ? '; secure' : ''
+          document.cookie = `kubeai_access_token=${token}; path=/; samesite=lax; max-age=86400${securePart}`
+        }
         window.open(res.accessUrl, '_blank')
       }
     } catch {

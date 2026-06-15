@@ -17,8 +17,8 @@ dependencies:
   - name: cert-manager
     version: "v1.16.x"
     repository: https://charts.jetstack.io
-    condition: certManager.enabled
-    alias: certManager
+    condition: certmanager.enabled
+    alias: certmanager
 
   - name: postgresql
     version: "16.7.x"
@@ -47,20 +47,20 @@ dependencies:
   - name: dcgm-exporter
     version: "3.x"
     repository: https://nvidia.github.io/dcgm-exporter/helm-charts
-    condition: dcgmExporter.enabled
-    alias: dcgmExporter
+    condition: dcgmexporter.enabled
+    alias: dcgmexporter
 
   - name: kserve-crd
     version: "v0.17.0"
     repository: oci://ghcr.io/kserve/charts
-    condition: kserveCrd.enabled
-    alias: kserveCrd
+    condition: kservecrd.enabled
+    alias: kservecrd
 
   - name: kserve-resources
     version: "v0.17.0"
     repository: oci://ghcr.io/kserve/charts
-    condition: kserveResources.enabled
-    alias: kserveResources
+    condition: kserveresources.enabled
+    alias: kserveresources
 
   - name: keda
     version: "2.16.x"
@@ -68,9 +68,12 @@ dependencies:
     condition: keda.enabled
     alias: keda
 
-  # Label Studio: deployed as custom template (templates/labelstudio.yaml)
+  # APISIX API gateway (company standard) — handles path-based routing for
+  # dev environments via ApisixRoute CRD.  Includes etcd + ingress-controller.
+  - name: apisix
+    version: "2.14.x"
+    repository: https://charts.apiseven.com
+    condition: apisix.enabled
+    alias: apisix
 
-  - name: jupyterhub
-    version: "4.3.x"
-    repository: https://jupyterhub.github.io/helm-chart/
-    condition: jupyterhub.enabled
+  # Label Studio: deployed as custom template (templates/labelstudio.yaml)

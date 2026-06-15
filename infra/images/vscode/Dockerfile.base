@@ -1,18 +1,27 @@
 # VS Code Server (CPU)
 # Lightweight code-server with Python and common extensions
 #
-# KubeAI runs VS Code through JupyterHub:
-#   jupyterhub-singleuser is the required main process.
-#   jupyter-server-proxy is required to proxy sub-applications.
-#   jupyter-codeserver-proxy is required to expose code-server at /codeserver/.
+# Native entrypoint — no JupyterHub dependency.
+# The KubeAI backend runs "code-server" directly on port 8888
+# with auth disabled.  Path-based routing is handled by APISIX
+# proxy-rewrite (code-server has no sub-path flag, so APISIX
+# strips the /devenv/<hex> prefix before proxying).
+# Auth is disabled; authentication is handled by the APISIX forward-auth layer.
 #
 # Build:
 #   docker build -t kubeai-vscode-base -f Dockerfile.base .
 #   docker build -t hub.uimpcloud.com/kubeai/vscode-base:latest -f Dockerfile.base .
 
-FROM codercom/code-server:latest
+FROM codercom/code-server:4.122.0
 
+# The base image already runs as USER coder (uid 1000:1000).
+# Switch to root for system package installation.
 USER root
+
+# Ensure GID 100 exists — dev_pod.py securityContext sets runAsGroup=100.
+# The base codercom/code-server image only has GID 1000 (coder group).
+# Without GID 100, Kubernetes will refuse to start the container.
+RUN groupadd -g 100 coder-users 2>/dev/null || true
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
@@ -23,16 +32,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# KubeAI platform-required dependencies:
-#   jupyterhub: provides jupyterhub-singleuser for Hub-managed pods.
-#   jupyter-server-proxy: integrates proxied apps with Jupyter Server auth/routing.
-#   jupyter-codeserver-proxy: registers /codeserver/ and launches code-server.
-RUN pip3 install --no-cache-dir --break-system-packages \
-    jupyterhub \
-    jupyter-server-proxy \
-    jupyter-codeserver-proxy
-
-# Optional data-science packages for the default VS Code image.
 RUN pip3 install --no-cache-dir --break-system-packages \
     numpy \
     scipy \
@@ -40,15 +39,13 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     matplotlib \
     scikit-learn
 
+# Switch back to coder BEFORE installing extensions.
+# code-server installs extensions to $HOME/.local/share/code-server/extensions/ —
+# running this as root would put them in /root/ and they would be lost at runtime.
+USER coder
+
 RUN code-server --install-extension ms-python.python \
     && code-server --install-extension ms-toolsai.jupyter \
     && code-server --install-extension ms-azuretools.vscode-docker
-
-RUN mkdir -p /workspace && chown coder:coder /workspace
-
-# Required: clear code-server's default ENTRYPOINT so KubeSpawner can run jupyterhub-singleuser.
-ENTRYPOINT []
-
-USER coder
 
 EXPOSE 8888

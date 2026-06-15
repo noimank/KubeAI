@@ -1,30 +1,24 @@
-# Ingress - 前端流量入口
-# 需要: nginx-ingress-controller + cert-manager (如需 TLS)
+# ApisixRoute - 前端流量入口
+# 依赖: 集群中已有的 APISIX 网关 (公司统一基础设施)
 # 部署前修改 host 为实际域名
 # 部署: kubectl apply -f infra/k8s/ingress/
+#
+# 注意: 不需要单独部署 ingress controller — APISIX 是公司统一网关，
+# 此 ApisixRoute 资源会被自动拾取并路由。
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
 metadata:
-  name: kubeai
+  name: kubeai-frontend
   namespace: kubeai
-  annotations:
-    # cert-manager 自动签发证书，如不需要 TLS 可注释
-    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - kubeai.example.com  # FIXME: 改为实际生产域名
-      secretName: kubeai-tls
-  rules:
-    - host: kubeai.example.com  # FIXME: 改为实际生产域名
-      http:
+  http:
+    - name: frontend
+      match:
+        hosts:
+          - kubeai.example.com  # FIXME: 改为实际生产域名
         paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: frontend
-                port:
-                  number: 80
+          - /*
+      backends:
+        - serviceName: frontend
+          servicePort: 80

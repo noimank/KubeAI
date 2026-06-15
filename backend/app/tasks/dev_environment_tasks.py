@@ -189,7 +189,7 @@ async def delete_dev_environment_task(
     schedule=[{"cron": interval_to_cron(settings.DEV_ENV_STATUS_SYNC_INTERVAL_SECONDS)}],
 )
 async def sync_dev_environment_statuses_task(limit: int = 200) -> dict[str, Any]:
-    """定时同步非终态开发环境的 JupyterHub 状态."""
+    """定时同步非终态开发环境的 Pod 状态."""
     async with async_session_factory() as db:
         svc = DevEnvironmentService(db)
         synced_count = await svc.sync_non_terminal_environments(limit=limit)

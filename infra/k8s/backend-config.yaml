@@ -7,7 +7,6 @@
 #     - DATABASE_URL: 密码与 PostgreSQL 实际密码一致
 #     - MINIO_ACCESS_KEY / MINIO_SECRET_KEY: 与 MinIO 凭证一致
 #     - HARBOR_PASSWORD: 与 Harbor 实际密码一致
-#     - JUPYTERHUB_API_TOKEN: 与 JupyterHub 实际 apiToken 一致
 #   ConfigMap:
 #     - FRONTEND_URL: 改为实际生产域名
 #     - PROMETHEUS_URL: 确认与集群中 Prometheus Service 名称一致
@@ -92,11 +91,17 @@ data:
   # -- Label Studio 数据标注 (部署 labelstudio/ 后启用)
   LABEL_STUDIO_URL: "http://labelstudio.kubeai.svc.cluster.local:8080"
 
-  # -- JupyterHub 开发环境 (部署 JupyterHub 后启用)
-  JUPYTERHUB_API_URL: "http://hub.kubeai.svc.cluster.local:8081/hub/api"
-  JUPYTERHUB_BASE_URL: "http://proxy.kubeai.svc.cluster.local:80"
-  JUPYTERHUB_HUB_SERVICE_ACCOUNT: "hub"
-  DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS: "60"
+  # -- 开发环境 Native Pod 管理 — APISIX Admin API 动态路由
+  # 路由 /devenv/<uuid_hex>/ 与主应用共用域名
+
+  # APISIX Admin API 地址 (backend 创建/删除环境时调用)
+  KUBEAI_APISIX_ADMIN_URL: "http://kubeai-apisix-admin.kubeai.svc.cluster.local:9180"
+
+  # APISIX Admin API 密钥 (务必修改为实际值)
+  KUBEAI_APISIX_ADMIN_KEY: "edd1c9f034335f136f87ad84b625c8f1"
+
+  # APISIX forward-auth 回源地址 (K8s 集群内可达的后端)
+  KUBEAI_BACKEND_INTERNAL_URL: "http://backend.kubeai.svc.cluster.local:8000"
 ---
 apiVersion: v1
 kind: Secret
@@ -129,11 +134,6 @@ stringData:
 
   # -- Label Studio API Token (部署 Label Studio 后配置)
   LABEL_STUDIO_API_TOKEN: ""
-
-  # -- JupyterHub API Token (部署 JupyterHub 后配置)
-  # ⚠️ 必须与 infra/k8s/jupyterhub/jupyterhub.yaml 第 594 行
-  #    hub.services.kubeai.apiToken 保持完全一致 (同一个明文 token)
-  JUPYTERHUB_API_TOKEN: ""
 
   # -- OIDC (启用 SSO 时配置)
   OIDC_ISSUER: ""

@@ -1,19 +1,13 @@
-import json
-import secrets
 import uuid
 from typing import Annotated, cast
-from urllib.parse import urlencode
 
-import redis.asyncio as aioredis
+import structlog
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
-from app.core.config import settings
-from app.core.exceptions import ForbiddenException
-from app.core.redis import get_redis
+from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import decode_token
 from app.models.dev_environment import DevEnvironment
 from app.models.enums import UserRole
@@ -34,19 +28,11 @@ from app.tasks.dev_environment_tasks import (
 router = APIRouter(prefix="/dev-environments", tags=["dev-environments"])
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
-RedisDep = Annotated[aioredis.Redis, Depends(get_redis)]
 _status_query = Query(None)
 _name_query = Query(None)
-OPEN_TICKET_KEY_PREFIX = "dev_environment_open_ticket"
-JUPYTERHUB_LOGIN_KEY_PREFIX = "dev_environment_jupyterhub_login"
 
-
-class JupyterHubLoginRequest(BaseModel):
-    token: str = Field(min_length=16, max_length=512)
-
-
-class JupyterHubLoginResponse(BaseModel):
-    name: str
+COOKIE_NAME = "kubeai_access_token"
+logger = structlog.get_logger(__name__)
 
 
 def _require_tenant_id(user: object) -> uuid.UUID:
@@ -67,12 +53,9 @@ def _should_filter_by_user(user: object) -> uuid.UUID | None:
     return getattr(user, "id", None)
 
 
-def _open_ticket_key(jti: str) -> str:
-    return f"{OPEN_TICKET_KEY_PREFIX}:{jti}"
-
-
-def _jupyterhub_login_key(token: str) -> str:
-    return f"{JUPYTERHUB_LOGIN_KEY_PREFIX}:{token}"
+# ---------------------------------------------------------------------------
+# CRUD — collection endpoints
+# ---------------------------------------------------------------------------
 
 
 @router.post("", response_model=BaseResponse[DevEnvironmentResponse])
@@ -125,26 +108,103 @@ async def list_environments(
     return PageResponse(data=page_data, message="获取成功")
 
 
-@router.post("/jupyterhub-login", response_model=JupyterHubLoginResponse)
-async def jupyterhub_login(
-    req: JupyterHubLoginRequest,
-    redis: RedisDep,
-) -> JupyterHubLoginResponse:
-    login_data = await redis.getdel(_jupyterhub_login_key(req.token))
-    if not login_data:
-        raise ForbiddenException("JupyterHub 登录票据无效或已过期")
+# ---------------------------------------------------------------------------
+# APISIX forward-auth — MUST be registered BEFORE /{env_id} to avoid route
+# conflict with HTTPBearer dependency on the catch-all path parameter.
+# ---------------------------------------------------------------------------
 
-    if isinstance(login_data, bytes):
-        login_data = login_data.decode("utf-8")
+
+@router.get("/auth-check", include_in_schema=False)
+async def auth_check_dev_environment(
+    request: Request,
+    env_id: Annotated[uuid.UUID, Query()],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """APISIX forward-auth sub-request — validates the ``kubeai_access_token``
+    cookie forwarded by APISIX ``request_headers: [Cookie]`` and returns
+    ``X-KubeAI-User`` upstream on success."""
+
+    token = _extract_token_from_request(request)
+    if not token:
+        raise UnauthorizedException("未登录")
+
+    user = await _validate_token_and_get_user(token, db)
+    if not user:
+        raise UnauthorizedException("Token 无效或已过期")
+
+    tenant_id = getattr(user, "tenant_id", None)
+    if not tenant_id:
+        raise ForbiddenException("需要租户上下文")
+
+    service = DevEnvironmentService(db)
+    env = await service.get_environment(env_id, tenant_id)
+    if env.status != "running":
+        raise ForbiddenException("环境未运行")
+
+    if env.created_by != getattr(user, "id", None):
+        role = getattr(user, "role", None)
+        if role not in (UserRole.ADMIN, UserRole.MLOPS):
+            raise ForbiddenException("无权访问此环境")
+
+    username = getattr(user, "username", "")
+    logger.info("dev_env_auth_check_success", env_id=str(env_id), username=username)
+    return Response(status_code=200, headers={"X-KubeAI-User": username})
+
+
+def _extract_token_from_request(request: Request) -> str | None:
+    """Extract JWT from the forwarded request.
+
+    1. Cookie (forwarded by APISIX ``request_headers: [Cookie]``)
+    2. Bearer header (programmatic / API access)
+    """
+    # 1. Cookie — primary path, forwarding configured in APISIX route
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        return token.strip()
+
+    # 2. Raw Cookie header parse — fallback for ASGI / proxy edge cases
+    raw_cookie = request.headers.get("Cookie", "")
+    if raw_cookie:
+        for part in raw_cookie.split(";"):
+            part = part.strip()
+            if part.startswith(COOKIE_NAME + "="):
+                token = part[len(COOKIE_NAME) + 1 :]
+                if token:
+                    return token.strip()
+
+    # 3. Bearer header — programmatic access
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+
+    return None
+
+
+async def _validate_token_and_get_user(token: str, db: AsyncSession) -> object:
+    """Validate JWT and return the User row. Returns None on any failure."""
     try:
-        payload = json.loads(cast("str", login_data))
-    except json.JSONDecodeError:
-        raise ForbiddenException("JupyterHub 登录票据无效") from None
+        payload = decode_token(token)
+    except ValueError:
+        return None
+    if payload.get("type") != "access":
+        return None
 
-    spawner_name = payload.get("spawner_name")
-    if not isinstance(spawner_name, str) or not spawner_name:
-        raise ForbiddenException("JupyterHub 登录票据无效")
-    return JupyterHubLoginResponse(name=spawner_name)
+    from sqlalchemy import select
+
+    from app.models.user import User as UserModel
+
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+
+    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
+    user = result.scalar_one_or_none()
+    return user if (user and getattr(user, "is_active", False)) else None
+
+
+# ---------------------------------------------------------------------------
+# CRUD — individual resource (/{env_id} MUST come AFTER explicit paths)
+# ---------------------------------------------------------------------------
 
 
 @router.get("/{env_id}", response_model=BaseResponse[DevEnvironmentResponse])
@@ -200,58 +260,24 @@ async def delete_environment(
     return BaseResponse(data=_to_response(env), message="开发环境删除任务已提交")
 
 
+# ---------------------------------------------------------------------------
+# Access URL
+# ---------------------------------------------------------------------------
+
+
 @router.get("/{env_id}/access-url", response_model=BaseResponse[AccessUrlResponse])
 async def get_access_url(
     env_id: uuid.UUID,
-    request: Request,
     db: DbDep,
-    redis: RedisDep,
     user: Annotated[CurrentUser, Depends(require_permission("dev_environments", "read"))],
 ) -> BaseResponse[AccessUrlResponse]:
     tenant_id = _require_tenant_id(user)
     service = DevEnvironmentService(db)
-    ticket = await service.create_open_ticket(env_id, tenant_id, user.id)
-    payload = decode_token(ticket)
-    jti = payload.get("jti")
-    if not isinstance(jti, str) or not jti:
-        raise ForbiddenException("访问票据生成失败")
-    await redis.set(_open_ticket_key(jti), "1", ex=max(30, settings.DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS))
-    open_url = str(request.url_for("open_environment", env_id=str(env_id))).split("?")[0]
-    url = f"{open_url}?{urlencode({'ticket': ticket})}"
+    env = await service.get_environment(env_id, tenant_id)
+    if env.status != "running":
+        raise ForbiddenException("环境未运行, 无法获取访问地址")
+    url = service.build_access_url(env)
     return BaseResponse(
         data=AccessUrlResponse(access_url=url, message="获取成功"),
         message="获取成功",
     )
-
-
-@router.get("/{env_id}/open", name="open_environment")
-async def open_environment(
-    env_id: uuid.UUID,
-    ticket: str,
-    db: DbDep,
-    redis: RedisDep,
-) -> RedirectResponse:
-    try:
-        payload = decode_token(ticket)
-    except ValueError:
-        raise ForbiddenException("访问票据无效或已过期") from None
-    jti = payload.get("jti")
-    if not isinstance(jti, str) or not jti:
-        raise ForbiddenException("访问票据无效")
-    consumed = await redis.getdel(_open_ticket_key(jti))
-    if not consumed:
-        raise ForbiddenException("访问票据无效或已使用")
-
-    service = DevEnvironmentService(db)
-    login_token = secrets.token_urlsafe(32)
-    redirect_url, spawner_name = await service.build_hub_login_url_from_ticket(
-        ticket,
-        env_id,
-        login_token=login_token,
-    )
-    await redis.set(
-        _jupyterhub_login_key(login_token),
-        json.dumps({"spawner_name": spawner_name}),
-        ex=max(30, settings.DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS),
-    )
-    return RedirectResponse(redirect_url, status_code=302)

@@ -1,10 +1,11 @@
 # RStudio + Tidyverse (CPU)
 # R development with tidyverse, TeX, and common R packages
 #
-# KubeAI runs RStudio through JupyterHub:
-#   jupyterhub-singleuser is the required main process.
-#   jupyter-server-proxy is required to proxy sub-applications.
-#   jupyter-rsession-proxy is required to expose RStudio at /rstudio/.
+# Native entrypoint — no JupyterHub dependency.
+# The KubeAI backend runs "rserver" directly with --www-root-path
+# set to the environment's path prefix (APISIX does NOT strip the prefix).
+# Auth is disabled in rserver.conf; authentication is handled by the
+# APISIX forward-auth layer.
 #
 # Build:
 #   docker build -t kubeai-rstudio-verse -f Dockerfile.verse .
@@ -37,18 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# KubeAI platform-required dependencies:
-#   jupyterhub: provides jupyterhub-singleuser for Hub-managed pods.
-#   jupyter-server-proxy: integrates proxied apps with Jupyter Server auth/routing.
-#   jupyter-rsession-proxy: registers /rstudio/ and launches RStudio Server.
-RUN pip3 install --no-cache-dir --break-system-packages \
-    jupyterhub \
-    jupyter-server-proxy \
-    jupyter-rsession-proxy
-
 # Optional R packages for the default CPU RStudio image.
-# Explicit CRAN avoids failures when the base image's default binary repository
-# is temporarily unavailable or not published for the current Ubuntu release.
 RUN install2.r --error --skipinstalled -r "$CRAN_REPO" -n 4 \
     shiny \
     plumber \
@@ -59,11 +49,14 @@ RUN install2.r --error --skipinstalled -r "$CRAN_REPO" -n 4 \
     plotly \
     reticulate
 
-RUN mkdir -p /kubeai /workspace /etc/rstudio \
-    && printf '%s\n' 'session-default-working-dir=/kubeai' > /etc/rstudio/rsession.conf \
-    && chown rstudio:rstudio /kubeai /workspace
+# RStudio Server runtime config — only session-default-working-dir is kept here;
+# server-port and auth-none are passed as CLI args by the KubeAI backend.
+# /kubeai and /workspace are hostPath volumes (permissions handled by initContainer).
+RUN mkdir -p /etc/rstudio \
+    && printf '%s\n' \
+        'session-default-working-dir=/kubeai/home' \
+        > /etc/rstudio/rsession.conf
 
-# Required: KubeSpawner runs jupyterhub-singleuser on 8888; RStudio is proxied behind it.
 USER rstudio
 
 EXPOSE 8888

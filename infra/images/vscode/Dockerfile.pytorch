@@ -1,10 +1,12 @@
 # VS Code Server + PyTorch (GPU)
 # Code-server with CUDA 12 + PyTorch for GPU-accelerated development
 #
-# KubeAI runs VS Code through JupyterHub:
-#   jupyterhub-singleuser is the required main process.
-#   jupyter-server-proxy is required to proxy sub-applications.
-#   jupyter-codeserver-proxy is required to expose code-server at /codeserver/.
+# Native entrypoint — no JupyterHub dependency.
+# The KubeAI backend runs "code-server" directly on port 8888
+# with auth disabled.  Path-based routing is handled by APISIX
+# proxy-rewrite (code-server has no sub-path flag, so APISIX
+# strips the /devenv/<hex> prefix before proxying).
+# Auth is disabled; authentication is handled by the APISIX forward-auth layer.
 #
 # Build:
 #   docker build -t kubeai-vscode-pytorch -f Dockerfile.pytorch .
@@ -22,36 +24,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://code-server.dev/install.sh | sh
+RUN curl -fsSL https://code-server.dev/install.sh | sh -s -- --version=4.122.0
 
-# Optional ML stack for this GPU image.
 RUN pip3 install --no-cache-dir --break-system-packages \
     torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
-# KubeAI platform-required dependencies:
-#   jupyterhub: provides jupyterhub-singleuser for Hub-managed pods.
-#   jupyter-server-proxy: integrates proxied apps with Jupyter Server auth/routing.
-#   jupyter-codeserver-proxy: registers /codeserver/ and launches code-server.
-RUN pip3 install --no-cache-dir --break-system-packages \
-    jupyterhub jupyter-server-proxy jupyter-codeserver-proxy
-
-# Optional data-science and experiment tooling.
 RUN pip3 install --no-cache-dir --break-system-packages \
     numpy scipy pandas matplotlib scikit-learn \
     transformers datasets accelerate wandb \
     optuna plotly
 
-RUN useradd -m -s /bin/bash -u 1000 coder
+# Create coder group with GID 100 (matching dev_pod.py securityContext.runAsGroup).
+# The useradd default would create group "coder" with GID 1000, which fails at
+# Pod startup when Kubernetes tries to start the container with runAsGroup=100.
+RUN groupadd -g 100 coder \
+    && useradd -m -s /bin/bash -u 1000 -g 100 coder
+
+# Install extensions as coder so they land in /home/coder/.local/...,
+# not /root/.local/... where they would be lost at runtime.
+USER coder
 
 RUN code-server --install-extension ms-python.python \
     && code-server --install-extension ms-toolsai.jupyter
 
-RUN mkdir -p /workspace && chown coder:coder /workspace
 
 USER coder
 WORKDIR /home/coder
 
 EXPOSE 8888
-
-# Required: clear ENTRYPOINT so KubeSpawner can run jupyterhub-singleuser.
-ENTRYPOINT []

@@ -12,7 +12,6 @@ from app.core.exceptions import (
     NotFoundException,
     QuotaExceededException,
 )
-from app.integrations.jupyterhub.rbac import delete_jupyterhub_tenant_rbac, ensure_jupyterhub_tenant_rbac
 from app.integrations.k8s.namespace import (
     create_namespace,
     delete_namespace,
@@ -61,7 +60,6 @@ class TenantService:
         )
         await create_resource_quota(namespace, quota)
         await create_tenant_network_policy(namespace)
-        await ensure_jupyterhub_tenant_rbac(namespace)
         await ensure_s3_credentials_secret(namespace)
 
     async def create_tenant(self, req: TenantCreateRequest, audit_context: dict[str, Any] | None = None) -> Tenant:
@@ -90,7 +88,6 @@ class TenantService:
                 )
             except Exception:
                 await delete_s3_credentials_secret(namespace)
-                await delete_jupyterhub_tenant_rbac(namespace)
                 await delete_resource_quota(namespace)
                 await delete_network_policy(namespace)
                 await delete_namespace(namespace)
@@ -274,7 +271,6 @@ class TenantService:
         if namespace:
             cleanup_ops: list[tuple[Callable[[str], Awaitable[None]], str]] = [
                 (delete_s3_credentials_secret, "S3CredentialsSecret"),
-                (delete_jupyterhub_tenant_rbac, "JupyterHubTenantRBAC"),
                 (delete_resource_quota, "ResourceQuota"),
                 (delete_network_policy, "NetworkPolicy"),
                 (delete_namespace, "Namespace"),

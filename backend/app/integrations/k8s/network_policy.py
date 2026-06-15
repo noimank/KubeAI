@@ -12,6 +12,7 @@ POLICY_NAME = "tenant-isolation"
 
 DEFAULT_ALLOWED_NAMESPACES = [
     "kube-system",
+    "apisix",  # APISIX gateway — must be able to reach dev-environment pods in tenant namespaces
 ]
 ALLOWED_NAMESPACES = DEFAULT_ALLOWED_NAMESPACES
 

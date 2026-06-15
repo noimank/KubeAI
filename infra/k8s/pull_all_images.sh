@@ -124,22 +124,9 @@ section "[4/13] Label Studio"
 REQUIRED+=("heartexlabs/label-studio:1.23.0")
 
 # ============================================
-# JupyterHub
-# ============================================
-section "[5/13] JupyterHub"
-
-REQUIRED+=("quay.io/jupyterhub/k8s-hub:4.3.5")
-REQUIRED+=("quay.io/jupyterhub/configurable-http-proxy:5.2.0")
-REQUIRED+=("quay.io/jupyterhub/k8s-network-tools:4.3.5")
-REQUIRED+=("quay.io/jupyterhub/k8s-image-awaiter:4.3.5")
-REQUIRED+=("jupyter/datascience-notebook:2025-01-15")
-REQUIRED+=("registry.k8s.io/pause:3.10.1")
-REQUIRED+=("registry.k8s.io/kube-scheduler:v1.30.14")
-
-# ============================================
 # Harbor 容器仓库
 # ============================================
-section "[6/13] Harbor"
+section "[5/12] Harbor"
 
 REQUIRED+=("docker.io/goharbor/harbor-core:v2.15.1")
 REQUIRED+=("docker.io/goharbor/harbor-jobservice:v2.15.1")

@@ -33,8 +33,8 @@ infra/k8s/
 ├── labelstudio/                 # Label Studio 数据标注 (可选)
 │   ├── labelstudio-secret.yaml  #   数据库密码
 │   └── labelstudio.yaml
-├── ingress/                     # Ingress 入口 (可选)
-│   └── ingress.yaml             #   仅路由到 frontend，nginx 内部代理 /api 和 /ws
+├── ingress/                     # ApisixRoute 入口 (依赖公司 APISIX 网关)
+│   └── ingress.yaml             #   路由到 frontend，APISIX 内部代理 /api 和 /ws
 │
 ├── volcano/                     # Volcano 批处理调度器
 │   ├── 00-namespace.yaml        #   volcano-system 命名空间
@@ -56,9 +56,6 @@ infra/k8s/
 ├── keda/                        # KEDA 自动扩缩容
 │   ├── 00-namespace.yaml        #   keda 命名空间
 │   ├── keda.yaml                #   helm template 渲染
-│   └── README.md
-├── jupyterhub/                  # JupyterHub 开发环境
-│   ├── jupyterhub.yaml          #   含 KubeAI 自定义 Authenticator + Spawner
 │   └── README.md
 ├── harbor/                      # Harbor 镜像仓库
 │   ├── harbor.yaml              #   helm template 渲染
@@ -196,7 +193,6 @@ kubectl apply --server-side -f infra/k8s/kserve/kserve-cluster-resources.yaml
 
 kubectl apply -f infra/k8s/keda/00-namespace.yaml
 kubectl apply --server-side -f infra/k8s/keda/keda.yaml
-kubectl apply -f infra/k8s/jupyterhub/jupyterhub.yaml  # 开发环境
 kubectl apply -f infra/k8s/harbor/harbor.yaml          # 镜像仓库
 kubectl apply -f infra/k8s/monitoring/00-namespace.yaml  # 监控命名空间
 kubectl apply -f infra/k8s/prometheus/prometheus.yaml  # 监控
@@ -245,7 +241,6 @@ namespace.yaml
       │   ├── kserve.yaml       (Controller + Webhooks)
       │   └── istio/            (Istio + Gateway，KServe 入站依赖)
       ├── keda/              ← 推理服务自动扩缩容 (需要 RBAC 权限)
-      ├── jupyterhub/        ← 交互式开发环境
       ├── harbor/            ← 自定义镜像构建
       ├── monitoring/        ← 监控命名空间 (prometheus/dcgm-exporter 依赖)
       ├── prometheus/        ← 监控指标采集
@@ -298,13 +293,9 @@ kubectl label node <node-name> kubeai=true
 
 # 批量打标签 (所有 worker 节点)
 kubectl get nodes -l 'node-role.kubernetes.io/worker' -o name | xargs -I {} kubectl label {} kubeai=true
-
-# 为 JupyterHub 开发环境打节点标签
-kubectl label node <node-name> kubeai-jupyterhub=true
 ```
 
 > **注意**: 如果所有节点都允许调度 backend/frontend，可以修改 `deployment.yaml` 注释或删除 `nodeSelector` 字段。
-> JupyterHub 的 hub/proxy/user-scheduler/user pods 均限制调度在 `kubeai-jupyterhub=true` 节点上。
 
 ## 配置说明
 
@@ -322,7 +313,7 @@ kubectl label node <node-name> kubeai-jupyterhub=true
 |-----|---------|
 | MLflow | `MLFLOW_ENABLED: "true"` + `MLFLOW_TRACKING_URI` 指向 MLflow Service |
 | Label Studio | `LABEL_STUDIO_URL` 指向 Label Studio Service + Secret 中配置 `LABEL_STUDIO_API_TOKEN` |
-| JupyterHub | ConfigMap 中 `JUPYTERHUB_API_URL` / `JUPYTERHUB_BASE_URL` + Secret 中配置 `JUPYTERHUB_API_TOKEN` |
+| 开发环境 | 由 Backend 动态管理 Pod/Service/Ingress，无需额外组件部署 |
 | OIDC/SSO | `OIDC_ENABLED: "true"` + Secret 中配置 `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` |
 | Harbor | Secret 中配置 `HARBOR_URL` / `HARBOR_PASSWORD` |
 
@@ -345,7 +336,6 @@ kubectl delete -f infra/k8s/kserve/00-namespace.yaml --ignore-not-found
 kubectl delete -f infra/k8s/volcano/99-default-queue.yaml --ignore-not-found
 kubectl delete -f infra/k8s/volcano/volcano.yaml --ignore-not-found
 kubectl delete -f infra/k8s/volcano/00-namespace.yaml --ignore-not-found
-kubectl delete -f infra/k8s/jupyterhub/jupyterhub.yaml
 kubectl delete -f infra/k8s/harbor/harbor.yaml
 kubectl delete -f infra/k8s/dcgm-exporter/dcgm-exporter.yaml --ignore-not-found
 kubectl delete -f infra/k8s/prometheus/prometheus.yaml --ignore-not-found

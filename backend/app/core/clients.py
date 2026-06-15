@@ -128,10 +128,8 @@ async def close_clients() -> None:
         _mlflow_client = None
 
     from app.core.redis import close_redis
-    from app.integrations.jupyterhub.client import close_jupyterhub_client
     from app.integrations.k8s.client import close_k8s_clients
 
-    await close_jupyterhub_client()
     await close_k8s_clients()
     await close_redis()
 

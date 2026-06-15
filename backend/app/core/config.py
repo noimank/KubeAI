@@ -69,11 +69,21 @@ class Settings(BaseSettings):
     LABEL_STUDIO_URL: str = "http://labelstudio.kubeai.local"
     LABEL_STUDIO_API_TOKEN: str = ""
 
-    JUPYTERHUB_API_URL: str = "http://jupyterhub-hub:8081/hub/api"
-    JUPYTERHUB_API_TOKEN: str = ""
-    JUPYTERHUB_BASE_URL: str = ""
-    JUPYTERHUB_HUB_SERVICE_ACCOUNT: str = ""
-    DEV_ENV_OPEN_TICKET_EXPIRE_SECONDS: int = 60
+    # -- Dev environment native pod management
+    # Routes are pushed directly to APISIX Admin API at env create/delete time.
+
+    # APISIX Admin API base URL.
+    #   Production:     http://kubeai-apisix-admin.kubeai.svc.cluster.local:9180
+    #   Docker Desktop: http://localhost:30918 (NodePort)
+    KUBEAI_APISIX_ADMIN_URL: str = "http://kubeai-apisix-admin.kubeai.svc.cluster.local:9180"
+
+    # APISIX Admin API key (prod must override with a secure value).
+    KUBEAI_APISIX_ADMIN_KEY: str = "edd1c9f034335f136f87ad84b625c8f1"
+
+    # Backend URL reachable from WITHIN the K8s cluster (APISIX forward-auth).
+    #   Docker Desktop: http://host.docker.internal:8000 (backend on host)
+    #   Production:     http://backend.kubeai.svc.cluster.local:8000
+    KUBEAI_BACKEND_INTERNAL_URL: str = "http://backend.kubeai.svc.cluster.local:8000"
 
     K8S_PLATFORM_NAMESPACE: str = "kubeai"
 

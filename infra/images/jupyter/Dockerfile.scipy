@@ -1,10 +1,9 @@
 # Jupyter SciPy Notebook (CPU)
 # Scientific computing with NumPy, SciPy, Pandas, Matplotlib
 #
-# KubeAI platform-required JupyterHub pieces are already provided by
-# quay.io/jupyter/scipy-notebook:
-#   jupyterhub-singleuser, Jupyter Server, and JupyterLab are built in.
-# This Dockerfile only adds optional project-specific tools.
+# Native entrypoint — no JupyterHub dependency.
+# The KubeAI backend runs "jupyter lab" directly on port 8888
+# with --ServerApp.base_url set to the environment's path prefix.
 #
 # Build:
 #   docker build -t kubeai-jupyter-scipy -f Dockerfile.scipy .
@@ -27,8 +26,6 @@ RUN pip install --no-cache-dir \
     optuna \
     plotly \
     seaborn
-
-RUN mkdir -p /workspace && chown ${NB_USER}:users /workspace
 
 USER ${NB_UID}
 
