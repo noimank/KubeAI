@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import zipfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -10,16 +9,18 @@ if TYPE_CHECKING:
     import uuid
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.exceptions import (
+    AppException,
     ConflictException,
     ExternalServiceException,
     NotFoundException,
     QuotaExceededException,
 )
-from app.core.ws_pubsub import publish_ws_event
+from app.core.ws_pubsub import publish_status_changed
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.dev_pod import dev_access_url, get_dev_pod_manager
 from app.integrations.k8s.namespace import make_namespace_name
@@ -47,13 +48,16 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-STARTUP_MISSING_SERVER_GRACE_SECONDS = 180
 KUBEAI_CONTAINER_ROOT = "/kubeai"
 
 
 class DevEnvironmentService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    # ------------------------------------------------------------------
+    # Lifecycle: create / start / stop / delete (API entrypoints)
+    # ------------------------------------------------------------------
 
     async def create_environment(
         self,
@@ -69,75 +73,8 @@ class DevEnvironmentService:
         description: str | None = None,
         env_vars: dict[str, str] | None = None,
         datasets: list[DatasetMountRequest] | None = None,
-        algorithm_id: uuid.UUID | None = None,
     ) -> DevEnvironment:
-        env, tenant = await self._create_environment_record(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            username=username,
-            name=name,
-            environment_image_id=environment_image_id,
-            gpu_count=gpu_count,
-            cpu=cpu,
-            memory=memory,
-            description=description,
-            env_vars=env_vars,
-            datasets=datasets,
-        )
-        await self._provision_environment(
-            env=env,
-            tenant=tenant,
-            username=username,
-            algorithm_id=algorithm_id,
-        )
-        await self.db.refresh(env)
-        return env
-
-    async def create_environment_record(
-        self,
-        *,
-        tenant_id: uuid.UUID,
-        user_id: uuid.UUID,
-        username: str,
-        name: str,
-        environment_image_id: uuid.UUID,
-        gpu_count: int = 0,
-        cpu: str = "2",
-        memory: str = "4Gi",
-        description: str | None = None,
-        env_vars: dict[str, str] | None = None,
-        datasets: list[DatasetMountRequest] | None = None,
-    ) -> DevEnvironment:
-        env, _ = await self._create_environment_record(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            username=username,
-            name=name,
-            environment_image_id=environment_image_id,
-            gpu_count=gpu_count,
-            cpu=cpu,
-            memory=memory,
-            description=description,
-            env_vars=env_vars,
-            datasets=datasets,
-        )
-        return env
-
-    async def _create_environment_record(
-        self,
-        *,
-        tenant_id: uuid.UUID,
-        user_id: uuid.UUID,
-        username: str,
-        name: str,
-        environment_image_id: uuid.UUID,
-        gpu_count: int = 0,
-        cpu: str = "2",
-        memory: str = "4Gi",
-        description: str | None = None,
-        env_vars: dict[str, str] | None = None,
-        datasets: list[DatasetMountRequest] | None = None,
-    ) -> tuple[DevEnvironment, Tenant]:
+        """Persist the environment record. Provisioning is delegated to a taskiq task."""
         dev_image = await self._get_dev_environment_image(environment_image_id, tenant_id)
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
@@ -145,19 +82,8 @@ class DevEnvironmentService:
         if gpu_count > 0:
             await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_count)
 
-        workspace_host_path = make_workspace_host_path(tenant.name)
-        user_home_host_path = make_user_home_host_path(username)
-        sanitized_username = sanitize_k8s_name(username)
-
-        _, _, mounted_datasets_info = await self._build_volumes(
-            datasets=datasets,
-            tenant_id=tenant_id,
-            tenant_name=tenant.name,
-            namespace=namespace,
-            workspace_host_path=workspace_host_path,
-            user_home_host_path=user_home_host_path,
-            username=username,
-            sanitized_username=sanitized_username,
+        mounted_datasets_info = await self._resolve_mounted_datasets(
+            datasets=datasets, tenant_id=tenant_id, tenant_name=tenant.name
         )
 
         env = DevEnvironment(
@@ -171,16 +97,105 @@ class DevEnvironmentService:
             status=DevEnvironmentStatus.PENDING,
             description=description,
             env_vars=env_vars,
-            mounted_datasets=mounted_datasets_info if mounted_datasets_info else None,
+            mounted_datasets=mounted_datasets_info,
             environment_image_id=dev_image.id,
             environment_type=dev_image.environment_type,
         )
-        env.spawner_name = self._make_spawner_name(username=username, user_id=user_id, env_id=env.id)
         self.db.add(env)
-        await self.db.flush()
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError as e:
+            await self.db.rollback()
+            raise ConflictException(f"开发环境名称「{name}」已存在") from e
         await self.db.refresh(env)
-        return env, tenant
+        return env
+
+    async def start_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
+        """API path: validate state, mark STARTING. Actual pod start is done by the task."""
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+        if env.status != DevEnvironmentStatus.STOPPED:
+            raise ConflictException(f"当前状态为 {env.status}, 只有已停止的环境才能启动")
+        await self._transition(env, DevEnvironmentStatus.STARTING)
+        return env
+
+    async def start_environment_async(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+        """Create the dev pod and return — the K8s Pod Watcher handles RUNNING/FAILED.
+
+        The global Pod Watcher (``dev_pod_watcher.py``) receives ADDED / MODIFIED
+        events and transitions STARTING → RUNNING or FAILED with sub-second latency.
+        """
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+        if env.status != DevEnvironmentStatus.STARTING:
+            logger.info("skip_dev_environment_start", env_id=str(env.id), status=env.status)
+            return
+
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        user = await self._get_user_or_fail(env.created_by)
+
+        await self._create_dev_pod(env, tenant, user.username, namespace)
+
+    async def stop_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
+        """API path: validate state, mark STOPPING. Actual pod stop is done by the task."""
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+        if env.status not in (
+            DevEnvironmentStatus.RUNNING,
+            DevEnvironmentStatus.STARTING,
+            DevEnvironmentStatus.STOPPING,
+        ):
+            raise ConflictException(f"当前状态为 {env.status}, 无法停止环境")
+        await self._transition(env, DevEnvironmentStatus.STOPPING, stopped_reason="manual", clear_error=True)
+        return env
+
+    async def stop_environment_async(
+        self, env_id: uuid.UUID, tenant_id: uuid.UUID, *, stopped_reason: str = "manual"
+    ) -> None:
+        """Delete the dev pod and rely on the K8s Pod Watcher to transition to STOPPED.
+
+        The watcher (``dev_pod_watcher.py``) receives the DELETED event and
+        moves the env from STOPPING → STOPPED.  We do NOT poll for pod
+        deletion here — the watcher is the single source of truth for pod
+        lifecycle events.
+        """
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+        if env.status != DevEnvironmentStatus.STOPPING:
+            logger.info("skip_dev_environment_stop", env_id=str(env.id), status=env.status)
+            return
+
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        pod_mgr = get_dev_pod_manager()
+        try:
+            await pod_mgr.stop_server(env.id, namespace)
+        except Exception as e:
+            logger.warning("stop_server_failed", env_id=str(env.id), error=str(e))
+            # K8s API call failed — the pod may still be running.  The user can
+            # retry (STOPPING is valid input for stop), and the idle checker will
+            # also attempt to stop the pod when the timeout fires.
+            return
+
+    async def delete_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
+        """API path: existence check only. Actual deletion is done by the task."""
+        return await self._get_environment_or_fail(env_id, tenant_id)
+
+    async def delete_environment_async(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+        """Real deletion (pod + service + APISIX route + DB row), invoked by a taskiq worker."""
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        pod_mgr = get_dev_pod_manager()
+        try:
+            await pod_mgr.delete(env.id, namespace)
+        except Exception as e:
+            logger.warning("delete_dev_pod_failed", env_id=str(env.id), error=str(e))
+
+        await self.db.delete(env)
+        await self.db.commit()
+
+    # ------------------------------------------------------------------
+    # Provisioning (first-time start, runs algorithm extraction too)
+    # ------------------------------------------------------------------
 
     async def provision_environment(
         self,
@@ -189,125 +204,36 @@ class DevEnvironmentService:
         *,
         algorithm_id: uuid.UUID | None = None,
     ) -> DevEnvironment:
-        env = await self._get_environment_or_fail(env_id, tenant_id)
-        tenant = await self._get_tenant_or_fail(tenant_id)
-        user = await self._get_user_or_fail(env.created_by)
-        return await self._provision_environment(
-            env=env,
-            tenant=tenant,
-            username=user.username,
-            algorithm_id=algorithm_id,
-        )
+        """First-time provisioning: transition PENDING → STARTING and create the pod.
 
-    async def _provision_environment(
-        self,
-        *,
-        env: DevEnvironment,
-        tenant: Tenant,
-        username: str,
-        algorithm_id: uuid.UUID | None = None,
-    ) -> DevEnvironment:
-        if env.status not in (DevEnvironmentStatus.PENDING, DevEnvironmentStatus.CREATING):
+        After the pod is created, the K8s Pod Watcher handles the STARTING →
+        RUNNING/FAILED transition via Watch events.
+        """
+        env = await self._get_environment_or_fail(env_id, tenant_id)
+        if env.status != DevEnvironmentStatus.PENDING:
             logger.info("skip_dev_environment_provision", env_id=str(env.id), status=env.status)
             return env
 
-        old_status = env.status
-        env.status = DevEnvironmentStatus.CREATING
-        env.error_message = None
-        await self.db.commit()
-        if old_status != env.status:
-            await self._publish_status_change(env.tenant_id, env.id, old_status, env.status)
-
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        user = await self._get_user_or_fail(env.created_by)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
-        if env.gpu_count > 0:
-            await self._check_gpu_quota(namespace, tenant.gpu_limit, env.gpu_count)
-
-        workspace_host_path = make_workspace_host_path(tenant.name)
-        user_home_host_path = make_user_home_host_path(username)
-        sanitized_username = sanitize_k8s_name(username)
-        home_path = self._home_path()
-        workspace_path = self._workspace_path()
-
-        extra_volumes, extra_volume_mounts, _ = await self._build_volumes(
-            datasets=None,
-            tenant_id=env.tenant_id,
-            tenant_name=tenant.name,
-            namespace=namespace,
-            workspace_host_path=workspace_host_path,
-            user_home_host_path=user_home_host_path,
-            username=username,
-            sanitized_username=sanitized_username,
-            mounted_datasets=env.mounted_datasets,
-        )
+        await self._transition(env, DevEnvironmentStatus.STARTING, clear_error=True)
 
         if algorithm_id:
+            user_home_host_path = make_user_home_host_path(user.username)
             await self._extract_algorithm_to_home(
                 algorithm_id=algorithm_id,
                 tenant_id=env.tenant_id,
                 user_home_host_path=user_home_host_path,
             )
 
-        pod_mgr = get_dev_pod_manager()
-        try:
-            await create_tenant_network_policy(namespace)
-            pull_secret_name = await ensure_registry_pull_secret(namespace)
-
-            final_env_vars = self._build_env_vars(
-                env, env.env_vars, workspace_path=workspace_path, home_path=home_path, algorithm_id=algorithm_id
-            )
-
-            await pod_mgr.create(
-                env_id=env.id,
-                namespace=namespace,
-                image=env.image,
-                environment_type=env.environment_type,
-                cpu=env.cpu,
-                memory=env.memory,
-                gpu_count=env.gpu_count,
-                env_vars=final_env_vars,
-                volumes=extra_volumes or [],
-                volume_mounts=extra_volume_mounts or [],
-                image_pull_secret=pull_secret_name,
-                node_selector={"kubeai": "true"},
-            )
-        except Exception as e:
-            logger.error("start_server_failed", env_id=str(env.id), error=str(e))
-            try:
-                await pod_mgr.delete(env.id, namespace)
-            except Exception:
-                logger.warning("cleanup_dev_pod_failed", env_id=str(env.id))
-            await self.db.rollback()
-            try:
-                env = await self._get_environment_or_fail(env.id, env.tenant_id)
-            except Exception as refresh_error:
-                logger.warning(
-                    "reload_environment_after_start_failure_failed",
-                    env_id=str(env.id),
-                    error=str(refresh_error),
-                )
-            if env.status == DevEnvironmentStatus.STOPPED:
-                return env
-            old_status = env.status
-            env.status = DevEnvironmentStatus.FAILED
-            env.error_message = f"启动失败: {e}"
-            await self.db.commit()
-            if old_status != env.status:
-                await self._publish_status_change(env.tenant_id, env.id, old_status, env.status)
-            raise ExternalServiceException(f"启动失败: {e}") from e
-
-        await self.db.refresh(env)
-        if env.status == DevEnvironmentStatus.STOPPED:
-            try:
-                pod_mgr = get_dev_pod_manager()
-                await pod_mgr.stop_server(env.id, namespace)
-            except Exception:
-                logger.warning("stop_server_after_user_stop_failed", env_id=str(env.id))
-            return env
-
-        await self.db.commit()
-        await self.db.refresh(env)
+        await self._create_dev_pod(env, tenant, user.username, namespace)
         return env
+
+    # ------------------------------------------------------------------
+    # Reads
+    # ------------------------------------------------------------------
 
     async def list_environments(
         self,
@@ -319,7 +245,7 @@ class DevEnvironmentService:
         status: str | None = None,
         name: str | None = None,
     ) -> tuple[list[DevEnvironment], int]:
-        """纯 DB 列表查询. 状态同步由 sync_dev_environment_statuses_task 周期任务负责."""
+        """DB-only list query. Status transitions are driven by the K8s Pod Watcher."""
         query = select(DevEnvironment).where(DevEnvironment.tenant_id == tenant_id)
 
         if user_id is not None:
@@ -338,132 +264,41 @@ class DevEnvironmentService:
         return list(result.scalars().all()), total
 
     async def get_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
-        """纯 DB 详情查询. 状态同步由 sync_dev_environment_statuses_task 周期任务负责."""
+        """DB-only detail query. Status sync is handled by sync_dev_environment_statuses_task."""
         return await self._get_environment_or_fail(env_id, tenant_id)
 
-    async def sync_non_terminal_environments(self, *, limit: int = 200) -> int:
-        result = await self.db.execute(
-            select(DevEnvironment)
-            .where(
-                DevEnvironment.status.in_(
-                    [DevEnvironmentStatus.PENDING, DevEnvironmentStatus.CREATING, DevEnvironmentStatus.RUNNING]
-                )
-            )
-            .order_by(DevEnvironment.updated_at.asc())
-            .limit(limit)
-        )
-        environments = list(result.scalars().all())
-        if not environments:
-            return 0
+    def build_access_url(self, env: DevEnvironment) -> str:
+        return dev_access_url(env.id)
 
-        tenant_ids = {env.tenant_id for env in environments}
-        tenants_result = await self.db.execute(select(Tenant).where(Tenant.id.in_(tenant_ids)))
-        tenants = {tenant.id: tenant for tenant in tenants_result.scalars().all()}
+    # ------------------------------------------------------------------
+    # Internal: pod creation
+    # ------------------------------------------------------------------
 
-        synced_count = 0
-        for env in environments:
-            tenant = tenants.get(env.tenant_id)
-            if tenant is None:
-                continue
-            namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-            try:
-                await self._sync_environment_status(env, namespace)
-                synced_count += 1
-            except Exception as e:
-                logger.warning("sync_status_failed", env_id=str(env.id), error=str(e))
-
-        await self.db.commit()
-        return synced_count
-
-    async def stop_environment(
-        self, env_id: uuid.UUID, tenant_id: uuid.UUID, *, stopped_reason: str = "manual"
-    ) -> DevEnvironment:
-        """API 路径: 仅做状态校验 + 置 PENDING (作为停止中过渡), 由 task 负责真实停止."""
-        env = await self._get_environment_or_fail(env_id, tenant_id)
-
-        if env.status not in (
-            DevEnvironmentStatus.RUNNING,
-            DevEnvironmentStatus.CREATING,
-            DevEnvironmentStatus.PENDING,
-        ):
-            raise ConflictException(f"当前状态为 {env.status}, 无法停止环境")
-
-        env.status = DevEnvironmentStatus.PENDING
-        env.error_message = None
-        await self.db.commit()
-        await self.db.refresh(env)
-        return env
-
-    async def stop_environment_async(
-        self, env_id: uuid.UUID, tenant_id: uuid.UUID, *, stopped_reason: str = "manual"
+    async def _create_dev_pod(
+        self,
+        env: DevEnvironment,
+        tenant: Tenant,
+        username: str,
+        namespace: str,
     ) -> None:
-        """真实停止 dev pod, 由 task 调用."""
-        env = await self._get_environment_or_fail(env_id, tenant_id)
+        """Create the dev pod (Service + Pod + APISIX route).
 
-        if env.status not in (
-            DevEnvironmentStatus.RUNNING,
-            DevEnvironmentStatus.CREATING,
-            DevEnvironmentStatus.PENDING,
-        ):
-            logger.info("skip_dev_environment_stop", env_id=str(env.id), status=env.status)
-            return
-
-        tenant = await self._get_tenant_or_fail(tenant_id)
-        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-        pod_mgr = get_dev_pod_manager()
-        try:
-            await pod_mgr.stop_server(env.id, namespace)
-        except Exception as e:
-            logger.warning("stop_server_failed", env_id=str(env.id), error=str(e))
-
-        env.status = DevEnvironmentStatus.STOPPED
-        env.stopped_reason = stopped_reason
-        await self.db.commit()
-        await self.db.refresh(env)
-
-    async def start_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
-        """API 路径: 仅做状态校验 + 置 CREATING (作为启动中过渡), 由 task 负责真实启动."""
-        env = await self._get_environment_or_fail(env_id, tenant_id)
-
-        if env.status != DevEnvironmentStatus.STOPPED:
-            raise ConflictException(f"当前状态为 {env.status}, 只有已停止的环境才能启动")
-
-        env.status = DevEnvironmentStatus.CREATING
-        env.error_message = None
-        await self.db.commit()
-        await self.db.refresh(env)
-        return env
-
-    async def start_environment_async(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """真实启动 dev pod, 由 task 调用."""
-        env = await self._get_environment_or_fail(env_id, tenant_id)
-
-        if env.status != DevEnvironmentStatus.STOPPED:
-            logger.info("skip_dev_environment_start", env_id=str(env.id), status=env.status)
-            return
-
-        tenant = await self._get_tenant_or_fail(tenant_id)
-        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-
+        After the pod is submitted to K8s this method returns — the global
+        Pod Watcher (``dev_pod_watcher.py``) receives ADDED / MODIFIED events
+        and transitions the env from STARTING to RUNNING or FAILED.
+        """
         if env.gpu_count > 0:
             await self._check_gpu_quota(namespace, tenant.gpu_limit, env.gpu_count)
 
-        user = await self._get_user_or_fail(env.created_by)
         workspace_host_path = make_workspace_host_path(tenant.name)
-        user_home_host_path = make_user_home_host_path(user.username)
-        sanitized_username = sanitize_k8s_name(user.username)
+        user_home_host_path = make_user_home_host_path(username)
         home_path = self._home_path()
         workspace_path = self._workspace_path()
 
-        extra_volumes, extra_volume_mounts, _ = await self._build_volumes(
-            datasets=None,
-            tenant_id=tenant_id,
+        volumes, volume_mounts = self._rebuild_volumes_from_mounted(
             tenant_name=tenant.name,
-            namespace=namespace,
             workspace_host_path=workspace_host_path,
             user_home_host_path=user_home_host_path,
-            username=user.username,
-            sanitized_username=sanitized_username,
             mounted_datasets=env.mounted_datasets,
         )
 
@@ -471,8 +306,7 @@ class DevEnvironmentService:
         try:
             await create_tenant_network_policy(namespace)
             pull_secret_name = await ensure_registry_pull_secret(namespace)
-
-            final_env_vars = self._build_env_vars(env, env.env_vars, workspace_path=workspace_path, home_path=home_path)
+            final_env_vars = self._build_env_vars(env, home_path=home_path, workspace_path=workspace_path)
 
             await pod_mgr.create(
                 env_id=env.id,
@@ -483,46 +317,43 @@ class DevEnvironmentService:
                 memory=env.memory,
                 gpu_count=env.gpu_count,
                 env_vars=final_env_vars,
-                volumes=extra_volumes or [],
-                volume_mounts=extra_volume_mounts or [],
+                volumes=volumes,
+                volume_mounts=volume_mounts,
                 image_pull_secret=pull_secret_name,
                 node_selector={"kubeai": "true"},
             )
         except Exception as e:
+            classified = self._classify_start_error(e)
             logger.error("start_server_failed", env_id=str(env.id), error=str(e))
-            old_status = env.status
-            env.status = DevEnvironmentStatus.FAILED
-            env.error_message = f"启动失败: {e}"
-            await self.db.commit()
-            if old_status != env.status:
-                await self._publish_status_change(env.tenant_id, env.id, old_status, env.status)
-            raise
+            await self._transition(env, DevEnvironmentStatus.FAILED, error_message=str(classified.message))
+            raise classified from e
 
+    # ------------------------------------------------------------------
+    # Internal: status transitions
+    # ------------------------------------------------------------------
+
+    async def _transition(
+        self,
+        env: DevEnvironment,
+        new_status: DevEnvironmentStatus,
+        *,
+        error_message: str | None = None,
+        stopped_reason: str | None = None,
+        clear_error: bool = False,
+    ) -> None:
+        """Transition env to ``new_status`` and publish a WS event if changed."""
+        old_status = env.status
+        env.status = new_status
+        env.error_message = None if clear_error else error_message
+        if stopped_reason is not None:
+            env.stopped_reason = stopped_reason
         await self.db.commit()
         await self.db.refresh(env)
+        await publish_status_changed(env.tenant_id, env.id, str(old_status), str(new_status), name=env.name)
 
-    async def delete_environment(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironment:
-        """API 路径: 仅校验存在性, 由 task 负责真实删除 Pod + Service + Ingress + DB."""
-        env = await self._get_environment_or_fail(env_id, tenant_id)
-        return env
-
-    async def delete_environment_async(self, env_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """真实删除 Pod + Service + Ingress + DB 记录, 由 task 调用."""
-        env = await self._get_environment_or_fail(env_id, tenant_id)
-        tenant = await self._get_tenant_or_fail(tenant_id)
-        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-
-        pod_mgr = get_dev_pod_manager()
-        try:
-            await pod_mgr.delete(env.id, namespace)
-        except Exception as e:
-            logger.warning("delete_dev_pod_failed", env_id=str(env.id), error=str(e))
-
-        await self.db.delete(env)
-        await self.db.commit()
-
-    def build_access_url(self, env: DevEnvironment) -> str:
-        return dev_access_url(env.id)
+    # ------------------------------------------------------------------
+    # Internal: paths & volumes
+    # ------------------------------------------------------------------
 
     def _home_path(self) -> str:
         return f"{KUBEAI_CONTAINER_ROOT}/home"
@@ -533,152 +364,93 @@ class DevEnvironmentService:
     def _dataset_mount_path(self, dataset_name: str, version_number: int) -> str:
         return f"{KUBEAI_CONTAINER_ROOT}/datasets/{sanitize_k8s_name(dataset_name)}/v{version_number}"
 
-    def _make_spawner_name(self, *, username: str, user_id: uuid.UUID, env_id: uuid.UUID) -> str:
-        return f"devenv-{sanitize_k8s_name(username, max_length=40)}-{str(user_id)[:8]}-{str(env_id)[:8]}"
-
-    async def _build_volumes(
+    async def _resolve_mounted_datasets(
         self,
         *,
         datasets: list[DatasetMountRequest] | None,
         tenant_id: uuid.UUID,
         tenant_name: str,
-        namespace: str,
+    ) -> list[dict[str, Any]] | None:
+        """Resolve dataset mount requests into persisted metadata."""
+        if not datasets:
+            return None
+
+        info: list[dict[str, Any]] = []
+        for dm in datasets:
+            dataset, version = await self._resolve_dataset_mount(dm.dataset_id, dm.version_id, tenant_id)
+            info.append(
+                {
+                    "dataset_id": str(dataset.id),
+                    "dataset_name": dataset.name,
+                    "version_id": str(version.id),
+                    "version_number": version.version_number,
+                    "host_path": make_dataset_host_path(tenant_name, dataset.name, version.version_number),
+                    "mount_path": self._dataset_mount_path(dataset.name, version.version_number),
+                }
+            )
+        return info or None
+
+    def _rebuild_volumes_from_mounted(
+        self,
+        *,
+        tenant_name: str,
         workspace_host_path: str,
         user_home_host_path: str,
-        username: str,
-        sanitized_username: str,
-        mounted_datasets: list[dict[str, Any]] | None = None,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]] | None]:
-        extra_volumes: list[dict[str, Any]] = []
-        extra_volume_mounts: list[dict[str, Any]] = []
-        mounted_datasets_info: list[dict[str, Any]] = []
+        mounted_datasets: list[dict[str, Any]] | None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Rebuild K8s volumes/mounts from persisted mounted_datasets metadata."""
+        volumes: list[dict[str, Any]] = [
+            {"name": "home-volume", "hostPath": {"path": user_home_host_path, "type": "DirectoryOrCreate"}},
+            {"name": "workspace-volume", "hostPath": {"path": workspace_host_path, "type": "DirectoryOrCreate"}},
+        ]
+        mounts: list[dict[str, Any]] = [
+            {"name": "home-volume", "mountPath": self._home_path()},
+            {"name": "workspace-volume", "mountPath": self._workspace_path()},
+        ]
 
-        home_path = self._home_path()
-        workspace_path = self._workspace_path()
-
-        extra_volumes.append(
-            {"name": "home-volume", "hostPath": {"path": user_home_host_path, "type": "DirectoryOrCreate"}}
-        )
-        extra_volume_mounts.append({"name": "home-volume", "mountPath": home_path})
-
-        extra_volumes.append(
-            {"name": "workspace-volume", "hostPath": {"path": workspace_host_path, "type": "DirectoryOrCreate"}}
-        )
-        extra_volume_mounts.append({"name": "workspace-volume", "mountPath": workspace_path})
-
-        if datasets:
-            for dm in datasets:
-                dataset, version = await self._resolve_dataset_mount(dm.dataset_id, dm.version_id, tenant_id)
-                host_path = make_dataset_host_path(tenant_name, dataset.name, version.version_number)
-                mount_path = self._dataset_mount_path(dataset.name, version.version_number)
-
-                vol_name = f"dataset-{sanitize_k8s_name(dataset.name)}-v{version.version_number}"
-                extra_volumes.append({"name": vol_name, "hostPath": {"path": host_path, "type": "DirectoryOrCreate"}})
-                extra_volume_mounts.append({"name": vol_name, "mountPath": mount_path, "readOnly": True})
-
-                mounted_datasets_info.append(
-                    {
-                        "dataset_id": str(dataset.id),
-                        "dataset_name": dataset.name,
-                        "version_id": str(version.id),
-                        "version_number": version.version_number,
-                        "host_path": host_path,
-                        "mount_path": mount_path,
-                    }
-                )
-        elif mounted_datasets:
-            for md in mounted_datasets:
-                version_number = int(md["version_number"])
-                mount_path = self._dataset_mount_path(md["dataset_name"], version_number)
-                md["mount_path"] = mount_path
-                host_path = make_dataset_host_path(tenant_name, md["dataset_name"], version_number)
-                vol_name = f"dataset-{sanitize_k8s_name(md['dataset_name'])}-v{version_number}"
-                extra_volumes.append({"name": vol_name, "hostPath": {"path": host_path, "type": "DirectoryOrCreate"}})
-                extra_volume_mounts.append({"name": vol_name, "mountPath": mount_path, "readOnly": True})
-
-        return extra_volumes, extra_volume_mounts, mounted_datasets_info or None
-
-    async def _sync_environment_status(self, env: DevEnvironment, namespace: str) -> None:
-        pod_mgr = get_dev_pod_manager()
-        pod_status = await pod_mgr.get_pod_status(env.id, namespace)
-
-        if not pod_status:
-            self._mark_missing_server_status(env, "Pod 不存在, 启动可能已失败")
-            return
-
-        phase = pod_status["phase"]
-        ready = pod_status["ready"]
-
-        if phase in ("Running", "Succeeded") and ready:
-            new_status = DevEnvironmentStatus.RUNNING
-            env.access_url = self.build_access_url(env)
-            last_activity = pod_status.get("last_activity")
-            env.last_active_at = last_activity or datetime.now(UTC).isoformat()
-            env.error_message = None
-            env.stopped_reason = None
-        elif phase in ("Pending", "ContainerCreating"):
-            new_status = DevEnvironmentStatus.CREATING
-        elif phase == "Failed":
-            new_status = DevEnvironmentStatus.FAILED
-        else:
-            return  # no change
-
-        if new_status != env.status:
-            old_status = env.status
-            logger.info(
-                "dev_environment_status_changed",
-                env_id=str(env.id),
-                old_status=old_status,
-                new_status=new_status,
+        for md in mounted_datasets or []:
+            version_number = int(md["version_number"])
+            dataset_name = md["dataset_name"]
+            host_path = make_dataset_host_path(tenant_name, dataset_name, version_number)
+            vol_name = f"dataset-{sanitize_k8s_name(dataset_name)}-v{version_number}"
+            volumes.append({"name": vol_name, "hostPath": {"path": host_path, "type": "DirectoryOrCreate"}})
+            mounts.append(
+                {
+                    "name": vol_name,
+                    "mountPath": self._dataset_mount_path(dataset_name, version_number),
+                    "readOnly": True,
+                }
             )
-            env.status = new_status
-            await self._publish_status_change(env.tenant_id, env.id, old_status, new_status.value)
 
-    def _mark_missing_server_status(self, env: DevEnvironment, message: str) -> None:
-        if env.status in (DevEnvironmentStatus.PENDING, DevEnvironmentStatus.CREATING):
-            if self._startup_age_seconds(env) < STARTUP_MISSING_SERVER_GRACE_SECONDS:
-                return
-            env.status = DevEnvironmentStatus.FAILED
-            env.error_message = f"启动超时: {message}"
-            return
+        return volumes, mounts
 
-        if env.status == DevEnvironmentStatus.RUNNING:
-            env.status = DevEnvironmentStatus.STOPPED
-            env.stopped_reason = env.stopped_reason or "server_missing"
-
-    def _startup_age_seconds(self, env: DevEnvironment) -> float:
-        reference = env.updated_at or env.created_at
-        if reference is None:
-            return STARTUP_MISSING_SERVER_GRACE_SECONDS
-        if reference.tzinfo is None:
-            reference = reference.replace(tzinfo=UTC)
-        return (datetime.now(UTC) - reference).total_seconds()
+    # ------------------------------------------------------------------
+    # Internal: env vars
+    # ------------------------------------------------------------------
 
     def _build_env_vars(
         self,
         env: DevEnvironment,
-        user_env_vars: dict[str, str] | None,
         *,
-        workspace_path: str | None = None,
-        home_path: str | None = None,
-        algorithm_id: uuid.UUID | None = None,
+        workspace_path: str,
+        home_path: str,
     ) -> dict[str, str]:
         merged: dict[str, str] = {}
-        if user_env_vars:
-            merged.update(user_env_vars)
+        if env.env_vars:
+            merged.update(env.env_vars)
         if settings.BACKEND_API_URL:
             merged["KUBEAI_API_URL"] = settings.BACKEND_API_URL
         merged["KUBEAI_ENV_ID"] = str(env.id)
         merged["KUBEAI_ROOT_PATH"] = KUBEAI_CONTAINER_ROOT
-        if workspace_path:
-            merged["KUBEAI_WORKSPACE_PATH"] = workspace_path
-        if home_path:
-            merged["KUBEAI_HOME_PATH"] = home_path
-            merged["HOME"] = home_path  # Ensure shell/tools use persistent home
+        merged["KUBEAI_WORKSPACE_PATH"] = workspace_path
+        merged["KUBEAI_HOME_PATH"] = home_path
+        merged["HOME"] = home_path  # Ensure shell/tools use persistent home
         merged["SHELL"] = "/bin/bash"  # Explicit shell for terminal integration
-        if algorithm_id:
-            merged["KUBEAI_ALGORITHM_ID"] = str(algorithm_id)
         return merged
+
+    # ------------------------------------------------------------------
+    # Internal: algorithm extraction
+    # ------------------------------------------------------------------
 
     async def _extract_algorithm_to_home(
         self,
@@ -733,9 +505,28 @@ class DevEnvironmentService:
             dest=str(dest_dir),
         )
 
-    async def _get_dev_environment_image(self, image_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironmentImage:
-        from sqlalchemy import or_
+    # ------------------------------------------------------------------
+    # Internal: error classification
+    # ------------------------------------------------------------------
 
+    def _classify_start_error(self, exc: Exception) -> AppException:
+        """Classify a pod-start failure into the most specific AppException.
+
+        K8s ResourceQuota enforcement rejects over-quota pods with a 403
+        ``Forbidden: exceeded quota`` — surface that as QuotaExceededException
+        so the frontend can show a targeted message instead of a generic failure.
+        """
+        message = str(exc)
+        lowered = message.lower()
+        if "quota" in lowered and ("exceed" in lowered or "forbidden" in lowered):
+            return QuotaExceededException(f"资源配额不足: {message}")
+        return ExternalServiceException(f"启动失败: {message}")
+
+    # ------------------------------------------------------------------
+    # Internal: lookups
+    # ------------------------------------------------------------------
+
+    async def _get_dev_environment_image(self, image_id: uuid.UUID, tenant_id: uuid.UUID) -> DevEnvironmentImage:
         stmt = select(DevEnvironmentImage).where(
             DevEnvironmentImage.id == image_id,
             DevEnvironmentImage.deleted_at.is_(None),
@@ -813,16 +604,3 @@ class DevEnvironmentService:
             raise NotFoundException("数据集版本不存在")
 
         return dataset, version
-
-    @staticmethod
-    async def _publish_status_change(
-        tenant_id: uuid.UUID,
-        env_id: uuid.UUID,
-        old_status: str,
-        new_status: str,
-    ) -> None:
-        await publish_ws_event(
-            tenant_id=tenant_id,
-            event="dev_environment.status_changed",
-            payload={"id": str(env_id), "old_status": old_status, "new_status": new_status},
-        )

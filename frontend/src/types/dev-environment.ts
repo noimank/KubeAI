@@ -1,4 +1,10 @@
-export type DevEnvironmentStatus = 'pending' | 'creating' | 'running' | 'stopped' | 'failed'
+export type DevEnvironmentStatus =
+  | 'pending'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'failed'
 
 export interface DatasetMountInfo {
   datasetId: string
@@ -18,7 +24,6 @@ export interface DevEnvironment {
   cpu: string
   memory: string
   status: DevEnvironmentStatus
-  spawnerName?: string
   accessUrl?: string
   environmentImageId?: string
   environmentType?: string

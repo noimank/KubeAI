@@ -17,7 +17,6 @@ function getWsUrl(): string {
   if (baseUrl.startsWith('http')) {
     return baseUrl.replace(/^http/, 'ws') + '/ws'
   }
-  // Relative path — build absolute URL from current location
   return `${wsProtocol}//${window.location.host}${baseUrl}/ws`
 }
 

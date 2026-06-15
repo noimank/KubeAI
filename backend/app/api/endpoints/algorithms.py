@@ -297,7 +297,7 @@ async def create_dev_environment_from_algorithm(
     req.algorithm_id = algorithm_id
 
     env_service = DevEnvironmentService(db)
-    env = await env_service.create_environment_record(
+    env = await env_service.create_environment(
         tenant_id=tenant_id,
         user_id=user.id,
         username=user.username,

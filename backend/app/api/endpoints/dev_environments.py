@@ -10,7 +10,7 @@ from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import decode_token
 from app.models.dev_environment import DevEnvironment
-from app.models.enums import UserRole
+from app.models.enums import DevEnvironmentStatus, UserRole
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.dev_environment import (
     AccessUrlResponse,
@@ -66,7 +66,7 @@ async def create_environment(
 ) -> BaseResponse[DevEnvironmentResponse]:
     tenant_id = _require_tenant_id(user)
     service = DevEnvironmentService(db)
-    env = await service.create_environment_record(
+    env = await service.create_environment(
         tenant_id=tenant_id,
         user_id=user.id,
         username=user.username,
@@ -138,7 +138,7 @@ async def auth_check_dev_environment(
 
     service = DevEnvironmentService(db)
     env = await service.get_environment(env_id, tenant_id)
-    if env.status != "running":
+    if env.status != DevEnvironmentStatus.RUNNING:
         raise ForbiddenException("环境未运行")
 
     if env.created_by != getattr(user, "id", None):
@@ -274,7 +274,7 @@ async def get_access_url(
     tenant_id = _require_tenant_id(user)
     service = DevEnvironmentService(db)
     env = await service.get_environment(env_id, tenant_id)
-    if env.status != "running":
+    if env.status != DevEnvironmentStatus.RUNNING:
         raise ForbiddenException("环境未运行, 无法获取访问地址")
     url = service.build_access_url(env)
     return BaseResponse(

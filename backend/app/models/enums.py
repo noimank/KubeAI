@@ -122,8 +122,9 @@ class AnnotationTaskStatus(enum.StrEnum):
 
 class DevEnvironmentStatus(enum.StrEnum):
     PENDING = "pending"
-    CREATING = "creating"
+    STARTING = "starting"
     RUNNING = "running"
+    STOPPING = "stopping"
     STOPPED = "stopped"
     FAILED = "failed"
 

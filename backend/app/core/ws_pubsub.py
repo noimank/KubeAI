@@ -61,6 +61,37 @@ async def publish_ws_event(
         await redis.aclose()
 
 
+async def publish_status_changed(
+    tenant_id: uuid.UUID,
+    env_id: uuid.UUID,
+    old_status: str,
+    new_status: str,
+    *,
+    name: str | None = None,
+) -> None:
+    """Publish a dev_environment status change event.
+
+    Shared by service layer and taskiq workers. Short-circuits when
+    ``old_status == new_status`` to avoid no-op events. ``name`` (env name)
+    is included so the frontend can show a human-readable toast without an
+    extra API round-trip.
+    """
+    if old_status == new_status:
+        return
+    payload: dict[str, Any] = {
+        "id": str(env_id),
+        "old_status": old_status,
+        "new_status": new_status,
+    }
+    if name:
+        payload["name"] = name
+    await publish_ws_event(
+        tenant_id=tenant_id,
+        event="dev_environment.status_changed",
+        payload=payload,
+    )
+
+
 class WebSocketPubSub:
     """Redis Pub/Sub 封装, 支持多副本 WebSocket 消息广播."""
 

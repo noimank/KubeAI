@@ -26,7 +26,6 @@ class DevEnvironment(Base, TimestampMixin):
     cpu: Mapped[str] = mapped_column(String(20), nullable=False, default="2", comment="CPU 核数")
     memory: Mapped[str] = mapped_column(String(20), nullable=False, default="4Gi", comment="内存")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", comment="环境状态")
-    spawner_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="Spawner 名称")
     access_url: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="访问 URL")
     environment_image_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("dev_environment_images.id", ondelete="SET NULL"),
@@ -39,7 +38,7 @@ class DevEnvironment(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="描述")
     env_vars: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True, comment="环境变量")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True, comment="错误信息")
-    last_active_at: Mapped[str | None] = mapped_column(String(30), nullable=True, comment="上次活跃时间")
+    last_active_at: Mapped[str | None] = mapped_column(String(40), nullable=True, comment="上次活跃时间")
     stopped_reason: Mapped[str | None] = mapped_column(
         String(20), nullable=True, comment="停止原因: manual=手动停止, idle_timeout=空闲超时自动停止"
     )

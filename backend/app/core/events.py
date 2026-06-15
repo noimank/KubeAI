@@ -18,6 +18,8 @@ from app.models.user import User
 logger = structlog.get_logger()
 
 _metrics_push_task: asyncio.Task[None] | None = None
+_dev_pod_watcher_task: asyncio.Task[None] | None = None
+_dev_pod_watcher_stop: asyncio.Event | None = None
 
 # Re-export client getters for backward compatibility — prefer importing from
 # ``app.core.clients`` directly in new code.
@@ -126,11 +128,27 @@ async def on_startup() -> None:
     # Start cluster metrics push background task
     _metrics_push_task = asyncio.create_task(_metrics_push_loop())
 
+    # Start dev pod watcher — event-driven pod → DevEnvironment status sync.
+    # Replaces per-env polling in the service layer; a single Watch connection
+    # handles all dev pods across all tenant namespaces.
+    from app.integrations.k8s.dev_pod_watcher import run_dev_pod_watcher
+
+    global _dev_pod_watcher_task, _dev_pod_watcher_stop
+    _dev_pod_watcher_stop = asyncio.Event()
+    _dev_pod_watcher_task = asyncio.create_task(run_dev_pod_watcher(_dev_pod_watcher_stop))
+
     logger.info("application_startup", app="KubeAI")
 
 
 async def on_shutdown() -> None:
-    global _metrics_push_task
+    global _metrics_push_task, _dev_pod_watcher_task, _dev_pod_watcher_stop
+
+    if _dev_pod_watcher_stop:
+        _dev_pod_watcher_stop.set()
+    if _dev_pod_watcher_task:
+        _dev_pod_watcher_task.cancel()
+        _dev_pod_watcher_task = None
+    _dev_pod_watcher_stop = None
 
     if _metrics_push_task:
         _metrics_push_task.cancel()

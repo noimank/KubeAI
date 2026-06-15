@@ -115,18 +115,6 @@ def _v1_volume_mount(vm: dict[str, Any]) -> client.V1VolumeMount:
     )
 
 
-def _container_state_summary(state: client.V1ContainerState | None) -> str:
-    if state is None:
-        return "unknown"
-    if state.running:
-        return "running"
-    if state.waiting:
-        return state.waiting.reason or "waiting"
-    if state.terminated:
-        return "terminated"
-    return "unknown"
-
-
 def _estimate_last_activity(pod: client.V1Pod) -> str:
     now = datetime.now(UTC)
     candidates: list[datetime] = []
@@ -513,32 +501,6 @@ class DevPodManager:
                 return None
             raise
 
-    async def get_pod_status(self, env_id: uuid.UUID, namespace: str) -> dict[str, Any]:
-        pod = await self.get_pod(env_id, namespace)
-        if pod is None:
-            return {}
-        phase = (pod.status.phase or "Unknown") if pod.status else "Unknown"
-        ready = False
-        container_statuses: list[dict[str, Any]] = []
-        if pod.status:
-            for cs in pod.status.container_statuses or []:
-                container_statuses.append(
-                    {
-                        "name": cs.name,
-                        "ready": cs.ready,
-                        "restart_count": cs.restart_count,
-                        "state": _container_state_summary(cs.state),
-                    }
-                )
-                if cs.ready:
-                    ready = True
-        return {
-            "phase": phase,
-            "ready": ready,
-            "last_activity": _estimate_last_activity(pod),
-            "containers": container_statuses,
-        }
-
     async def get_pod_last_activity(self, env_id: uuid.UUID, namespace: str) -> str | None:
         pod = await self.get_pod(env_id, namespace)
         return _estimate_last_activity(pod) if pod else None
@@ -551,10 +513,6 @@ class DevPodManager:
         except ApiException as e:
             if e.status != 404:
                 raise
-
-    async def delete_user(self, env_id: uuid.UUID, namespace: str) -> None:
-        """Delete everything (pod + Service + APISIX route)."""
-        await self.delete(env_id, namespace)
 
 
 # ---------------------------------------------------------------------------

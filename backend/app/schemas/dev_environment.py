@@ -41,7 +41,6 @@ class DevEnvironmentResponse(BaseModel):
     cpu: str
     memory: str
     status: str
-    spawner_name: str | None = None
     access_url: str | None = None
     environment_image_id: uuid.UUID | None = None
     environment_type: str | None = None
