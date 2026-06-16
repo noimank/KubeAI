@@ -62,7 +62,10 @@ spec:
               # 若部署在独立域名下，直接写域名即可:
               #   value: "https://labelstudio.example.com"
               # 注意: 协议必须与用户访问协议一致 (HTTPS → https://)
-              value: "0.0.0.0"
+              value: "https://aiaxis.uimpcloud.com/labelstudio"
+            - name: CSRF_TRUSTED_ORIGINS
+              # Django CSRF Origin 校验白名单，部署在反向代理后必须设置
+              value: "https://aiaxis.uimpcloud.com"
             - name: LABEL_STUDIO_PORT
               value: "8080"
           ports:
