@@ -1,11 +1,19 @@
 # Label Studio - 数据标注服务
-# 依赖: PostgreSQL (需 labelstudio 数据库)
-# 部署: kubectl apply -k infra/k8s/labelstudio/
-# 端口: ClusterIP 8080 (内部访问；如需外部，通过 Ingress 暴露)
+# 依赖: PostgreSQL (需 labelstudio 数据库)  +  Apisix 路由
+# 部署: kubectl apply -f infra/k8s/labelstudio/
+# 端口: ClusterIP 8080 (通过 Apisix 路由暴露)
 #
 # 生产部署前:
-#   1. 创建 postgresql-labelstudio-secret 包含数据库密码
+#   1. 创建 labelstudio-secret 包含数据库密码 (见 labelstudio-secret.yaml)
 #   2. 配置 LABEL_STUDIO_USERNAME / LABEL_STUDIO_PASSWORD 作为管理员凭证
+#   3. 若部署在子路径下 (如 /labelstudio)，修改 LABEL_STUDIO_HOST 为完整外部 URL
+#   4. 在 Apisix 中创建路由，将子路径流量代理到 labelstudio.kubeai:8080
+#
+# Apisix 路由参考配置:
+#   - Upstream: labelstudio.kubeai.svc.cluster.local:8080 (pass_host: pass)
+#   - Route: host=aiaxis.uimpcloud.com, uris=["/labelstudio", "/labelstudio/*"]
+#   - Priority: 100 (必须高于 /* 通配路由)
+#   - Plugin: proxy-rewrite, regex_uri ["^/labelstudio/?(.*)$", "/$1"]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -49,6 +57,11 @@ spec:
             - name: POSTGRE_PORT
               value: "5432"
             - name: LABEL_STUDIO_HOST
+              # 若部署在子路径下 (如 /labelstudio)，必须设置为完整的外部 URL:
+              #   value: "https://aiaxis.uimpcloud.com/labelstudio"
+              # 若部署在独立域名下，直接写域名即可:
+              #   value: "https://labelstudio.example.com"
+              # 注意: 协议必须与用户访问协议一致 (HTTPS → https://)
               value: "0.0.0.0"
             - name: LABEL_STUDIO_PORT
               value: "8080"
