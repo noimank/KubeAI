@@ -11741,6 +11741,7 @@ spec:
       serviceAccountName: keda-operator
       automountServiceAccountToken: true
       nodeSelector:
+        kubernetes.io/os: linux
         kubeai: "true"
       securityContext:
         runAsNonRoot: true
