@@ -1,24 +1,90 @@
-# ApisixRoute - 前端流量入口
+# ApisixRoute - KubeAI 前端流量入口
 # 依赖: 集群中已有的 APISIX 网关 (公司统一基础设施)
-# 部署前修改 host 为实际域名
 # 部署: kubectl apply -f infra/k8s/ingress/
 #
 # 注意: 不需要单独部署 ingress controller — APISIX 是公司统一网关，
 # 此 ApisixRoute 资源会被自动拾取并路由。
+#
+# ============================================================
+# 部署前 Checklist
+# ============================================================
+#
+# [ ] 1. 修改域名: 全文替换 kubeai.example.com → 实际生产域名
+# [ ] 2. SSL 证书: 在 APISIX Admin API 或 Dashboard 中为域名配置 SSL 证书
+#          - 参考命令: curl -X PUT http://apisix-admin:9180/apisix/admin/ssls/<ssl_id> \
+#                       -H 'X-API-KEY: <key>' -d '{"cert":"...","key":"...","snis":["<domain>"]}'
+# [ ] 3. 子路径: 如果 Label Studio / API 有子路径变更，同步修改
+#          - frontend 路由中的 proxy-rewrite 将 /api/* 剥离前缀后转发到 backend
+# [ ] 4. 开发环境: devenv 路由由 Backend 通过 APISIX Admin API 动态创建/销毁
+#          - 依赖 APISIX Admin API 可达且 API Key 正确配置
+#          - 无需在此文件中手动管理
+#
+# ============================================================
+# 路由优先级说明
+# ============================================================
+# APISIX 按优先级 (priority, 越高越优先) + 匹配精确度排序:
+#   - /labelstudio, /labelstudio/* → priority 100 (子路径路由，高于通配)
+#   - /devenv/<uuid>/*           → priority 100 (动态创建，高于通配)
+#   - /*                         → priority 0   (兜底路由，匹配所有请求)
+#
+# ============================================================
+# 生产环境参考配置 (aiaxis.uimpcloud.com)
+# ============================================================
+# 以下配置基于 kubeai-prod-env (192.168.18.171) 上的 APISIX 运行配置:
+#   - 主路由: host=aiaxis.uimpcloud.com, uri=/*, upstream=frontend.kubeai:80
+#   - Label Studio: host=aiaxis.uimpcloud.com, uris=["/labelstudio","/labelstudio/*"],
+#     priority=100, proxy-rewrite regex ["^/labelstudio/?(.*)$","/$1"],
+#     upstream=labelstudio.kubeai:8080
+#   - SSL: Let's Encrypt 自动续期证书，snis=["aiaxis.uimpcloud.com"]
 ---
 apiVersion: apisix.apache.org/v2
 kind: ApisixRoute
 metadata:
   name: kubeai-frontend
   namespace: kubeai
+  labels:
+    app.kubernetes.io/name: kubeai
+    app.kubernetes.io/component: ingress
 spec:
   http:
+    # ============================================================
+    # 路由 1: Label Studio 标注平台 (子路径 /labelstudio)
+    # 优先级必须高于 /* 通配路由，否则通配路由会抢先匹配
+    # proxy-rewrite 将 /labelstudio$PATH 重写为 /$PATH 再转发
+    # ============================================================
+    - name: labelstudio
+      priority: 100
+      match:
+        hosts:
+          - kubeai.example.com # FIXME: 改为实际生产域名
+        paths:
+          - /labelstudio
+          - /labelstudio/*
+      backends:
+        - serviceName: labelstudio
+          servicePort: 8080
+      websocket: true
+      plugins:
+        - name: proxy-rewrite
+          enable: true
+          config:
+            regex_uri:
+              - ^/labelstudio/?(.*)$
+              - /$1
+
+    # ============================================================
+    # 路由 2: 平台主入口 (兜底路由 /*)
+    # 匹配所有未被子路径路由拦截的请求
+    # /api/* 请求通过 proxy-rewrite 剥离前缀后转发到 backend
+    # WebSocket 启用: 支持实时通知、终端等长连接场景
+    # ============================================================
     - name: frontend
       match:
         hosts:
-          - kubeai.example.com  # FIXME: 改为实际生产域名
+          - kubeai.example.com # FIXME: 改为实际生产域名
         paths:
           - /*
       backends:
         - serviceName: frontend
           servicePort: 80
+      websocket: true
