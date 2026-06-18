@@ -1,5 +1,5 @@
 # MLflow Tracking Server with PostgreSQL driver pre-installed
-# Build: docker build -t kubeai-mlflow -f infra/images/mlflow/Dockerfile .
+# Build: docker build -t hub.uimpcloud.com/kubeai/kubeai-mlflow:v3.12.0 -f infra/images/mlflow/Dockerfile .
 #
 # Why custom image instead of ghcr.io/mlflow/mlflow:
 # - Official image does NOT include psycopg2-binary (optional [db] extra)

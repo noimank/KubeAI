@@ -33,7 +33,7 @@ spec:
         kubeai: "true"
       containers:
         - name: mlflow
-          image: kubeai-mlflow:0.1.0
+          image: kubeai-mlflow:v3.12.0
           command: ["mlflow", "server"]
           args:
             - --host
