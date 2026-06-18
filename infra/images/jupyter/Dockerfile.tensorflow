@@ -12,13 +12,16 @@ FROM quay.io/jupyter/tensorflow-notebook:cuda-latest
 
 USER root
 
+# 安装 uv（与 KubeAI 后端一致的 Python 包管理器）
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir \
+RUN uv pip install --no-cache --system \
     keras-tuner \
     tensorflow-datasets \
     tensorflow-hub \
@@ -28,7 +31,12 @@ RUN pip install --no-cache-dir \
     tensorboard \
     scikit-learn \
     optuna \
-    plotly
+    plotly \
+    mlflow \
+    onnx \
+    onnxruntime \
+    flask \
+    fastapi
 
 USER ${NB_UID}
 

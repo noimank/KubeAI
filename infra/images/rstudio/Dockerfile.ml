@@ -16,6 +16,9 @@ ENV CRAN_REPO=https://cloud.r-project.org
 
 USER root
 
+# 安装 uv（用于 Python/reticulate 环境下的包管理）
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \

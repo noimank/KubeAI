@@ -10,13 +10,16 @@
 #
 # Build:
 #   docker build -t kubeai-vscode-base -f Dockerfile.base .
-#   docker build -t hub.uimpcloud.com/kubeai/vscode-base:latest -f Dockerfile.base .
+#   docker build -t hub.uimpcloud.com/kubeai/vscode-env:base -f Dockerfile.base .
 
 FROM codercom/code-server:4.122.0
 
 # The base image already runs as USER coder (uid 1000:1000).
-# Switch to root for system package installation.
+# Switch to root for system package installation and uv setup.
 USER root
+
+# 安装 uv（与 KubeAI 后端一致的 Python 包管理器）
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 # Ensure GID 100 exists — dev_pod.py securityContext sets runAsGroup=100.
 # The base codercom/code-server image only has GID 1000 (coder group).
@@ -32,12 +35,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir --break-system-packages \
+RUN uv pip install --no-cache --system --break-system-packages \
     numpy \
     scipy \
     pandas \
     matplotlib \
-    scikit-learn
+    scikit-learn \
+    mlflow \
+    onnx \
+    onnxruntime \
+    flask \
+    fastapi
 
 # Switch back to coder BEFORE installing extensions.
 # code-server installs extensions to $HOME/.local/share/code-server/extensions/ —

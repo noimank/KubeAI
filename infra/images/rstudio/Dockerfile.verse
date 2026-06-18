@@ -9,7 +9,7 @@
 #
 # Build:
 #   docker build -t kubeai-rstudio-verse -f Dockerfile.verse .
-#   docker build -t hub.uimpcloud.com/kubeai/rstudio-base:latest -f Dockerfile.verse .
+#   docker build -t hub.uimpcloud.com/kubeai/rstudio-env:base -f Dockerfile.verse .
 
 # Pin the base image. Avoid `latest` because rocker may switch Ubuntu/R versions
 # and default package repositories (for example p3m noble) without notice.
@@ -18,6 +18,9 @@ FROM rocker/verse:4.4.3
 ENV CRAN_REPO=https://cloud.r-project.org
 
 USER root
+
+# 安装 uv（用于 Python/reticulate 环境下的包管理）
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -42,7 +45,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN install2.r --error --skipinstalled -r "$CRAN_REPO" -n 4 \
     shiny \
     plumber \
-    caret \
     randomForest \
     xgboost \
     glmnet \

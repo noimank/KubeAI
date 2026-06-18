@@ -10,8 +10,12 @@
 #
 # Build:
 #   docker build -t kubeai-vscode-pytorch -f Dockerfile.pytorch .
+#   docker build -t hub.uimpcloud.com/kubeai/vscode-env:pytorch -f Dockerfile.pytorch .
 
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+
+# 安装 uv（与 KubeAI 后端一致的 Python 包管理器）
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -26,18 +30,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN curl -fsSL https://code-server.dev/install.sh | sh -s -- --version=4.122.0
 
-RUN pip3 install --no-cache-dir --break-system-packages \
+RUN uv pip install --no-cache --system \
     torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
-RUN pip3 install --no-cache-dir --break-system-packages \
+RUN uv pip install --no-cache --system \
     numpy scipy pandas matplotlib scikit-learn \
     transformers datasets accelerate wandb \
-    optuna plotly
+    optuna plotly \
+    mlflow onnx onnxruntime \
+    flask fastapi
 
 # Create coder group with GID 100 (matching dev_pod.py securityContext.runAsGroup).
 # The useradd default would create group "coder" with GID 1000, which fails at
 # Pod startup when Kubernetes tries to start the container with runAsGroup=100.
-RUN groupadd -g 100 coder \
+RUN groupadd -g 100 coder 2>/dev/null || true \
     && useradd -m -s /bin/bash -u 1000 -g 100 coder
 
 # Install extensions as coder so they land in /home/coder/.local/...,
