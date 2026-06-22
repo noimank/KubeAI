@@ -79,7 +79,7 @@ class Settings(BaseSettings):
 
     # 认证
     SECRET_KEY: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 180
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ... 更多配置

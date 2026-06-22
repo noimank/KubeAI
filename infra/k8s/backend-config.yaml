@@ -41,7 +41,7 @@ data:
   TASK_RETRY_BACKOFF_SECONDS: "10"
 
   # -- Token 过期时间
-  ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "180"
   REFRESH_TOKEN_EXPIRE_DAYS: "7"
 
   # -- 账户锁定 (登录失败后锁定时长)
