@@ -14,7 +14,8 @@
 #          - 参考命令: curl -X PUT http://apisix-admin:9180/apisix/admin/ssls/<ssl_id> \
 #                       -H 'X-API-KEY: <key>' -d '{"cert":"...","key":"...","snis":["<domain>"]}'
 # [ ] 3. 子路径: 如果 Label Studio / API 有子路径变更，同步修改
-#          - frontend 路由中的 proxy-rewrite 将 /api/* 剥离前缀后转发到 backend
+#          - backend-api 路由将 /api/* 直接转发到 backend，不经过前端 Nginx
+#          - 避免 Nginx client_max_body_size 等默认限制影响后端接口
 # [ ] 4. 开发环境: devenv 路由由 Backend 通过 APISIX Admin API 动态创建/销毁
 #          - 依赖 APISIX Admin API 可达且 API Key 正确配置
 #          - 无需在此文件中手动管理
@@ -23,18 +24,19 @@
 # 路由优先级说明
 # ============================================================
 # APISIX 按优先级 (priority, 越高越优先) + 匹配精确度排序:
-#   - /labelstudio, /labelstudio/* → priority 100 (子路径路由，高于通配)
 #   - /devenv/<uuid>/*           → priority 100 (动态创建，高于通配)
-#   - /*                         → priority 0   (兜底路由，匹配所有请求)
-#
+#   - /api/*, /labelstudio/*     → priority 100 (子路径路由，高于通配)
+#   - /*                         → priority 0   (兜底路由，匹配静态资源)
 # ============================================================
 # 生产环境参考配置 (aiaxis.uimpcloud.com)
 # ============================================================
 # 以下配置基于 kubeai-prod-env (192.168.18.171) 上的 APISIX 运行配置:
-#   - 主路由: host=aiaxis.uimpcloud.com, uri=/*, upstream=frontend.kubeai:80
+#   - API 路由: host=aiaxis.uimpcloud.com, uri=/api/*, priority=100,
+#     upstream=backend.kubeai:8000, websocket=true
 #   - Label Studio: host=aiaxis.uimpcloud.com, uris=["/labelstudio","/labelstudio/*"],
 #     priority=100, proxy-rewrite regex ["^/labelstudio/?(.*)$","/$1"],
 #     upstream=labelstudio.kubeai:8080
+#   - 主路由: host=aiaxis.uimpcloud.com, uri=/*, upstream=frontend.kubeai:80
 #   - SSL: Let's Encrypt 自动续期证书，snis=["aiaxis.uimpcloud.com"]
 ---
 apiVersion: apisix.apache.org/v2
@@ -48,7 +50,26 @@ metadata:
 spec:
   http:
     # ============================================================
-    # 路由 1: Label Studio 标注平台 (子路径 /labelstudio)
+    # 路由 1: 后端 API 服务 (子路径 /api/)
+    # 优先级 100，高于 /* 兜底路由
+    # /api/* 直接转发到 backend，不经过前端 Nginx
+    # 避免 Nginx client_max_body_size 等默认限制影响文件上传等接口
+    # WebSocket 启用: 支持 /api/ws 实时通知长连接
+    # ============================================================
+    - name: backend-api
+      priority: 100
+      match:
+        hosts:
+          - kubeai.example.com # FIXME: 改为实际生产域名
+        paths:
+          - /api/*
+      backends:
+        - serviceName: backend
+          servicePort: 8000
+      websocket: true
+
+    # ============================================================
+    # 路由 2: Label Studio 标注平台 (子路径 /labelstudio)
     # 优先级必须高于 /* 通配路由，否则通配路由会抢先匹配
     # proxy-rewrite 将 /labelstudio$PATH 重写为 /$PATH 再转发
     # ============================================================
@@ -73,10 +94,8 @@ spec:
               - /$1
 
     # ============================================================
-    # 路由 2: 平台主入口 (兜底路由 /*)
-    # 匹配所有未被子路径路由拦截的请求
-    # /api/* 请求通过 proxy-rewrite 剥离前缀后转发到 backend
-    # WebSocket 启用: 支持实时通知、终端等长连接场景
+    # 路由 3: 平台主入口 (兜底路由 /*)
+    # 仅匹配静态资源请求，API 和子路径请求已被以上高优先级路由拦截
     # ============================================================
     - name: frontend
       match:
