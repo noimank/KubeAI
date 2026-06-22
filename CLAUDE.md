@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-KubeAI is a Kubernetes-native AI/ML platform with multi-tenant RBAC. Monorepo with FastAPI backend (`backend/`) and React frontend (`frontend/`). Deployed via Helm chart (`infra/helm/kubeai/`). All user-facing text is in Chinese (zh-CN) — no i18n library, strings are hardcoded.
+KubeAI is a Kubernetes-native AI/ML platform with multi-tenant RBAC. Monorepo with FastAPI backend (`backend/`) and React frontend (`frontend/`). All user-facing text is in Chinese (zh-CN) — no i18n library, strings are hardcoded.
+
+**部署方式**:
+- **本地开发**: Helm chart (`infra/helm/kubeai/`) 仅用于本地开发环境，一键部署完整依赖链（PostgreSQL, Redis, MinIO, Volcano, Harbor, JupyterHub, Prometheus stack, backend, frontend）
+- **生产环境**: `infra/k8s/` 下的 K8s manifests 为生产专用，所有生产配置部署在 `kubeai-prod-env` 服务器的 `/root/kubeai` 目录下
 
 ## Development Commands
 
@@ -40,7 +44,7 @@ pnpm test
 ### Infrastructure & Docs (from project root)
 
 ```bash
-# Helm deploy (PostgreSQL, Redis, MinIO, Volcano, Harbor, JupyterHub, Prometheus stack, backend, frontend)
+# Helm 仅用于本地开发部署（请勿用于生产环境）
 helm install kubeai infra/helm/kubeai/ -f infra/helm/kubeai/values-dev.yaml -n kubeai --create-namespace
 
 # Docker build
@@ -89,9 +93,10 @@ Pre-commit hooks (ruff+mypy on backend, eslint+prettier+tsc on frontend): `pre-c
 
 ### Infrastructure (`infra/`)
 
-- **Helm**: `infra/helm/kubeai/` — 12 components (PostgreSQL, Redis, MinIO, Volcano, Harbor, kube-prometheus-stack, DCGM exporter, JupyterHub, backend, frontend, Taskiq worker, Taskiq scheduler)
-- **K8s manifests**: `infra/k8s/backend/` — `deployment.yaml` (FastAPI), `worker.yaml` (Taskiq worker: consumes async tasks), `beat.yaml` (Taskiq scheduler: single-replica, fires scheduled tasks). All three share `backend-config` ConfigMap and `backend-secret`
-- **Images**: Backend/frontend + Jupyter/VS Code/RStudio dev-environment images in `infra/images/`
+- **Helm** (`infra/helm/kubeai/`): **仅限本地开发部署使用**，包含 12 个组件（PostgreSQL, Redis, MinIO, Volcano, Harbor, kube-prometheus-stack, DCGM exporter, JupyterHub, backend, frontend, Taskiq worker, Taskiq scheduler）。不要用于生产环境
+- **K8s manifests** (`infra/k8s/backend/`): **生产环境专用** — `deployment.yaml` (FastAPI), `worker.yaml` (Taskiq worker: 消费异步任务), `beat.yaml` (Taskiq scheduler: 单副本，触发定时任务)。三者共享 `backend-config` ConfigMap 和 `backend-secret`
+- **生产部署位置**: 所有 `infra/k8s/` 下的配置已部署至 **`kubeai-prod-env` 服务器**的 `/root/kubeai` 目录。修改生产配置需通过该服务器操作
+- **Images**: Backend/frontend + Jupyter/VS Code/RStudio 开发环境镜像在 `infra/images/`
 - **CI/CD**: `.github/workflows/` — `ci.yml` (PR: lint+test), `build.yml` (push to main/dev: GHCR images), `release.yml` (v* tag: versioned images + Helm package)
 
 ## Key Conventions
