@@ -46,9 +46,11 @@ def build_tenant_network_policy(namespace: str) -> client.V1NetworkPolicy:
                 ),
             ],
             egress=[
+                # 集群内部通信: 允许与平台命名空间之间的所有流量
                 client.V1NetworkPolicyEgressRule(
                     to=ns_peers,
                 ),
+                # DNS 解析: 允许向集群外部查询域名
                 client.V1NetworkPolicyEgressRule(
                     to=[
                         client.V1NetworkPolicyPeer(
@@ -56,14 +58,22 @@ def build_tenant_network_policy(namespace: str) -> client.V1NetworkPolicy:
                         ),
                     ],
                     ports=[
-                        client.V1NetworkPolicyPort(
-                            protocol="TCP",
-                            port=53,
+                        client.V1NetworkPolicyPort(protocol="TCP", port=53),
+                        client.V1NetworkPolicyPort(protocol="UDP", port=53),
+                    ],
+                ),
+                # 公网访问: 允许 HTTP/HTTPS/SSH 出站
+                # pip install、git clone、curl、wget 等均依赖此规则
+                client.V1NetworkPolicyEgressRule(
+                    to=[
+                        client.V1NetworkPolicyPeer(
+                            ip_block=client.V1IPBlock(cidr="0.0.0.0/0"),
                         ),
-                        client.V1NetworkPolicyPort(
-                            protocol="UDP",
-                            port=53,
-                        ),
+                    ],
+                    ports=[
+                        client.V1NetworkPolicyPort(protocol="TCP", port=80),  # HTTP
+                        client.V1NetworkPolicyPort(protocol="TCP", port=443),  # HTTPS
+                        client.V1NetworkPolicyPort(protocol="TCP", port=22),  # SSH (git)
                     ],
                 ),
             ],

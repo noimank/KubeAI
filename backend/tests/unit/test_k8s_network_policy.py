@@ -25,9 +25,14 @@ class TestBuildTenantNetworkPolicy:
         ingress_from = policy.spec.ingress[0]._from
         assert len(ingress_from) == 1 + len(get_allowed_namespaces())
 
+    def test_egress_rules_count(self):
+        policy = build_tenant_network_policy("kubeai-test-123")
+        assert len(policy.spec.egress) == 3
+
     def test_egress_rules_allow_namespace_traffic(self):
         policy = build_tenant_network_policy("kubeai-test-123")
-        assert len(policy.spec.egress) == 2
+        egress_to = policy.spec.egress[0].to
+        assert len(egress_to) == 1 + len(get_allowed_namespaces())
         egress_to = policy.spec.egress[0].to
         assert len(egress_to) == 1 + len(get_allowed_namespaces())
 
@@ -45,6 +50,18 @@ class TestBuildTenantNetworkPolicy:
         ports = dns_egress.ports
         assert any(p.protocol == "TCP" and p.port == 53 for p in ports)
         assert any(p.protocol == "UDP" and p.port == 53 for p in ports)
+
+    def test_egress_rules_allow_http_https_ssh(self):
+        policy = build_tenant_network_policy("kubeai-test-123")
+        internet_egress = policy.spec.egress[2]
+        assert len(internet_egress.to) == 1
+        assert internet_egress.to[0].ip_block.cidr == "0.0.0.0/0"
+        ports = internet_egress.ports
+        port_set = {(p.protocol, p.port) for p in ports}
+        assert ("TCP", 80) in port_set
+        assert ("TCP", 443) in port_set
+        assert ("TCP", 22) in port_set
+        assert len(ports) == 3
 
 
 class TestCreateTenantNetworkPolicy:
