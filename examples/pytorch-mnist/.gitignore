@@ -1,0 +1,7 @@
+# 忽略数据、模型、运行产物
+data/
+output/
+mlruns/
+__pycache__/
+*.pyc
+.venv/
