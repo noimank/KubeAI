@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Spin } from 'antd'
+import LoadingPage from '@/components/LoadingPage'
 import { oauthCallback } from '@/services/oauth'
 import { getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
@@ -47,13 +47,5 @@ export default function OAuthCallbackPage() {
       })
   }, [searchParams, navigate, authLogin, setTokens])
 
-  return (
-    <div
-      style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}
-    >
-      <Spin size="large" tip="正在处理登录...">
-        <div />
-      </Spin>
-    </div>
-  )
+  return <LoadingPage tip="正在处理登录..." />
 }

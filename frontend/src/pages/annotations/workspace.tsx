@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, type ComponentType } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Result, Spin } from 'antd'
+import { Button, Result } from 'antd'
+import InlineLoading from '@/components/InlineLoading'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -124,9 +125,7 @@ export default function AnnotationWorkspacePage() {
       <div
         style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}
       >
-        <Spin tip="加载中...">
-          <div />
-        </Spin>
+        <InlineLoading tip="加载中..." />
       </div>
     )
   }
@@ -222,9 +221,7 @@ export default function AnnotationWorkspacePage() {
           )}
           {!currentTask && taskLoading && (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-              <Spin tip="加载任务中...">
-                <div />
-              </Spin>
+              <InlineLoading tip="加载任务中..." />
             </div>
           )}
         </div>

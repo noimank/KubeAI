@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Breadcrumb, Card, Descriptions, Spin, Tabs, Tag, Typography } from 'antd'
+import { Breadcrumb, Card, Descriptions, Tabs, Tag, Typography } from 'antd'
+import InlineLoading from '@/components/InlineLoading'
 import { useQuery } from '@tanstack/react-query'
 import { getImage, getBuildLog } from '@/services/images'
 
@@ -50,9 +51,7 @@ export default function ImageDetailPage() {
   if (isLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
-        <Spin spinning tip="加载中...">
-          <div />
-        </Spin>
+        <InlineLoading tip="加载中..." />
       </div>
     )
   }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Card, Radio, Space, Spin, Typography } from 'antd'
+import { Card, Radio, Space, Typography } from 'antd'
+import InlineLoading from '@/components/InlineLoading'
 import type { AnnotationTask, AnnotationProjectDetail } from '@/types/annotation'
 import type { AnnotationResultItem } from '@/types/annotation'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
@@ -79,9 +80,7 @@ export default function TextClassificationAnnotator({
           title={fileName || '文本内容'}
         >
           {loading ? (
-            <Spin tip="加载文本中...">
-              <div />
-            </Spin>
+            <InlineLoading tip="加载文本中..." />
           ) : (
             <Typography.Paragraph
               style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', marginBottom: 0 }}

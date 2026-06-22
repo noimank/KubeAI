@@ -1,5 +1,5 @@
 import { useMemo, lazy, Suspense, useEffect } from 'react'
-import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd'
+import { App as AntApp, ConfigProvider, theme as antdTheme } from 'antd'
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import zhCN from 'antd/locale/zh_CN'
@@ -7,6 +7,7 @@ import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
 import AuthGuard from './components/AuthGuard'
 import PermissionGuard from './components/PermissionGuard'
+import LoadingPage from './components/LoadingPage'
 import { setMessageInstance } from './utils/messageHolder'
 import { setModalInstance } from './utils/modalHolder'
 import { useAuthStore } from './stores/authStore'
@@ -48,13 +49,7 @@ const AuditLogsPage = lazy(() => import('./pages/admin/audit-logs'))
 const ProfilePage = lazy(() => import('./pages/profile'))
 
 function LoadingFallback() {
-  return (
-    <div
-      style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}
-    >
-      <Spin spinning />
-    </div>
-  )
+  return <LoadingPage />
 }
 
 function ContextHolder() {

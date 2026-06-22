@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Image, Radio, Space, Spin } from 'antd'
+import { Image, Radio, Space } from 'antd'
+import InlineLoading from '@/components/InlineLoading'
 import type { AnnotationTask, AnnotationProjectDetail } from '@/types/annotation'
 import type { AnnotationResultItem } from '@/types/annotation'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
@@ -62,9 +63,7 @@ export default function ImageClassificationAnnotator({
             preview={false}
           />
         ) : (
-          <Spin tip="加载图片中...">
-            <div />
-          </Spin>
+          <InlineLoading tip="加载图片中..." />
         )}
       </div>
       <div style={{ width: '100%', maxWidth: 600 }}>

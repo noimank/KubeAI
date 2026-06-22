@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Button, Card, Form, Input, Result, Space, Spin } from 'antd'
+import { Button, Card, Form, Input, Result, Space } from 'antd'
+import LoadingPage from '@/components/LoadingPage'
 import { getInvitationInfo, acceptInvitation } from '@/services/auth'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useAuthStore } from '@/stores/authStore'
@@ -87,15 +88,7 @@ export default function InvitePage() {
   }
 
   if (loading) {
-    return (
-      <div
-        style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}
-      >
-        <Spin size="large" tip="加载邀请信息...">
-          <div />
-        </Spin>
-      </div>
-    )
+    return <LoadingPage tip="加载邀请信息..." />
   }
 
   if (error || !info) {

@@ -15,10 +15,10 @@ import {
   Row,
   Select,
   Space,
-  Spin,
   Table,
   Tag,
 } from 'antd'
+import InlineLoading from '@/components/InlineLoading'
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery } from '@tanstack/react-query'
@@ -216,9 +216,7 @@ export default function TenantDetailPage() {
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
-        <Spin spinning tip="加载中...">
-          <div />
-        </Spin>
+        <InlineLoading tip="加载中..." />
       </div>
     )
   }

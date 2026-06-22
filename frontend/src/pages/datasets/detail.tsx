@@ -21,6 +21,7 @@ import {
   Tooltip,
   Upload,
 } from 'antd'
+import InlineLoading from '@/components/InlineLoading'
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -277,9 +278,7 @@ export default function DatasetDetailPage() {
   if (isLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
-        <Spin spinning tip="加载中...">
-          <div />
-        </Spin>
+        <InlineLoading tip="加载中..." />
       </div>
     )
   }
