@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from typing import Tuple
 
 import matplotlib
@@ -185,12 +186,17 @@ def train_epoch(
     optimizer: optim.Optimizer,
     criterion: nn.Module,
     device: torch.device,
+    epoch: int,
+    total_epochs: int,
 ) -> Tuple[float, float]:
     """训练一个 epoch，返回 (平均 loss, 准确率)。"""
     model.train()
     total_loss, correct, total = 0.0, 0, 0
+    num_batches = len(loader)
+    log_interval = max(1, num_batches // 5)  # 每 20% 打印一次进度
+    epoch_start = time.time()
 
-    for data, target in loader:
+    for batch_idx, (data, target) in enumerate(loader, start=1):
         data, target = data.to(device), target.to(device)
 
         optimizer.zero_grad()
@@ -204,7 +210,31 @@ def train_epoch(
         correct += pred.eq(target).sum().item()
         total += data.size(0)
 
-    return total_loss / total, correct / total
+        # 批次进度日志
+        if batch_idx % log_interval == 0 or batch_idx == num_batches:
+            current_loss = total_loss / total
+            current_acc = correct / total
+            progress = batch_idx / num_batches * 100
+            elapsed = time.time() - epoch_start
+            # 预估剩余时间
+            eta = (elapsed / batch_idx) * (num_batches - batch_idx)
+            print(
+                f"    [Epoch {epoch}/{total_epochs}] "
+                f"Batch {batch_idx}/{num_batches} ({progress:.0f}%) | "
+                f"Loss: {current_loss:.4f} | Acc: {current_acc:.4f} | "
+                f"Elapsed: {elapsed:.0f}s | ETA: {eta:.0f}s"
+            )
+
+    epoch_time = time.time() - epoch_start
+    final_loss = total_loss / total
+    final_acc = correct / total
+    print(
+        f"    [Epoch {epoch}/{total_epochs}] "
+        f"✅ 完成 | Loss: {final_loss:.4f} | Acc: {final_acc:.4f} | "
+        f"耗时: {epoch_time:.1f}s"
+    )
+
+    return final_loss, final_acc
 
 
 @torch.no_grad()
@@ -362,8 +392,11 @@ def main() -> None:
 
         best_val_acc = 0.0
         for epoch in range(1, config["epochs"] + 1):
+            epoch_start = time.time()
+
             train_loss, train_acc = train_epoch(
-                model, train_loader, optimizer, criterion, config["device"]
+                model, train_loader, optimizer, criterion, config["device"],
+                epoch, config["epochs"],
             )
             val_loss, val_acc, _, _ = evaluate(
                 model, val_loader, criterion, config["device"]
@@ -374,10 +407,15 @@ def main() -> None:
             val_losses.append(val_loss)
             val_accs.append(val_acc)
 
+            # 当前学习率（固定 lr 时不变，但方便后续引入 scheduler）
+            current_lr = optimizer.param_groups[0]["lr"]
+
             print(
-                f"  Epoch {epoch:2d}/{config['epochs']} | "
+                f"\n  📊 Epoch {epoch}/{config['epochs']} 总结 | "
+                f"LR: {current_lr:.6f} | "
                 f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
-                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
+                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
+                f"总耗时: {time.time() - epoch_start:.1f}s\n"
             )
 
             # MLflow 日志每轮指标
