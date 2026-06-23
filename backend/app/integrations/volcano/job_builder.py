@@ -1,7 +1,8 @@
 import copy
 from typing import Any
 
-from app.integrations.base import sanitize_k8s_name
+# 容器内统一挂载根路径, 与开发环境保持一致
+KUBEAI_CONTAINER_ROOT = "/kubeai"
 
 
 def build_vcjob(
@@ -34,10 +35,9 @@ def build_vcjob(
     if dataset_mount_path:
         env.append({"name": "KUBEAI_DATASET_PATH", "value": dataset_mount_path})
     if workspace_host_path:
-        env.append({"name": "KUBEAI_WORKSPACE_PATH", "value": "/workspace"})
+        env.append({"name": "KUBEAI_WORKSPACE_PATH", "value": f"{KUBEAI_CONTAINER_ROOT}/workspace"})
     if user_home_host_path and username:
-        sanitized = sanitize_k8s_name(username)
-        env.append({"name": "KUBEAI_HOME_PATH", "value": f"/home/{sanitized}"})
+        env.append({"name": "KUBEAI_HOME_PATH", "value": f"{KUBEAI_CONTAINER_ROOT}/home"})
     if hyperparameters:
         for key, value in hyperparameters.items():
             env.append({"name": f"HP_{key.upper()}", "value": value})
@@ -63,16 +63,16 @@ def build_vcjob(
     if dataset_host_path and dataset_mount_path:
         mounts.append({"name": "dataset-volume", "mountPath": dataset_mount_path, "readOnly": True})
     if workspace_host_path:
-        mounts.append({"name": "workspace-volume", "mountPath": "/workspace"})
+        mounts.append({"name": "workspace-volume", "mountPath": f"{KUBEAI_CONTAINER_ROOT}/workspace"})
     if user_home_host_path and username:
-        sanitized = sanitize_k8s_name(username)
-        mounts.append({"name": "home-volume", "mountPath": f"/home/{sanitized}"})
+        mounts.append({"name": "home-volume", "mountPath": f"{KUBEAI_CONTAINER_ROOT}/home"})
 
     container: dict[str, Any] = {
         "name": "trainer",
         "image": image_ref,
         "command": ["/bin/sh", "-c"],
         "args": [command],
+        "workingDir": f"{KUBEAI_CONTAINER_ROOT}/home",
         "resources": resources,
         "env": env,
         **({"volumeMounts": mounts} if mounts else {}),

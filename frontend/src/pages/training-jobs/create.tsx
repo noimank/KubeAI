@@ -236,9 +236,10 @@ export default function CreateTrainingJobPage() {
             name="command"
             label="启动命令"
             rules={[{ required: true, message: '请输入启动命令' }]}
+            extra="默认工作目录为用户 home 目录（/kubeai/home），可访问 /kubeai/home（用户目录）、/kubeai/workspace（工作区）、/kubeai/datasets（挂载的数据集），与开发环境挂载映射一致"
           >
             <Input.TextArea
-              placeholder="如 python train.py --epochs 100"
+              placeholder="如 cd pytorch-mnist && python3 train.py"
               rows={4}
               style={{ fontFamily: 'monospace' }}
             />

@@ -163,7 +163,7 @@ class TrainingJobService:
             else:
                 version = await self._get_latest_version(job.dataset_id)
             dataset_host_path = make_dataset_host_path(tenant.name, dataset.name, version.version_number)
-            mount_path = f"/data/datasets/{dataset.name}/v{version.version_number}"
+            mount_path = f"/kubeai/datasets/{dataset.name}/v{version.version_number}"
 
         workspace_host_path = make_workspace_host_path(tenant.name)
         user_home_host_path = make_user_home_host_path(user.username)

@@ -321,7 +321,7 @@ class TestBuildVcjobHostPath:
 
         container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
         mounts = container["volumeMounts"]
-        ws_mount = next(m for m in mounts if m["mountPath"] == "/workspace")
+        ws_mount = next(m for m in mounts if m["mountPath"] == "/kubeai/workspace")
         assert ws_mount["name"] == "workspace-volume"
 
         volumes = result["spec"]["tasks"][0]["template"]["spec"]["volumes"]
@@ -330,7 +330,7 @@ class TestBuildVcjobHostPath:
         assert ws_vol["hostPath"]["type"] == "DirectoryOrCreate"
 
         env = {e["name"]: e["value"] for e in container["env"]}
-        assert env["KUBEAI_WORKSPACE_PATH"] == "/workspace"
+        assert env["KUBEAI_WORKSPACE_PATH"] == "/kubeai/workspace"
 
     def test_user_home_host_path_volume(self):
         result = build_vcjob(
@@ -349,7 +349,7 @@ class TestBuildVcjobHostPath:
 
         container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
         mounts = container["volumeMounts"]
-        home_mount = next(m for m in mounts if m["mountPath"] == "/home/johndoe")
+        home_mount = next(m for m in mounts if m["mountPath"] == "/kubeai/home")
         assert home_mount["name"] == "home-volume"
 
         volumes = result["spec"]["tasks"][0]["template"]["spec"]["volumes"]
@@ -357,7 +357,7 @@ class TestBuildVcjobHostPath:
         assert home_vol["hostPath"]["path"] == "/data/kubeai/users/johndoe"
 
         env = {e["name"]: e["value"] for e in container["env"]}
-        assert env["KUBEAI_HOME_PATH"] == "/home/johndoe"
+        assert env["KUBEAI_HOME_PATH"] == "/kubeai/home"
 
     def test_both_host_paths(self):
         result = build_vcjob(
@@ -377,8 +377,8 @@ class TestBuildVcjobHostPath:
 
         container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
         mount_paths = [m["mountPath"] for m in container["volumeMounts"]]
-        assert "/workspace" in mount_paths
-        assert "/home/alice" in mount_paths
+        assert "/kubeai/workspace" in mount_paths
+        assert "/kubeai/home" in mount_paths
 
     def test_no_host_path_when_not_provided(self):
         result = build_vcjob(
@@ -397,6 +397,64 @@ class TestBuildVcjobHostPath:
         vol_names = [v["name"] for v in volumes]
         assert "workspace-volume" not in vol_names
         assert "home-volume" not in vol_names
+
+    def test_working_dir_defaults_to_home(self):
+        result = build_vcjob(
+            vcjob_name="test-job",
+            namespace="kubeai-default",
+            image_ref="pytorch:2.1",
+            command="python train.py",
+            cpu="4",
+            memory="8Gi",
+            gpu_count=1,
+            gpu_mode="exclusive",
+            job_id="wd-123",
+            user_home_host_path="/data/kubeai/users/admin",
+            username="admin",
+        )
+
+        container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
+        assert container["workingDir"] == "/kubeai/home"
+
+    def test_working_dir_distributed_workers(self):
+        result = build_vcjob(
+            vcjob_name="dist-job",
+            namespace="kubeai-default",
+            image_ref="pytorch:2.1",
+            command="python train.py",
+            cpu="4",
+            memory="8Gi",
+            gpu_count=1,
+            gpu_mode="exclusive",
+            job_id="dist-wd",
+            worker_count=2,
+            user_home_host_path="/data/kubeai/users/admin",
+            username="admin",
+        )
+
+        for task in result["spec"]["tasks"]:
+            container = task["template"]["spec"]["containers"][0]
+            assert container["workingDir"] == "/kubeai/home"
+
+    def test_home_env_var_is_constant(self):
+        """KUBEAI_HOME_PATH 应始终为 /kubeai/home, 不随用户名变化."""
+        result = build_vcjob(
+            vcjob_name="test-job",
+            namespace="kubeai-default",
+            image_ref="pytorch:2.1",
+            command="python train.py",
+            cpu="4",
+            memory="8Gi",
+            gpu_count=1,
+            gpu_mode="exclusive",
+            job_id="home-const",
+            user_home_host_path="/data/kubeai/users/alice",
+            username="alice",
+        )
+
+        container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
+        env = {e["name"]: e["value"] for e in container["env"]}
+        assert env["KUBEAI_HOME_PATH"] == "/kubeai/home"
 
     def test_distributed_host_paths_all_workers(self):
         result = build_vcjob(
@@ -418,5 +476,5 @@ class TestBuildVcjobHostPath:
         for task in result["spec"]["tasks"]:
             container = task["template"]["spec"]["containers"][0]
             mount_paths = [m["mountPath"] for m in container["volumeMounts"]]
-            assert "/workspace" in mount_paths
-            assert "/home/bob" in mount_paths
+            assert "/kubeai/workspace" in mount_paths
+            assert "/kubeai/home" in mount_paths
