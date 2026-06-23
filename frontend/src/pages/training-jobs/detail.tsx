@@ -36,6 +36,7 @@ import {
   getTrainingJobPods,
   stopTrainingJob,
   retryTrainingJob,
+  deleteTrainingJob,
 } from '@/services/training-jobs'
 import { registerModel } from '@/services/models'
 import { ACCESS_TOKEN_KEY } from '@/utils/constants'
@@ -144,6 +145,14 @@ export default function TrainingJobDetailPage() {
     onSuccess: (newJob) => {
       getMessageInstance()?.success('重试任务已创建')
       navigate(`/training-jobs/${newJob.id}`)
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteTrainingJob,
+    onSuccess: () => {
+      getMessageInstance()?.success('任务已删除')
+      navigate('/training-jobs')
     },
   })
 
@@ -603,6 +612,19 @@ export default function TrainingJobDetailPage() {
             >
               <Button danger loading={stopMutation.isPending}>
                 停止任务
+              </Button>
+            </Popconfirm>
+          )}
+          {canWrite && ['succeeded', 'failed', 'stopped'].includes(job.status) && (
+            <Popconfirm
+              title="确认删除该任务？"
+              description="删除后将无法恢复"
+              onConfirm={() => deleteMutation.mutate(id!)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button danger loading={deleteMutation.isPending}>
+                删除任务
               </Button>
             </Popconfirm>
           )}

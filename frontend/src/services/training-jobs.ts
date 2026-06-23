@@ -46,6 +46,10 @@ export async function retryTrainingJob(id: string): Promise<TrainingJob> {
   return res.data.data!
 }
 
+export async function deleteTrainingJob(id: string): Promise<void> {
+  await api.delete(`/training-jobs/${id}`)
+}
+
 export async function getTrainingJobPods(id: string): Promise<PodInfo[]> {
   const res = await api.get(`/training-jobs/${id}/pods`)
   return res.data.data!

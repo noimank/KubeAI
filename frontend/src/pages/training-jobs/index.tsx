@@ -6,7 +6,12 @@ import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
-import { getTrainingJob, getTrainingJobs, stopTrainingJob } from '@/services/training-jobs'
+import {
+  getTrainingJob,
+  getTrainingJobs,
+  stopTrainingJob,
+  deleteTrainingJob,
+} from '@/services/training-jobs'
 import type { TrainingJob, TrainingJobStatus } from '@/types/training-job'
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
@@ -76,6 +81,14 @@ export default function TrainingJobsPage() {
     mutationFn: stopTrainingJob,
     onSuccess: () => {
       getMessageInstance()?.success('任务已停止')
+      queryClient.invalidateQueries({ queryKey: ['trainingJobs'] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteTrainingJob,
+    onSuccess: () => {
+      getMessageInstance()?.success('任务已删除')
       queryClient.invalidateQueries({ queryKey: ['trainingJobs'] })
     },
   })
@@ -159,7 +172,7 @@ export default function TrainingJobsPage() {
     },
     {
       title: '操作',
-      width: 200,
+      width: 260,
       render: (_: unknown, record: TrainingJob) => (
         <Space size="small">
           <Link to={`/training-jobs/${record.id}`}>
@@ -186,6 +199,24 @@ export default function TrainingJobsPage() {
             >
               <Button type="link" size="small" danger>
                 停止
+              </Button>
+            </Popconfirm>
+          )}
+          {canWrite && ['succeeded', 'failed', 'stopped'].includes(record.status) && (
+            <Popconfirm
+              title="确认删除该任务？"
+              description="删除后将无法恢复"
+              onConfirm={() => deleteMutation.mutate(record.id)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button
+                type="link"
+                size="small"
+                danger
+                loading={deleteMutation.isPending && deleteMutation.variables === record.id}
+              >
+                删除
               </Button>
             </Popconfirm>
           )}
