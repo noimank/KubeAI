@@ -94,7 +94,10 @@ def build_vcjob(
     pod_spec: dict[str, Any] = {
         "containers": [container],
         "volumes": volumes,
-        "restartPolicy": "OnFailure",
+        # restartPolicy=Never 确保容器崩溃后 Pod 进入 Failed 阶段,
+        # 让 Volcano 的 task maxRetry 和 job maxRetry 正常工作,
+        # 而不是由 Kubelet 无限重启容器永远不 fail
+        "restartPolicy": "Never",
     }
 
     if worker_count > 1:
@@ -125,6 +128,7 @@ def build_vcjob(
                 {
                     "replicas": 1,
                     "name": "trainer",
+                    "maxRetry": 3,
                     "policies": [{"event": "TaskCompleted", "action": "CompleteJob"}],
                     "template": {"spec": pod_spec},
                 }
@@ -152,6 +156,7 @@ def _build_distributed_vcjob(
         {
             "replicas": 1,
             "name": "master",
+            "maxRetry": 3,
             "policies": [{"event": "TaskCompleted", "action": "CompleteJob"}],
             "template": {"spec": _inject_env(pod_spec, [*dist_env_base, {"name": "RANK", "value": "0"}])},
         }
@@ -162,6 +167,7 @@ def _build_distributed_vcjob(
             {
                 "replicas": 1,
                 "name": f"worker-{i}",
+                "maxRetry": 3,
                 "template": {"spec": _inject_env(pod_spec, [*dist_env_base, {"name": "RANK", "value": str(i)}])},
             }
         )
