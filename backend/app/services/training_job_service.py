@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -603,13 +604,21 @@ class TrainingJobService:
         job = await self._get_job_or_fail(job_id, tenant_id)
         if not job.vcjob_name:
             raise BadRequestException("任务尚未提交到集群")
+
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        # Sync status from K8s first so we don't attempt SSE streaming against
+        # a pod that already terminated (the frontend picks streaming vs
+        # history based on DB status; stale "running" → broken SSE).
+        await self._sync_job_status(job)
+        await self.db.commit()
+        await self.db.refresh(job)
 
         if not pod_name:
             pods = await list_vcjob_pods(namespace, job.vcjob_name)
             if not pods:
-                raise NotFoundException("未找到任务关联的 Pod")
+                raise NotFoundException("未找到任务关联的 Pod（任务可能已结束）")  # noqa: RUF001
             pod_name = pods[0]["pod_name"]
 
         async for line in stream_pod_logs(namespace, pod_name, tail_lines=tail_lines):
@@ -626,8 +635,15 @@ class TrainingJobService:
         job = await self._get_job_or_fail(job_id, tenant_id)
         if not job.vcjob_name:
             raise BadRequestException("任务尚未提交到集群")
+
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        # Sync status from K8s first — ensures we have the latest state before
+        # deciding whether to return history or stream.
+        await self._sync_job_status(job)
+        await self.db.commit()
+        await self.db.refresh(job)
 
         if not pod_name:
             pods = await list_vcjob_pods(namespace, job.vcjob_name)
@@ -896,3 +912,108 @@ class TrainingJobService:
                 f"开发环境的镜像 '{env.image}' 未在平台镜像仓库中注册，请通过 image_id 参数指定镜像"  # noqa: RUF001
             )
         return image.id
+
+    async def sync_non_terminal_training_jobs(self, *, limit: int = 200) -> int:
+        """Periodic fallback sync: reconcile all non-terminal training jobs with K8s.
+
+        Called by the scheduled Taskiq task as a safety net behind the K8s Watch.
+        Returns the number of jobs whose status was updated.
+        """
+        from app.integrations.volcano.client import batch_get_vcjob_phases
+
+        stmt = (
+            select(TrainingJob)
+            .where(TrainingJob.vcjob_name.is_not(None))
+            .where(TrainingJob.status.not_in(TERMINAL_STATUSES))
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+        jobs = list(result.scalars().all())
+
+        if not jobs:
+            return 0
+
+        # Group jobs by tenant for namespace resolution
+        tenant_ids = {job.tenant_id for job in jobs}
+        tenant_map: dict[uuid.UUID, Tenant] = {}
+        for tid in tenant_ids:
+            tenant_result = await self.db.execute(select(Tenant).where(Tenant.id == tid))
+            t: Tenant | None = tenant_result.scalar_one_or_none()
+            if t:
+                tenant_map[tid] = t
+
+        synced_count = 0
+        modified_jobs: list[tuple[TrainingJob, TrainingJobStatus]] = []
+
+        # Process per namespace
+        jobs_by_ns: dict[str, list[TrainingJob]] = {}
+        for job in jobs:
+            tenant = tenant_map.get(job.tenant_id)
+            if not tenant:
+                continue
+            ns = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+            jobs_by_ns.setdefault(ns, []).append(job)
+
+        for namespace, ns_jobs in jobs_by_ns.items():
+            vcjob_names = [j.vcjob_name for j in ns_jobs if j.vcjob_name]
+            if not vcjob_names:
+                continue
+            try:
+                phases = await batch_get_vcjob_phases(namespace, vcjob_names)
+            except Exception as exc:
+                logger.warning("sync_non_terminal batch_get_vcjob_phases failed for %s: %s", namespace, exc)
+                continue
+
+            for job in ns_jobs:
+                if not job.vcjob_name:
+                    continue
+                phase = phases.get(job.vcjob_name)
+                if phase is None:
+                    continue
+                new_status = TrainingJobStatus(phase)
+                if new_status != job.status:
+                    old_status = TrainingJobStatus(job.status)
+                    job.status = new_status
+                    self._update_job_timestamps(job, new_status)
+                    if new_status == TrainingJobStatus.FAILED:
+                        with contextlib.suppress(Exception):
+                            job.error_message = await self._extract_failure_reason(namespace, job.vcjob_name)
+                    logger.info(
+                        "TrainingJob %s status synced (scheduled): %s -> %s",
+                        job.id,
+                        old_status,
+                        new_status,
+                    )
+                    if new_status in TERMINAL_STATUSES:
+                        try:
+                            experiment_service = ExperimentService(self.db)
+                            await experiment_service.sync_experiment_status(job.id, new_status)
+                        except Exception as exc:
+                            logger.warning("Failed to sync experiment status for job %s: %s", job.id, exc)
+                        try:
+                            from app.models.enums import NotificationPriority, NotificationType
+                            from app.services.notification_service import NotificationService
+
+                            notif_service = NotificationService(self.db)
+                            is_success = new_status == TrainingJobStatus.SUCCEEDED
+                            await notif_service.create_notification(
+                                user_id=job.created_by,
+                                tenant_id=job.tenant_id,
+                                type=NotificationType.TRAINING_JOB,
+                                title=f"训练任务{'完成' if is_success else '失败'}",
+                                content=f"训练任务「{job.name}」已{'完成' if is_success else '失败'}.",
+                                priority=NotificationPriority.HIGH if not is_success else NotificationPriority.MEDIUM,
+                                resource_type="training_job",
+                                resource_id=str(job.id),
+                            )
+                        except Exception as exc:
+                            logger.warning("Failed to send notification for job %s: %s", job.id, exc)
+                    modified_jobs.append((job, old_status))
+                    synced_count += 1
+
+        if modified_jobs:
+            await self.db.commit()
+            for job, old_status in modified_jobs:
+                self._publish_status_change(job.tenant_id, job.id, old_status, job.status)
+
+        return synced_count

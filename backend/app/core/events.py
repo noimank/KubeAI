@@ -20,6 +20,8 @@ logger = structlog.get_logger()
 _metrics_push_task: asyncio.Task[None] | None = None
 _dev_pod_watcher_task: asyncio.Task[None] | None = None
 _dev_pod_watcher_stop: asyncio.Event | None = None
+_training_pod_watcher_task: asyncio.Task[None] | None = None
+_training_pod_watcher_stop: asyncio.Event | None = None
 
 # Re-export client getters for backward compatibility — prefer importing from
 # ``app.core.clients`` directly in new code.
@@ -137,11 +139,29 @@ async def on_startup() -> None:
     _dev_pod_watcher_stop = asyncio.Event()
     _dev_pod_watcher_task = asyncio.create_task(run_dev_pod_watcher(_dev_pod_watcher_stop))
 
+    # Start training pod watcher — event-driven pod → TrainingJob status sync.
+    # Watches Volcano-managed pods (label ``volcano.sh/job-name``) across all
+    # namespaces and updates TrainingJob status in real-time, replacing the
+    # previous poll-on-demand approach.
+    from app.integrations.k8s.training_pod_watcher import run_training_pod_watcher
+
+    global _training_pod_watcher_task, _training_pod_watcher_stop
+    _training_pod_watcher_stop = asyncio.Event()
+    _training_pod_watcher_task = asyncio.create_task(run_training_pod_watcher(_training_pod_watcher_stop))
+
     logger.info("application_startup", app="KubeAI")
 
 
 async def on_shutdown() -> None:
     global _metrics_push_task, _dev_pod_watcher_task, _dev_pod_watcher_stop
+    global _training_pod_watcher_task, _training_pod_watcher_stop
+
+    if _training_pod_watcher_stop:
+        _training_pod_watcher_stop.set()
+    if _training_pod_watcher_task:
+        _training_pod_watcher_task.cancel()
+        _training_pod_watcher_task = None
+    _training_pod_watcher_stop = None
 
     if _dev_pod_watcher_stop:
         _dev_pod_watcher_stop.set()

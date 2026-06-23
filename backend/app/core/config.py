@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     TASK_MAX_RETRIES: int = 3
     TASK_RETRY_BACKOFF_SECONDS: int = 10
     INFERENCE_SERVICE_STATUS_SYNC_INTERVAL_SECONDS: int = 60
+    TRAINING_JOB_STATUS_SYNC_INTERVAL_SECONDS: int = 60
 
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 180

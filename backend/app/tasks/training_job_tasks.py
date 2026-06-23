@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import async_session_factory
-from app.core.taskiq_app import broker
+from app.core.taskiq_app import broker, interval_to_cron
 from app.core.ws_pubsub import publish_ws_event
 from app.models.enums import TrainingJobStatus
 from app.models.training_job import TrainingJob
@@ -119,6 +119,27 @@ async def delete_training_job_task(vcjob_name: str, namespace: str) -> dict[str,
         # Best-effort: 资源清理器最终会处理孤儿 VCJob
 
     return {"vcjob_name": vcjob_name, "status": "deleted"}
+
+
+# ── Scheduled sync task ───────────────────────────────────────────────────────
+
+
+@broker.task(
+    task_name="app.tasks.training_job.sync_statuses",
+    schedule=[{"cron": interval_to_cron(settings.TRAINING_JOB_STATUS_SYNC_INTERVAL_SECONDS)}],
+)
+async def sync_training_job_statuses_task(limit: int = 200) -> dict[str, Any]:
+    """定时同步非终态训练任务的 Volcano VCJob 状态.
+
+    作为 K8s Watch 的安全兜底: 若 Watcher 因任何原因遗漏了事件,
+    此定时任务确保最多 ``TRAINING_JOB_STATUS_SYNC_INTERVAL_SECONDS`` 秒后
+    状态会被修正.
+    """
+    async with async_session_factory() as db:
+        svc = TrainingJobService(db)
+        synced_count = await svc.sync_non_terminal_training_jobs(limit=limit)
+
+    return {"synced_count": synced_count}
 
 
 async def enqueue_submit_training_job(job_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
