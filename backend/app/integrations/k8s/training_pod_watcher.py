@@ -423,6 +423,7 @@ async def _on_terminal_status(
         async with async_session_factory() as db:
             experiment_service = ExperimentService(db)
             await experiment_service.sync_experiment_status(job.id, new_status)
+            await db.commit()
     except Exception:
         logger.exception("watcher_mlflow_sync_error", job_id=str(job.id))
 
@@ -444,6 +445,7 @@ async def _on_terminal_status(
                 resource_type="training_job",
                 resource_id=str(job.id),
             )
+            await db.commit()
     except Exception:
         logger.exception("watcher_notification_error", job_id=str(job.id))
 

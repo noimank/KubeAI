@@ -50,6 +50,26 @@ async def _mark_failed(job_id: str, tenant_id: str, error: str) -> None:
         job.status = TrainingJobStatus.FAILED
         job.error_message = error
         job.finished_at = datetime.now(UTC)
+
+        # 提交失败无 VCJob → Watcher 不感知 → 此处补建通知
+        try:
+            from app.models.enums import NotificationPriority, NotificationType
+            from app.services.notification_service import NotificationService
+
+            notif_service = NotificationService(db)
+            await notif_service.create_notification(
+                user_id=job.created_by,
+                tenant_id=job.tenant_id,
+                type=NotificationType.TRAINING_JOB,
+                title="训练任务失败",
+                content=f"训练任务「{job.name}」提交失败.",
+                priority=NotificationPriority.HIGH,
+                resource_type="training_job",
+                resource_id=str(job.id),
+            )
+        except Exception:
+            logger.exception("mark_failed_notification_error", job_id=job_id)
+
         await db.commit()
         await publish_ws_event(
             tenant_id=job.tenant_id,
