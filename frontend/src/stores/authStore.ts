@@ -24,6 +24,19 @@ function getStoredToken(key: string): string | null {
   return localStorage.getItem(key)
 }
 
+function syncAuthCookie() {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY)
+  const securePart = location.protocol === 'https:' ? '; secure' : ''
+  if (token) {
+    document.cookie = `kubeai_access_token=${token}; path=/; samesite=lax; max-age=604800${securePart}`
+  }
+}
+
+function clearAuthCookie() {
+  const securePart = location.protocol === 'https:' ? '; secure' : ''
+  document.cookie = `kubeai_access_token=; path=/; max-age=0${securePart}`
+}
+
 async function callLogoutApi() {
   const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY)
   const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
@@ -51,6 +64,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: (user, accessToken, refreshToken) => {
     localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
     localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
+    syncAuthCookie()
     useRbacStore.getState().setRole(user.role)
     set({ user, accessToken, refreshToken, isAuthenticated: true })
 
@@ -65,6 +79,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: () => {
     callLogoutApi()
+    clearAuthCookie()
     useWsStore.getState().disconnect()
     localStorage.removeItem(ACCESS_TOKEN_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)
@@ -76,6 +91,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   setTokens: (accessToken, refreshToken) => {
     localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
     localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
+    syncAuthCookie()
     set({ accessToken, refreshToken })
   },
 
@@ -96,6 +112,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           useTenantStore.getState().fetchCurrentTenant()
         }
         set({ user: res.data, isAuthenticated: true, isInitializing: false })
+        syncAuthCookie()
         useWsStore.getState().connect()
       } else {
         set({ isInitializing: false })
