@@ -174,9 +174,10 @@ export default function DatasetDetailPage() {
 
   // Revoke all blob URLs on unmount
   useEffect(() => {
+    const blobUrls = blobUrlsRef.current
     return () => {
-      blobUrlsRef.current.forEach(revokeBlobUrl)
-      blobUrlsRef.current.clear()
+      blobUrls.forEach(revokeBlobUrl)
+      blobUrls.clear()
     }
   }, [])
 
