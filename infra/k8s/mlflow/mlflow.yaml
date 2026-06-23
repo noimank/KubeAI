@@ -56,6 +56,11 @@ spec:
               value: "20"
             - name: MLFLOW_SQLALCHEMYSTORE_POOL_RECYCLE
               value: "3600"
+            # MLflow 3.5+ 默认仅放行 localhost / 私网 IP，训练 Pod 经集群内服务名
+            # (mlflow.kubeai.svc.cluster.local) 访问会被 403 "Invalid Host header" 拒绝。
+            # 此服务为 ClusterIP 内部访问，故放开全部 Host (DNS 重绑定防护对内网无意义)。
+            - name: MLFLOW_SERVER_ALLOWED_HOSTS
+              value: "*"
           ports:
             - name: http
               containerPort: 5000
