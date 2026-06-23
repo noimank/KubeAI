@@ -24,9 +24,16 @@ async def list_notifications(
     type: _OptType = None,
     page: _Page = 1,
     page_size: _PageSize = 20,
+    unread: bool = False,
 ) -> PageResponse[NotificationResponse]:
     service = NotificationService(db)
-    items, total = await service.list_notifications(user_id=user.id, type=type, page=page, page_size=page_size)
+    items, total = await service.list_notifications(
+        user_id=user.id,
+        type=type,
+        page=page,
+        page_size=page_size,
+        unread_only=unread,
+    )
     notif_list = [
         NotificationResponse(
             id=n.id,

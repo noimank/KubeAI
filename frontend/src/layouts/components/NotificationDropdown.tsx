@@ -293,6 +293,7 @@ export function NotificationDropdown({ unreadCount }: NotificationDropdownProps)
         current: 1,
         pageSize: 10,
         type: (filter || undefined) as NotificationType | undefined,
+        unread: true,
       }),
     enabled: open,
   })

@@ -78,8 +78,12 @@ class NotificationService:
         type: NotificationType | None = None,
         page: int = 1,
         page_size: int = 20,
+        unread_only: bool = False,
     ) -> tuple[list[Notification], int]:
         query = select(Notification).where(Notification.user_id == user_id)
+
+        if unread_only:
+            query = query.where(Notification.is_read == False)  # noqa: E712
 
         if type is not None:
             query = query.where(Notification.type == type)

@@ -14,6 +14,7 @@ export async function getNotifications(
       page: params?.current,
       page_size: params?.pageSize,
       type: params?.type,
+      unread: params?.unread,
     },
   })
   return res.data

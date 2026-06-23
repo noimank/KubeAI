@@ -23,6 +23,7 @@ export interface NotificationListParams {
   current: number
   pageSize: number
   type?: NotificationType
+  unread?: boolean
 }
 
 export interface UnreadCountResponse {
