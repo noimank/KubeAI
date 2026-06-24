@@ -33,7 +33,7 @@ describe('ResourceAwarePanel', () => {
       quota: null,
       isLoading: true,
       refetch: vi.fn(),
-      formatMemoryMi: (mi: number) => `${mi} Mi`,
+      formatKi: (mi: number) => `${mi} Mi`,
     } as ReturnType<typeof mockUseResourceQuota>)
 
     render(
@@ -50,7 +50,7 @@ describe('ResourceAwarePanel', () => {
       quota: null,
       isLoading: false,
       refetch: vi.fn(),
-      formatMemoryMi: (mi: number) => `${mi} Mi`,
+      formatKi: (mi: number) => `${mi} Mi`,
     } as ReturnType<typeof mockUseResourceQuota>)
 
     render(
@@ -72,7 +72,7 @@ describe('ResourceAwarePanel', () => {
       },
       isLoading: false,
       refetch: vi.fn(),
-      formatMemoryMi: (mi: number) => (mi >= 1024 ? `${(mi / 1024).toFixed(1)} Gi` : `${mi} Mi`),
+      formatKi: (mi: number) => (mi >= 1024 ? `${(mi / 1024).toFixed(1)} Gi` : `${mi} Mi`),
     } as ReturnType<typeof mockUseResourceQuota>)
 
     render(
@@ -99,7 +99,7 @@ describe('ResourceAwarePanel', () => {
       },
       isLoading: false,
       refetch: vi.fn(),
-      formatMemoryMi: (mi: number) => (mi >= 1024 ? `${(mi / 1024).toFixed(1)} Gi` : `${mi} Mi`),
+      formatKi: (mi: number) => (mi >= 1024 ? `${(mi / 1024).toFixed(1)} Gi` : `${mi} Mi`),
     } as ReturnType<typeof mockUseResourceQuota>)
 
     render(
@@ -121,7 +121,7 @@ describe('ResourceAwarePanel', () => {
       },
       isLoading: false,
       refetch: vi.fn(),
-      formatMemoryMi: (mi: number) => (mi >= 1024 ? `${(mi / 1024).toFixed(1)} Gi` : `${mi} Mi`),
+      formatKi: (mi: number) => (mi >= 1024 ? `${(mi / 1024).toFixed(1)} Gi` : `${mi} Mi`),
     } as ReturnType<typeof mockUseResourceQuota>)
 
     render(

@@ -26,6 +26,7 @@ vi.mock('@/services/training-jobs', () => ({
   getTrainingJobs: vi.fn(),
   getTrainingJob: vi.fn(),
   stopTrainingJob: vi.fn(),
+  deleteTrainingJob: vi.fn(),
 }))
 
 vi.mock('@/utils/messageHolder', () => ({

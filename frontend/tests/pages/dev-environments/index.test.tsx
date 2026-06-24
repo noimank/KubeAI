@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import DevEnvironmentsPage from '@/pages/dev-environments'
 
 Object.defineProperty(window, 'matchMedia', {
@@ -65,9 +66,11 @@ function renderPage() {
   })
 
   return render(
-    <QueryClientProvider client={queryClient}>
-      <DevEnvironmentsPage />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <DevEnvironmentsPage />
+      </QueryClientProvider>
+    </MemoryRouter>,
   )
 }
 

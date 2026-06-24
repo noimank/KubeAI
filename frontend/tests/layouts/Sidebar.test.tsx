@@ -36,7 +36,7 @@ describe('Sidebar role filtering', () => {
     expect(names).toEqual(['工作台', '数据集', '数据标注'])
   })
 
-  it('engineer sees core dev menus but not admin or annotations', () => {
+  it('engineer sees dev menus and inherited annotations, but not monitoring or admin', () => {
     useRbacStore.getState().setRole('engineer')
     const { hasPermission } = useRbacStore.getState()
     const items: MenuItem[] = [
@@ -49,7 +49,9 @@ describe('Sidebar role filtering', () => {
     ]
     const filtered = filterMenuItems(items, hasPermission)
     const names = filtered.map((i) => i.name)
-    expect(names).toEqual(['工作台', '训练任务', '推理服务'])
+    // engineer 经继承链 engineer→annotator 拥有 annotations:read，故可见数据标注；
+    // 但无 monitoring 与 admin 权限。
+    expect(names).toEqual(['工作台', '训练任务', '数据标注', '推理服务'])
   })
 
   it('mlops sees annotations and monitoring but not admin tenants', () => {
