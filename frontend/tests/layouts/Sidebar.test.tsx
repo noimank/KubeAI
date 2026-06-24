@@ -92,12 +92,10 @@ describe('Sidebar role filtering', () => {
     const menu = buildSidebarMenu(hasPermission)
     expect(menu.length).toBeGreaterThanOrEqual(2)
     const allNames = menu.flatMap((g) => {
-      const items = g.children as { name: string; children?: { name: string }[] }[]
-      return items.flatMap((c) =>
-        c.children ? [c.name, ...c.children.map((cc) => cc.name)] : [c.name],
-      )
+      const children = g.children as { name: string }[] | undefined
+      return children ? children.map((c) => c.name) : [g.name as string]
     })
-    expect(allNames).toContain('工作台')
+    expect(allNames).toContain('系统概览')
     expect(allNames).toContain('租户管理')
   })
 
@@ -105,8 +103,11 @@ describe('Sidebar role filtering', () => {
     useRbacStore.getState().setRole('annotator')
     const { hasPermission } = useRbacStore.getState()
     const menu = buildSidebarMenu(hasPermission)
-    const names = menu.flatMap((g) => (g.children as { name: string }[]).map((c) => c.name))
-    expect(names).toContain('工作台')
+    const names = menu.flatMap((g) => {
+      const children = g.children as { name: string }[] | undefined
+      return children ? children.map((c) => c.name) : [g.name as string]
+    })
+    expect(names).toContain('系统概览')
     expect(names).toContain('数据集')
     expect(names).not.toContain('训练任务')
     expect(names).not.toContain('租户管理')

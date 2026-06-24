@@ -12,29 +12,60 @@ import {
   SafetyCertificateOutlined,
   BellOutlined,
   FolderOpenOutlined,
+  UserOutlined,
 } from '@ant-design/icons'
 import type { MenuDataItem } from '@ant-design/pro-components'
 import { filterMenuItems, toMenuDataItem } from './sidebar-utils'
 import type { MenuItem } from './sidebar-utils'
 
 interface MenuGroup {
+  type: 'group'
   key: string
   name: string
   children: MenuItem[]
 }
 
-const MENU_CONFIG: MenuGroup[] = [
+interface MenuStandalone {
+  type: 'item'
+  path: string
+  name: string
+  icon: React.ReactNode
+  permission?: string
+}
+
+type MenuEntry = MenuGroup | MenuStandalone
+
+const MENU_CONFIG: MenuEntry[] = [
   {
-    key: 'group-core',
-    name: '核心功能',
+    type: 'item',
+    path: '/dashboard',
+    name: '系统概览',
+    icon: <DashboardOutlined />,
+  },
+  {
+    type: 'group',
+    key: 'group-data',
+    name: '数据管理',
     children: [
-      { path: '/dashboard', name: '工作台', icon: <DashboardOutlined /> },
       {
         path: '/datasets',
         name: '数据集',
         icon: <DatabaseOutlined />,
         permission: 'datasets:read',
       },
+      {
+        path: '/annotations',
+        name: '数据标注',
+        icon: <EditOutlined />,
+        permission: 'annotations:read',
+      },
+    ],
+  },
+  {
+    type: 'group',
+    key: 'group-dev-train',
+    name: '开发与训练',
+    children: [
       {
         path: '/training-jobs',
         name: '训练任务',
@@ -48,24 +79,6 @@ const MENU_CONFIG: MenuGroup[] = [
         permission: 'experiments:read',
       },
       {
-        path: '/models',
-        name: '模型仓库',
-        icon: <SafetyCertificateOutlined />,
-        permission: 'models:read',
-      },
-      {
-        path: '/inference',
-        name: '推理服务',
-        icon: <ApiOutlined />,
-        permission: 'inference_services:read',
-      },
-    ],
-  },
-  {
-    key: 'group-dev',
-    name: '开发',
-    children: [
-      {
         path: '/algorithms',
         name: '算法管理',
         icon: <FolderOpenOutlined />,
@@ -78,15 +91,29 @@ const MENU_CONFIG: MenuGroup[] = [
         permission: 'dev_environments:read',
       },
       { path: '/images', name: '镜像管理', icon: <AppstoreOutlined />, permission: 'images:read' },
+    ],
+  },
+  {
+    type: 'group',
+    key: 'group-inference',
+    name: '推理服务',
+    children: [
       {
-        path: '/annotations',
-        name: '数据标注',
-        icon: <EditOutlined />,
-        permission: 'annotations:read',
+        path: '/inference',
+        name: '推理服务',
+        icon: <ApiOutlined />,
+        permission: 'inference_services:read',
+      },
+      {
+        path: '/models',
+        name: '模型仓库',
+        icon: <SafetyCertificateOutlined />,
+        permission: 'models:read',
       },
     ],
   },
   {
+    type: 'group',
     key: 'group-admin',
     name: '管理',
     children: [
@@ -117,6 +144,7 @@ const MENU_CONFIG: MenuGroup[] = [
     ],
   },
   {
+    type: 'group',
     key: 'group-system',
     name: '系统',
     children: [
@@ -126,20 +154,38 @@ const MENU_CONFIG: MenuGroup[] = [
         icon: <BellOutlined />,
         permission: 'notifications:read',
       },
+      {
+        path: '/profile',
+        name: '个人设置',
+        icon: <UserOutlined />,
+      },
     ],
   },
 ]
 
 export function buildSidebarMenu(hasPermission: (permission: string) => boolean): MenuDataItem[] {
   const result: MenuDataItem[] = []
-  for (const group of MENU_CONFIG) {
-    const filtered = filterMenuItems(group.children, hasPermission)
-    if (filtered.length === 0) continue
-    result.push({
-      key: group.key,
-      name: group.name,
-      children: filtered.map(toMenuDataItem),
-    })
+  for (const entry of MENU_CONFIG) {
+    if (entry.type === 'group') {
+      const filtered = filterMenuItems(entry.children, hasPermission)
+      if (filtered.length === 0) continue
+      result.push({
+        key: entry.key,
+        name: entry.name,
+        children: filtered.map(toMenuDataItem),
+      })
+    } else {
+      if (entry.permission && !hasPermission(entry.permission)) continue
+      result.push({
+        key: entry.path,
+        ...toMenuDataItem({
+          path: entry.path,
+          name: entry.name,
+          icon: entry.icon,
+          permission: entry.permission,
+        }),
+      })
+    }
   }
   return result
 }

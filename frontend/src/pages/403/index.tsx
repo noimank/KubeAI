@@ -11,7 +11,7 @@ export default function ForbiddenPage() {
       subTitle="抱歉，您没有权限访问此页面"
       extra={
         <Button type="primary" onClick={() => navigate('/dashboard', { replace: true })}>
-          返回工作台
+          返回系统概览
         </Button>
       }
     />

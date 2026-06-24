@@ -34,7 +34,7 @@ export default function DashboardPage() {
   return (
     <div>
       <Typography.Title level={3} style={{ marginBottom: 24 }}>
-        工作台
+        系统概览
       </Typography.Title>
 
       {isLoading ? (

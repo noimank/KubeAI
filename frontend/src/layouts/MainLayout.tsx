@@ -9,7 +9,7 @@ import { useThemeStore } from '@/stores/themeStore'
 import { APP_TITLE } from '@/utils/constants'
 
 const NAVIGATE_MAP: Record<string, string> = {
-  '/dashboard': '工作台',
+  '/dashboard': '系统概览',
   '/datasets': '数据集',
   '/datasets/:id': '数据集详情',
   '/training-jobs': '训练任务',
