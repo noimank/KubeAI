@@ -24,6 +24,30 @@ body {
   min-height: 100vh;
 }
 
+:root {
+  /* ProLayout 固定 header 高度(mix 布局,用于详情页占满视口剩余高度,实测可调) */
+  --kubeai-header-h: 56px;
+}
+
+/* 详情页 Tabs:内容区填满剩余高度,各 Tab pane 内部滚动 */
+.training-detail-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.training-detail-tabs > .ant-tabs-nav {
+  flex-shrink: 0;
+}
+.training-detail-tabs > .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+}
+.training-detail-tabs .ant-tabs-content,
+.training-detail-tabs .ant-tabs-tabpane {
+  height: 100%;
+}
+
 .auth-layout {
   display: flex;
   justify-content: center;

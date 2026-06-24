@@ -248,7 +248,7 @@ export default function TrainingJobDetailPage() {
 
     if (isStreamable) {
       return (
-        <div style={{ height: 500, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {isDistributed && (
             <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
               <Select
@@ -263,8 +263,13 @@ export default function TrainingJobDetailPage() {
               />
             </div>
           )}
-          <div style={{ flex: 1, position: 'relative' }}>
-            <LogStream streamUrl={streamUrl} streamable emptyText="等待日志输出..." />
+          <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+            <LogStream
+              streamUrl={streamUrl}
+              streamable
+              emptyText="等待日志输出..."
+              downloadName={job.name}
+            />
           </div>
         </div>
       )
@@ -272,7 +277,7 @@ export default function TrainingJobDetailPage() {
 
     // History mode (succeeded/failed/stopped)
     return (
-      <div style={{ height: 500, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {isDistributed && (
           <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
             <Select
@@ -287,12 +292,13 @@ export default function TrainingJobDetailPage() {
             />
           </div>
         )}
-        <div style={{ flex: 1, position: 'relative' }}>
+        <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
           <LogStream
             initialLines={logData?.lines}
             loading={logsLoading}
             streamable={false}
             emptyText="暂无历史日志"
+            downloadName={job.name}
           />
         </div>
       </div>
@@ -300,7 +306,16 @@ export default function TrainingJobDetailPage() {
   })()
 
   const metricsTabContent = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 16,
+        height: '100%',
+        overflow: 'auto',
+        minHeight: 0,
+      }}
+    >
       {/* GPU low utilization warning */}
       {shouldWarnGpu && (
         <Alert
@@ -351,7 +366,16 @@ export default function TrainingJobDetailPage() {
 
   // --- Config Tab Content ---
   const configTabContent = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 24,
+        height: '100%',
+        overflow: 'auto',
+        minHeight: 0,
+      }}
+    >
       <Card title="启动命令" size="small">
         <Typography.Text copyable code style={{ fontSize: 12, wordBreak: 'break-all' }}>
           {job.command}
@@ -416,7 +440,16 @@ export default function TrainingJobDetailPage() {
       key: 'overview',
       label: '概览',
       children: (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 24,
+            height: '100%',
+            overflow: 'auto',
+            minHeight: 0,
+          }}
+        >
           <Card title="状态" size="small">
             <Steps
               current={getStepIndex(job.status)}
@@ -585,16 +618,27 @@ export default function TrainingJobDetailPage() {
   ]
 
   return (
-    <div style={{ padding: 0 }}>
-      <Breadcrumb
-        items={[{ title: <Link to="/training-jobs">训练任务</Link> }, { title: job.name }]}
-      />
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        // 视口减固定 header 与内容区内边距(24×2),使详情页占满剩余高度
+        height: 'calc(100vh - var(--kubeai-header-h) - 48px)',
+        minHeight: 0,
+      }}
+    >
+      <div style={{ flexShrink: 0 }}>
+        <Breadcrumb
+          items={[{ title: <Link to="/training-jobs">训练任务</Link> }, { title: job.name }]}
+        />
+      </div>
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           margin: '16px 0',
+          flexShrink: 0,
         }}
       >
         <h2 style={{ margin: 0 }}>{job.name}</h2>
@@ -630,7 +674,12 @@ export default function TrainingJobDetailPage() {
           )}
         </Space>
       </div>
-      <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={tabs}
+        className="training-detail-tabs"
+      />
 
       <Modal
         title="注册模型"

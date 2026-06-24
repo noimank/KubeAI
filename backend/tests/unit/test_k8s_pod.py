@@ -162,6 +162,12 @@ class TestGetPodLog:
         call_kwargs = mock_k8s_clients["core_v1"].read_namespaced_pod_log.call_args[1]
         assert "container" not in call_kwargs
 
+    async def test_get_log_requests_timestamps(self, mock_k8s_clients):
+        mock_k8s_clients["core_v1"].read_namespaced_pod_log = AsyncMock(return_value="2024-01-01T00:00:00Z line")
+        await k8s_pod.get_pod_log("ns", "pod-1")
+        call_kwargs = mock_k8s_clients["core_v1"].read_namespaced_pod_log.call_args[1]
+        assert call_kwargs["timestamps"] is True
+
 
 class TestGetPodFailureInfo:
     def _make_terminated(self, exit_code=0, reason="", message="", signal=None):

@@ -137,6 +137,7 @@ async def get_pod_log(
         "name": pod_name,
         "namespace": namespace,
         "tail_lines": tail_lines,
+        "timestamps": True,
     }
     if container:
         kwargs["container"] = container
