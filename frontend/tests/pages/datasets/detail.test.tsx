@@ -32,15 +32,18 @@ vi.mock('@/services/datasets', () => ({
   getVersionFiles: vi.fn(),
   getVersionStats: vi.fn(),
   getFileDownloadUrl: vi.fn(),
+  downloadFile: vi.fn(),
   mountDatasetVersion: vi.fn(),
   getDatasetMountInfo: vi.fn(),
   unmountDatasetVersion: vi.fn(),
+  revokeBlobUrl: vi.fn(),
 }))
 
 const mockGetDatasetDetail = vi.mocked(await import('@/services/datasets')).getDatasetDetail
 const mockGetVersionFiles = vi.mocked(await import('@/services/datasets')).getVersionFiles
 const mockGetVersionStats = vi.mocked(await import('@/services/datasets')).getVersionStats
 const mockGetFileDownloadUrl = vi.mocked(await import('@/services/datasets')).getFileDownloadUrl
+const mockDownloadFile = vi.mocked(await import('@/services/datasets')).downloadFile
 
 const mockDataset = {
   id: 'ds-1',
@@ -330,8 +333,6 @@ describe('DatasetDetailPage', () => {
     })
     mockGetFileDownloadUrl.mockResolvedValueOnce('https://minio.example.com/download')
 
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
-
     renderPage()
 
     await waitForDataset()
@@ -343,14 +344,11 @@ describe('DatasetDetailPage', () => {
       expect(screen.getByText('data.csv')).toBeTruthy()
     })
 
-    const downloadBtn = screen.getByText('下载')
+    const downloadBtn = screen.getByRole('button', { name: '下载' })
     await userEvent.click(downloadBtn)
 
     await waitFor(() => {
-      expect(mockGetFileDownloadUrl).toHaveBeenCalledWith('ds-1', 'v-2', 'data.csv')
-      expect(openSpy).toHaveBeenCalledWith('https://minio.example.com/download', '_blank')
+      expect(mockDownloadFile).toHaveBeenCalledWith('ds-1', 'v-2', 'data.csv')
     })
-
-    openSpy.mockRestore()
   })
 })

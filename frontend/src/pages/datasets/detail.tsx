@@ -440,6 +440,7 @@ export default function DatasetDetailPage() {
               type="text"
               size="small"
               icon={<DownloadOutlined />}
+              aria-label="下载"
               onClick={() => downloadFile(id!, effectiveVersionId!, record.fileName)}
             />
           </Tooltip>
