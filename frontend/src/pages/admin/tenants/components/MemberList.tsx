@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { listMembers, removeMember, updateMemberRole } from '@/services/tenants'
 import type { TenantMember } from '@/types/tenant'
+import { formatDate } from '@/utils/format'
 import { ROLE_LABELS, ROLE_COLORS, ROLE_OPTIONS } from '@/utils/roleLabels'
 
 interface Props {
@@ -93,7 +94,7 @@ export default function MemberList({ tenantId }: Props) {
       title: '加入时间',
       dataIndex: 'joinedAt',
       width: 180,
-      render: (v: string) => (v ? new Date(v).toLocaleString() : '-'),
+      render: (v: string) => formatDate(v),
     },
     {
       title: '操作',

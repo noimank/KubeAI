@@ -5,8 +5,13 @@ import 'dayjs/locale/zh-cn'
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
-export function formatDate(date: string | Date, format = 'YYYY-MM-DD HH:mm:ss'): string {
-  return dayjs(date).format(format)
+export function formatDate(
+  date: string | Date | null | undefined,
+  format = 'YYYY-MM-DD HH:mm:ss',
+): string {
+  if (!date) return '-'
+  const d = dayjs(date)
+  return d.isValid() ? d.format(format) : '-'
 }
 
 export function formatRelative(date: string | Date): string {

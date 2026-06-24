@@ -17,6 +17,7 @@ import {
   Typography,
 } from 'antd'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { formatDate } from '@/utils/format'
 import {
   CheckCircleOutlined,
   DesktopOutlined,
@@ -581,7 +582,7 @@ export default function TrainingJobDetailPage() {
               <Descriptions.Item label="描述" span={2}>
                 {job.description || '—'}
               </Descriptions.Item>
-              <Descriptions.Item label="创建时间">{job.createdAt}</Descriptions.Item>
+              <Descriptions.Item label="创建时间">{formatDate(job.createdAt)}</Descriptions.Item>
               <Descriptions.Item label="运行时长">
                 {formatDuration(job.startedAt, job.finishedAt)}
               </Descriptions.Item>

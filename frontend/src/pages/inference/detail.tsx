@@ -25,6 +25,7 @@ import { ExperimentOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/ic
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { formatDate } from '@/utils/format'
 import { useRbacStore } from '@/stores/rbacStore'
 import { useResourceQuota } from '@/hooks/useResourceQuota'
 import {
@@ -567,8 +568,8 @@ function OverviewTab({
           </Descriptions.Item>
           <Descriptions.Item label="内存">{svc.memory}</Descriptions.Item>
           <Descriptions.Item label="描述">{svc.description || '—'}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{svc.createdAt}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{svc.updatedAt}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{formatDate(svc.createdAt)}</Descriptions.Item>
+          <Descriptions.Item label="更新时间">{formatDate(svc.updatedAt)}</Descriptions.Item>
         </Descriptions>
       </Card>
 

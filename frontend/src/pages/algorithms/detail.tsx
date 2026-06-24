@@ -16,7 +16,7 @@ import { DownloadOutlined, EditOutlined, DeleteOutlined, CodeOutlined } from '@a
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRbacStore } from '@/stores/rbacStore'
 import { getMessageInstance } from '@/utils/messageHolder'
-import { formatFileSize } from '@/utils/format'
+import { formatDate, formatFileSize } from '@/utils/format'
 import {
   getAlgorithm,
   updateAlgorithm,
@@ -180,8 +180,8 @@ export default function AlgorithmDetailPage() {
             </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="上传者">{algo.uploader?.username || '—'}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{algo.createdAt}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{algo.updatedAt}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{formatDate(algo.createdAt)}</Descriptions.Item>
+          <Descriptions.Item label="更新时间">{formatDate(algo.updatedAt)}</Descriptions.Item>
           <Descriptions.Item label="可见性">
             <Tag>{algo.visibility === 'tenant' ? '租户内共享' : algo.visibility}</Tag>
           </Descriptions.Item>

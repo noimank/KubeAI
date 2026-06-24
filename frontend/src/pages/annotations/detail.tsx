@@ -19,6 +19,7 @@ import { RedoOutlined, SyncOutlined } from '@ant-design/icons'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { formatDate } from '@/utils/format'
 import { useRbacStore } from '@/stores/rbacStore'
 import { getAnnotationProjectDetail } from '@/services/annotations'
 import {
@@ -396,8 +397,8 @@ function TaskPreviewModal({
             {task.labelStudioTaskId}
           </Descriptions.Item>
           <Descriptions.Item label="项目">{task.projectName || '-'}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{task.createdAt}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{task.updatedAt}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{formatDate(task.createdAt)}</Descriptions.Item>
+          <Descriptions.Item label="更新时间">{formatDate(task.updatedAt)}</Descriptions.Item>
         </Descriptions>
       )}
 

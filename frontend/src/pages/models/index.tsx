@@ -87,8 +87,7 @@ export default function ModelsPage() {
     {
       title: '最新版本时间',
       width: 180,
-      render: (_: unknown, record: RegisteredModel) =>
-        record.latestVersion?.createdAt ? formatDate(record.latestVersion.createdAt) : '-',
+      render: (_: unknown, record: RegisteredModel) => formatDate(record.latestVersion?.createdAt),
     },
     {
       title: '来源训练任务',

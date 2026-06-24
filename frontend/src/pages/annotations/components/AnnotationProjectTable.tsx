@@ -2,6 +2,7 @@ import { Button, Empty, Popconfirm, Progress, Space, Table, Tag } from 'antd'
 import { Link } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import type { AnnotationProject, AnnotationCallbackStatus } from '@/types/annotation'
+import { formatDate } from '@/utils/format'
 
 const ANNOTATION_TYPE_MAP: Record<string, { label: string; color: string }> = {
   image_classification: { label: '图像分类', color: 'blue' },
@@ -120,6 +121,7 @@ export default function AnnotationProjectTable({
       title: '创建时间',
       dataIndex: 'createdAt',
       width: 180,
+      render: (v: string) => formatDate(v),
     },
     {
       title: '操作',

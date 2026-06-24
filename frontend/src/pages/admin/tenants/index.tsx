@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery } from '@tanstack/react-query'
+import { formatDate } from '@/utils/format'
 import TenantCreateForm from './components/TenantCreateForm'
 import TenantEditForm from './components/TenantEditForm'
 import QuotaEditor from './components/QuotaEditor'
@@ -163,6 +164,7 @@ export default function TenantsPage() {
       title: '创建时间',
       dataIndex: 'createdAt',
       width: 180,
+      render: (v: string) => formatDate(v),
     },
     {
       title: '操作',

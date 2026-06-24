@@ -21,6 +21,7 @@ import { getExperiments } from '@/services/experiments'
 import { getDatasets } from '@/services/datasets'
 import { getImages } from '@/services/images'
 import type { Experiment } from '@/types/experiment'
+import { formatDate } from '@/utils/format'
 import ExperimentCompareDrawer from './components/ExperimentCompareDrawer'
 
 const { RangePicker } = DatePicker
@@ -215,6 +216,7 @@ export default function ExperimentsPage() {
       dataIndex: 'createdAt',
       width: 180,
       sorter: true,
+      render: (v: string) => formatDate(v),
     },
   ]
 

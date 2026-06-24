@@ -16,6 +16,7 @@ import { RocketOutlined } from '@ant-design/icons'
 import { Line } from '@ant-design/charts'
 import { useQuery } from '@tanstack/react-query'
 import { getExperiment } from '@/services/experiments'
+import { formatDate } from '@/utils/format'
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   active: { color: 'processing', text: '运行中' },
@@ -101,7 +102,7 @@ export default function ExperimentDetailPage() {
           <Descriptions.Item label="镜像">
             {experiment.trainingJob?.imageName || experiment.imageName || '—'}
           </Descriptions.Item>
-          <Descriptions.Item label="创建时间">{experiment.createdAt}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{formatDate(experiment.createdAt)}</Descriptions.Item>
         </Descriptions>
       </Card>
 

@@ -176,7 +176,7 @@ export default function VersionDetailDrawer({
       title: '修改时间',
       dataIndex: 'lastModified',
       width: 160,
-      render: (date?: string) => (date ? formatDate(date) : '-'),
+      render: (date?: string) => formatDate(date),
     },
     {
       title: '操作',

@@ -4,6 +4,7 @@ import { Breadcrumb, Card, Descriptions, Tabs, Tag, Typography } from 'antd'
 import InlineLoading from '@/components/InlineLoading'
 import { useQuery } from '@tanstack/react-query'
 import { getImage, getBuildLog } from '@/services/images'
+import { formatDate } from '@/utils/format'
 
 const BUILD_STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   pending: { color: 'warning', text: '排队中' },
@@ -101,8 +102,8 @@ export default function ImageDetailPage() {
                 )}
               </Descriptions.Item>
             )}
-            <Descriptions.Item label="创建时间">{image.createdAt}</Descriptions.Item>
-            <Descriptions.Item label="更新时间">{image.updatedAt}</Descriptions.Item>
+            <Descriptions.Item label="创建时间">{formatDate(image.createdAt)}</Descriptions.Item>
+            <Descriptions.Item label="更新时间">{formatDate(image.updatedAt)}</Descriptions.Item>
           </Descriptions>
         </Card>
       ),

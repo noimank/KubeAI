@@ -5,6 +5,7 @@ import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery } from '@tanstack/react-query'
 import type { Dayjs } from 'dayjs'
 import { getAuditLogs } from '@/services/audit'
+import { formatDate } from '@/utils/format'
 import type { AuditLog, AuditAction, ResourceType } from '@/types/audit'
 import {
   ACTION_LABELS,
@@ -109,6 +110,7 @@ export default function AuditLogsPage() {
       title: '操作时间',
       dataIndex: 'createdAt',
       width: 180,
+      render: (v: string) => formatDate(v),
     },
     {
       title: '操作人',

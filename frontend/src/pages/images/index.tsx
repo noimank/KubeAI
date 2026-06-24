@@ -19,6 +19,7 @@ import { BuildOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import type { TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { formatDate } from '@/utils/format'
 import { useRbacStore } from '@/stores/rbacStore'
 import {
   createImage,
@@ -331,7 +332,7 @@ function BusinessImagesTab({
         <Tag color={val ? 'success' : 'default'}>{val ? '启用' : '禁用'}</Tag>
       ),
     },
-    { title: '创建时间', dataIndex: 'createdAt', width: 180 },
+    { title: '创建时间', dataIndex: 'createdAt', width: 180, render: (v: string) => formatDate(v) },
     {
       title: '操作',
       width: 280,
@@ -761,7 +762,7 @@ function DevEnvImagesTab({
         <Tag color={enabled ? 'success' : 'default'}>{enabled ? '已启用' : '已禁用'}</Tag>
       ),
     },
-    { title: '创建时间', dataIndex: 'createdAt', width: 180 },
+    { title: '创建时间', dataIndex: 'createdAt', width: 180, render: (v: string) => formatDate(v) },
     {
       title: '操作',
       width: 200,

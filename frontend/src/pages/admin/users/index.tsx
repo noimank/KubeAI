@@ -21,6 +21,7 @@ import type { Dayjs } from 'dayjs'
 import { getUsers, getUser, updateUser, toggleUserStatus, deleteUser } from '@/services/users'
 import { getTenants } from '@/services/tenants'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { formatDate } from '@/utils/format'
 import { useAuthStore } from '@/stores/authStore'
 import type { UserDetail, UserRole } from '@/types/user'
 import type { Tenant } from '@/types/tenant'
@@ -237,7 +238,7 @@ export default function UsersPage() {
       title: '注册时间',
       dataIndex: 'createdAt',
       width: 180,
-      render: (_, record) => new Date(record.createdAt).toLocaleString(),
+      render: (v: string) => formatDate(v),
     },
     {
       title: '操作',
@@ -412,11 +413,11 @@ export default function UsersPage() {
             </Descriptions.Item>
             {detailUser.lockedUntil && (
               <Descriptions.Item label="锁定至">
-                {new Date(detailUser.lockedUntil).toLocaleString()}
+                {formatDate(detailUser.lockedUntil)}
               </Descriptions.Item>
             )}
             <Descriptions.Item label="注册时间">
-              {new Date(detailUser.createdAt).toLocaleString()}
+              {formatDate(detailUser.createdAt)}
             </Descriptions.Item>
           </Descriptions>
         )}

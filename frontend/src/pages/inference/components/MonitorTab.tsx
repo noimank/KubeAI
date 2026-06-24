@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Alert, Card, Spin, Table, Tag, Tooltip, Typography } from 'antd'
-import dayjs from 'dayjs'
 import type { InferenceServiceEvent } from '@/types/inference'
+import { formatDate } from '@/utils/format'
 import type { GpuMetricPoint, TimeSeriesPoint } from '@/types/metrics'
 import GpuMetricsChart from '@/components/GpuMetricsChart'
 
@@ -158,7 +158,7 @@ export function MonitorTab({
                 title: '时间',
                 dataIndex: 'lastTimestamp',
                 width: 180,
-                render: (ts: string | null) => (ts ? dayjs(ts).format('YYYY-MM-DD HH:mm:ss') : '—'),
+                render: (ts: string | null) => formatDate(ts),
               },
               {
                 title: '次数',

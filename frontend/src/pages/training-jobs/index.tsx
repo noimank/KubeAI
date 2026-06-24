@@ -5,6 +5,7 @@ import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { formatDate } from '@/utils/format'
 import { useRbacStore } from '@/stores/rbacStore'
 import {
   getTrainingJob,
@@ -152,6 +153,7 @@ export default function TrainingJobsPage() {
       title: '创建时间',
       dataIndex: 'createdAt',
       width: 180,
+      render: (v: string) => formatDate(v),
     },
     {
       title: '来源',

@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
 import { createAlgorithm, deleteAlgorithm, getAlgorithms } from '@/services/algorithms'
-import { formatFileSize } from '@/utils/format'
+import { formatDate, formatFileSize } from '@/utils/format'
 import type { Algorithm } from '@/types/algorithm'
 import type { RcFile, UploadChangeParam } from 'antd/es/upload/interface'
 
@@ -144,6 +144,7 @@ export default function AlgorithmsPage() {
       title: '创建时间',
       dataIndex: 'createdAt',
       width: 170,
+      render: (v: string) => formatDate(v),
     },
     {
       title: '操作',

@@ -1,6 +1,7 @@
 import { Table, Tag } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { StaleJob } from '@/types/monitoring'
+import { formatDate } from '@/utils/format'
 
 const statusColorMap: Record<string, string> = {
   succeeded: 'green',
@@ -28,7 +29,7 @@ const columns: ColumnsType<StaleJob> = [
     dataIndex: 'finishedAt',
     key: 'finishedAt',
     width: 180,
-    render: (v: string | null) => (v ? new Date(v).toLocaleString('zh-CN') : '-'),
+    render: (v: string | null) => formatDate(v),
   },
   {
     title: '距今天数',

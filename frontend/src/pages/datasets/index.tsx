@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
 import { createDataset, deleteDataset, getDatasets } from '@/services/datasets'
-import { formatFileSize } from '@/utils/format'
+import { formatDate, formatFileSize } from '@/utils/format'
 import type { Dataset } from '@/types/dataset'
 
 export default function DatasetsPage() {
@@ -113,11 +113,7 @@ export default function DatasetsPage() {
       title: '创建时间',
       dataIndex: 'createdAt',
       width: 180,
-    },
-    {
-      title: '更新时间',
-      dataIndex: 'updatedAt',
-      width: 180,
+      render: (v: string) => formatDate(v),
     },
     {
       title: '操作',

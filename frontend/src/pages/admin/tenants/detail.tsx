@@ -37,7 +37,7 @@ import {
 } from '@/services/tenants'
 import { getAuditLogs } from '@/services/audit'
 import { getMessageInstance } from '@/utils/messageHolder'
-import { formatKi, parseK8sQuantity } from '@/utils/format'
+import { formatDate, formatKi, parseK8sQuantity } from '@/utils/format'
 import type { Tenant, TenantUpdateRequest, QuotaUsage, TenantMember } from '@/types/tenant'
 import type { AuditLog, AuditAction, ResourceType } from '@/types/audit'
 import {
@@ -302,6 +302,7 @@ export default function TenantDetailPage() {
       title: '操作时间',
       dataIndex: 'createdAt',
       width: 180,
+      render: (v: string) => formatDate(v),
     },
     {
       title: '操作人',
@@ -377,7 +378,7 @@ export default function TenantDetailPage() {
               <Descriptions.Item label="K8s Namespace">
                 {tenant.k8sNamespaceName || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="创建时间">{tenant.createdAt}</Descriptions.Item>
+              <Descriptions.Item label="创建时间">{formatDate(tenant.createdAt)}</Descriptions.Item>
             </Descriptions>
           </Card>
 

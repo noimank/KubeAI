@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getMyAnnotationTasks, getMyAnnotationTaskSummary } from '@/services/annotations'
 import type { AnnotationTaskSummary } from '@/types/annotation'
+import { formatDate } from '@/utils/format'
 
 const ANNOTATION_TYPE_MAP: Record<string, { label: string; color: string }> = {
   image_classification: { label: '图像分类', color: 'blue' },
@@ -113,6 +114,7 @@ export default function MyTaskList({ page, pageSize, onPageChange }: MyTaskListP
             title: '分配时间',
             dataIndex: 'updatedAt',
             width: 180,
+            render: (v: string) => formatDate(v),
           },
           {
             title: '操作',

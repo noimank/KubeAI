@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from 'react'
 import { Button, Empty, Input, Popconfirm, Segmented, Space, Table, Tag } from 'antd'
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import type { TablePaginationConfig } from 'antd/es/table'
-import dayjs from 'dayjs'
+import { formatDate } from '@/utils/format'
 import type {
   DevEnvironment,
   DevEnvironmentStatus,
@@ -141,13 +141,13 @@ export function DevEnvList({
         title: '活跃时间',
         dataIndex: 'lastActiveAt',
         width: 180,
-        render: (val: string | undefined) => (val ? dayjs(val).format('YYYY-MM-DD HH:mm:ss') : '—'),
+        render: (val: string | undefined) => formatDate(val),
       },
       {
         title: '创建时间',
         dataIndex: 'createdAt',
         width: 180,
-        render: (val: string) => dayjs(val).format('YYYY-MM-DD HH:mm:ss'),
+        render: (val: string) => formatDate(val),
       },
       {
         title: '操作',

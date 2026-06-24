@@ -39,7 +39,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRbacStore } from '@/stores/rbacStore'
 import { getMessageInstance } from '@/utils/messageHolder'
-import { formatFileSize } from '@/utils/format'
+import { formatDate, formatFileSize } from '@/utils/format'
 import {
   getDatasetDetail,
   deleteDataset,
@@ -321,6 +321,7 @@ export default function DatasetDetailPage() {
       title: '创建时间',
       dataIndex: 'createdAt',
       width: 180,
+      render: (v: string) => formatDate(v),
     },
     {
       title: '操作',
@@ -418,7 +419,7 @@ export default function DatasetDetailPage() {
       title: '最后修改时间',
       dataIndex: 'lastModified',
       width: 190,
-      render: (val?: string) => (val ? new Date(val).toLocaleString('zh-CN') : '-'),
+      render: (val?: string) => formatDate(val),
     },
     {
       title: '操作',
@@ -511,8 +512,12 @@ export default function DatasetDetailPage() {
                     <Descriptions.Item label="描述" span={2}>
                       {dataset.description || '-'}
                     </Descriptions.Item>
-                    <Descriptions.Item label="创建时间">{dataset.createdAt}</Descriptions.Item>
-                    <Descriptions.Item label="更新时间">{dataset.updatedAt}</Descriptions.Item>
+                    <Descriptions.Item label="创建时间">
+                      {formatDate(dataset.createdAt)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="更新时间">
+                      {formatDate(dataset.updatedAt)}
+                    </Descriptions.Item>
                   </Descriptions>
                 </Card>
                 <Card size="small">
