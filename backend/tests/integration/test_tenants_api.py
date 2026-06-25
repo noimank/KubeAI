@@ -547,7 +547,7 @@ async def test_update_tenant_quota_exceeds_cluster(
         headers=admin_headers,
     )
     assert response.status_code == 422
-    assert "超过集群可用资源" in response.json()["message"]
+    assert "超过集群可分配余量" in response.json()["message"]
 
 
 @pytest.mark.asyncio(loop_scope="session")
