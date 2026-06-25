@@ -2,7 +2,9 @@ from app.core.config import Settings
 
 
 def test_settings_defaults():
-    s = Settings()
+    # Isolate from the local .env so we assert the *code* defaults, not whatever
+    # the dev machine happens to override at runtime.
+    s = Settings(_env_file=None)
     assert s.APP_NAME == "KubeAI"
     assert s.APP_VERSION == "0.1.0"
     assert s.DEBUG is False
