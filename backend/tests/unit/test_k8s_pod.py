@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aiohttp import ClientError
 from kubernetes_asyncio.client.rest import ApiException  # type: ignore[import-untyped]
 
 from app.integrations.k8s import pod as k8s_pod
@@ -88,6 +89,46 @@ class TestStreamPodLogs:
         call_kwargs = mock_k8s_clients["core_v1"].read_namespaced_pod_log.call_args[1]
         assert "container" not in call_kwargs
 
+    async def test_stream_pod_not_ready_ends_gracefully(self, mock_k8s_clients):
+        # Container still starting (Pending / ContainerCreating) → K8s returns 400.
+        mock_k8s_clients["core_v1"].read_namespaced_pod_log = AsyncMock(side_effect=ApiException(status=400))
+
+        lines = [line async for line in k8s_pod.stream_pod_logs("ns", "pod-1")]
+
+        assert lines == []
+
+    async def test_stream_pod_not_found_ends_gracefully(self, mock_k8s_clients):
+        mock_k8s_clients["core_v1"].read_namespaced_pod_log = AsyncMock(side_effect=ApiException(status=404))
+
+        lines = [line async for line in k8s_pod.stream_pod_logs("ns", "missing")]
+
+        assert lines == []
+
+    async def test_stream_server_error_raises(self, mock_k8s_clients):
+        mock_k8s_clients["core_v1"].read_namespaced_pod_log = AsyncMock(side_effect=ApiException(status=500))
+
+        with pytest.raises(ApiException):
+            async for _ in k8s_pod.stream_pod_logs("ns", "pod-1"):
+                pass
+
+    async def test_stream_mid_stream_error_ends_cleanly(self, mock_k8s_clients):
+        class _ErrorContent:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise ClientError("connection reset")
+
+        mock_resp = MagicMock()
+        mock_resp.content = _ErrorContent()
+        mock_resp.close = MagicMock()
+        mock_k8s_clients["core_v1"].read_namespaced_pod_log = AsyncMock(return_value=mock_resp)
+
+        lines = [line async for line in k8s_pod.stream_pod_logs("ns", "pod-1")]
+
+        assert lines == []
+        mock_resp.close.assert_called_once()
+
 
 class TestListVcjobPods:
     async def test_list_pods(self, mock_k8s_clients):
@@ -123,6 +164,32 @@ class TestListVcjobPods:
 
         result = await k8s_pod.list_vcjob_pods("ns", "training-job")
         assert result == []
+
+    async def test_pods_sorted_master_first_then_workers_by_index(self, mock_k8s_clients):
+        # K8s returns pods in arbitrary order; the default pod must be the chief
+        # (master) deterministically, not whatever the API happened to list first.
+        def make_pod(name: str):
+            pod = MagicMock()
+            pod.metadata.name = name
+            pod.status.phase = "Running"
+            return pod
+
+        pods = [
+            make_pod("job-worker-2"),
+            make_pod("job-master-0"),
+            make_pod("job-worker-0"),
+            make_pod("job-worker-1"),
+        ]
+        mock_k8s_clients["core_v1"].list_namespaced_pod = AsyncMock(return_value=MagicMock(items=pods))
+
+        result = await k8s_pod.list_vcjob_pods("ns", "job")
+
+        assert [p["pod_name"] for p in result] == [
+            "job-master-0",
+            "job-worker-0",
+            "job-worker-1",
+            "job-worker-2",
+        ]
 
 
 class TestGetPodLog:

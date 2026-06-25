@@ -1,16 +1,16 @@
-import json
+import asyncio
 import uuid
-from collections.abc import AsyncGenerator
+from contextlib import suppress
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, SSECurrentUser, get_db, require_permission
+from app.api.deps import CurrentUser, authenticate_ws_token, get_db, require_permission
 from app.core.clients import get_prometheus_client
-from app.core.exceptions import ForbiddenException
+from app.core.exceptions import AppException, ForbiddenException
+from app.core.redis import _redis_pool
 from app.integrations.base import sanitize_k8s_name
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
@@ -235,34 +235,59 @@ async def get_training_job_logs(
     )
 
 
-@router.get("/{training_job_id}/logs/stream")
-async def stream_training_job_logs(
+@router.websocket("/{training_job_id}/logs/ws")
+async def stream_training_job_logs_ws(
+    websocket: WebSocket,
     training_job_id: uuid.UUID,
     db: DbDep,
-    user: Annotated[SSECurrentUser, Depends(require_permission("training_jobs", "read"))],
+    token: str = Query(...),
     pod_name: str | None = Query(None),
     tail_lines: int = Query(100, ge=1, le=10000),
-) -> StreamingResponse:
+) -> None:
+    # WebSocket 是升级连接, nginx 直接透传, 不受 proxy_buffering 影响
+    # (SSE 在双层 nginx 下被 Tengine 缓冲, 运行中日志攒在缓冲区, 任务结束才 flush)。
+    # 浏览器 WebSocket 无法设置 Authorization 头, 走 ?token= 鉴权。
+    user = await authenticate_ws_token(token, db, _redis_pool)
+    if user is None or user.tenant_id is None:
+        await websocket.close(code=4001, reason="认证失败")
+        return
+    tenant_id = user.tenant_id
+    await websocket.accept()
     service = TrainingJobService(db)
-    tenant_id = _require_tenant_id(user)
 
-    async def event_generator() -> AsyncGenerator[str, None]:
+    async def pump() -> None:
         async for line in service.stream_logs(
             job_id=training_job_id,
             tenant_id=tenant_id,
             pod_name=pod_name,
             tail_lines=tail_lines,
         ):
-            yield f"data: {json.dumps({'line': line})}\n\n"
+            await websocket.send_json({"line": line})
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    # receive_text 兼任「ping 心跳」与「断开检测」; 客户端断开 → cancel pump,
+    # stream_pod_logs 的 finally 随生成器关闭释放 K8s follow 连接。
+    pump_task = asyncio.create_task(pump())
+    try:
+        while True:
+            recv = asyncio.create_task(websocket.receive_text())
+            done, _ = await asyncio.wait({pump_task, recv}, return_when=asyncio.FIRST_COMPLETED)
+            if pump_task in done:
+                recv.cancel()
+                await pump_task  # EOF 正常返回; 任务不存在/未提交/无 Pod 重新抛出 AppException
+                break
+            if recv.result() == "ping":  # 否则为客户端消息或 WebSocketDisconnect(上抛)
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    except AppException as exc:
+        with suppress(Exception):
+            await websocket.send_json({"error": exc.message})
+    finally:
+        pump_task.cancel()
+        with suppress(BaseException):
+            await pump_task
+        with suppress(Exception):
+            await websocket.close()
 
 
 @router.get("/{training_job_id}/metrics", response_model=BaseResponse[TrainingMetricsResponse])

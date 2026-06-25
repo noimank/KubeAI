@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Input, Space, Spin } from 'antd'
 import { SearchOutlined, DownOutlined, DownloadOutlined } from '@ant-design/icons'
 
+import { appendAuthToken } from '@/utils/constants'
+
 const ERROR_KEYWORDS = ['ERROR', 'FATAL', 'Exception', 'Traceback', 'FAILED', 'AssertionError']
 const MAX_LINES = 5000
 const FOLLOW_THRESHOLD = 50 // px from bottom within which we keep auto-scrolling
@@ -63,33 +65,78 @@ export default function LogStream({
   const [matchPos, setMatchPos] = useState(0) // position within matchIndices
 
   const scrollRef = useRef<HTMLDivElement>(null)
-  const eventSourceRef = useRef<EventSource | null>(null)
 
-  // SSE streaming — append lines as they arrive, capped at maxLines
+  // 日志流走 WebSocket —— SSE 在双层 nginx(Tengine + APISIX)下会被 Tengine 缓冲,
+  // 运行中日志攒在缓冲区, 任务结束 follow 流 EOF 才 flush; WebSocket 是升级连接,
+  // nginx 直接透传。浏览器 WebSocket 无法设置 Authorization 头, token 经
+  // appendAuthToken 附加到 URL(每次重连读最新值, 兼容 token 刷新)。
   useEffect(() => {
     if (!streamable || !streamUrl) return
 
-    const es = new EventSource(streamUrl)
-    eventSourceRef.current = es
+    let stopped = false // unmount / dependency change → permanent stop
+    let ws: WebSocket | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+    let pingTimer: ReturnType<typeof setInterval> | undefined
+    let backoffMs = 1000
+    const BACKOFF_MAX = 15000
+    const PING_INTERVAL_MS = 25000 // half-open 检测: 定期 ping, 链路死亡时 onclose 触发重连
 
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.line) {
-          setLines((prev) => {
-            const next = [...prev, data.line]
-            return next.length > maxLines ? next.slice(-maxLines) : next
-          })
+    function appendLine(line: string) {
+      setLines((prev) => {
+        const next = [...prev, line]
+        return next.length > maxLines ? next.slice(-maxLines) : next
+      })
+    }
+
+    function scheduleReconnect() {
+      if (stopped) return
+      reconnectTimer = setTimeout(connect, backoffMs)
+      backoffMs = Math.min(backoffMs * 2, BACKOFF_MAX)
+    }
+
+    function connect() {
+      if (stopped || !streamUrl) return
+      const url: string = streamUrl
+      ws = new WebSocket(appendAuthToken(url))
+      ws.onopen = () => {
+        backoffMs = 1000 // 连接健康, 重置退避
+        pingTimer = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) ws.send('ping')
+        }, PING_INTERVAL_MS)
+      }
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as { line?: string; error?: string }
+          if (data.line) appendLine(data.line)
+          // pong / error 帧静默(error 为任务不存在等终态, 由 onclose 重连)
+        } catch {
+          /* 忽略非 JSON 帧 */
         }
-      } catch {
-        // ignore malformed events
+      }
+      ws.onclose = () => {
+        if (pingTimer) clearInterval(pingTimer)
+        if (!stopped) scheduleReconnect()
+      }
+      ws.onerror = () => {
+        try {
+          ws?.close()
+        } catch {
+          /* 忽略 */
+        }
       }
     }
-    // EventSource reconnects automatically on transient errors
+
+    void connect()
 
     return () => {
-      es.close()
-      eventSourceRef.current = null
+      stopped = true
+      if (pingTimer) clearInterval(pingTimer)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      try {
+        ws?.close()
+      } catch {
+        /* 忽略 */
+      }
     }
   }, [streamUrl, streamable, maxLines])
 

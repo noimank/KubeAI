@@ -104,36 +104,39 @@ api.interceptors.response.use(
 )
 
 let isRefreshing = false
-let refreshSubscribers: Array<(token: string) => void> = []
+let refreshSubscribers: Array<(token: string | null) => void> = []
 
-function onTokenRefreshed(newToken: string) {
-  refreshSubscribers.forEach((cb) => cb(newToken))
+function publishRefreshedToken(token: string | null) {
+  refreshSubscribers.forEach((cb) => cb(token))
   refreshSubscribers = []
 }
 
-function addRefreshSubscriber(callback: (token: string) => void) {
-  refreshSubscribers.push(callback)
-}
-
-async function handleTokenRefresh(originalRequest: InternalAxiosRequestConfig) {
+/**
+ * Shared access-token refresh primitive.
+ *
+ * Concurrent callers share a single in-flight refresh: the first one performs
+ * the refresh, the rest queue and receive the same result. Returns the new
+ * access token, or null when refresh fails (the user is logged out and
+ * redirected in that case). Used both by the axios 401 interceptor and by the
+ * SSE log stream (which is read via fetch, since EventSource cannot carry an
+ * Authorization header).
+ */
+export async function refreshAccessToken(): Promise<string | null> {
   if (isRefreshing) {
     return new Promise((resolve) => {
-      addRefreshSubscriber((token: string) => {
-        originalRequest.headers.Authorization = `Bearer ${token}`
-        resolve(api(originalRequest))
-      })
+      refreshSubscribers.push(resolve)
     })
   }
 
-  originalRequest._retry = true
   isRefreshing = true
-
   const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
   if (!refreshToken) {
+    publishRefreshedToken(null)
+    isRefreshing = false
     const authStore = useAuthStore.getState()
     authStore.logout()
     window.location.href = '/login'
-    return Promise.reject(originalRequest)
+    return null
   }
 
   try {
@@ -151,20 +154,28 @@ async function handleTokenRefresh(originalRequest: InternalAxiosRequestConfig) {
     const authStore = useAuthStore.getState()
     authStore.setTokens(newAccessToken, newRefreshToken)
 
-    onTokenRefreshed(newAccessToken)
-
-    originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
-    return api(originalRequest)
-  } catch (refreshError) {
-    refreshSubscribers = []
+    publishRefreshedToken(newAccessToken)
+    return newAccessToken
+  } catch {
+    publishRefreshedToken(null)
     const authStore = useAuthStore.getState()
     authStore.logout()
     getMessageInstance()?.warning('会话已过期，请重新登录')
     window.location.href = '/login'
-    return Promise.reject(refreshError)
+    return null
   } finally {
     isRefreshing = false
   }
+}
+
+async function handleTokenRefresh(originalRequest: InternalAxiosRequestConfig) {
+  originalRequest._retry = true
+  const newAccessToken = await refreshAccessToken()
+  if (!newAccessToken) {
+    return Promise.reject(originalRequest)
+  }
+  originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
+  return api(originalRequest)
 }
 
 export { api, transformKeys, toCamelCase, toSnakeCase }

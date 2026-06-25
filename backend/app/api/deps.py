@@ -116,6 +116,38 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 
 
+async def authenticate_ws_token(
+    token: str,
+    db: AsyncSession,
+    redis: aioredis.Redis | None,
+) -> User | None:
+    """Validate a WebSocket access token.
+
+    Returns the User on success, None on any failure. Does not raise — WebSocket
+    handshakes cannot surface HTTP exceptions, so callers close the socket
+    themselves when this returns None. Used by /ws and the per-job log stream.
+    """
+    try:
+        payload = decode_token(token)
+    except ValueError:
+        return None
+    if payload.get("type") != "access":
+        return None
+    jti = payload.get("jti")
+    if not jti:
+        return None
+    if redis is not None and await TokenBlacklistService(redis).is_revoked(jti):
+        return None
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        return None
+    return user
+
+
 async def get_current_user_from_query_or_header(
     request: Request,
     token: str | None = Query(None, alias="token"),
@@ -178,48 +210,6 @@ async def get_current_user_from_query_or_header(
 
 
 QueryOrHeaderUser = Annotated[User, Depends(get_current_user_from_query_or_header)]
-
-
-async def get_current_user_for_sse(
-    token: str | None = Query(None, alias="token"),
-    db: AsyncSession = Depends(get_db),  # noqa: B008
-    redis: aioredis.Redis = Depends(get_redis),  # noqa: B008
-) -> User:
-    if not token:
-        raise UnauthorizedException("未提供认证 Token")
-
-    try:
-        payload = decode_token(token)
-    except ValueError:
-        raise UnauthorizedException("无效或过期的 Token") from None
-
-    if payload.get("type") != "access":
-        raise UnauthorizedException("无效的 Token 类型")
-
-    jti = payload.get("jti")
-    if not jti:
-        raise UnauthorizedException("无效的 Token")
-
-    blacklist = TokenBlacklistService(redis)
-    if await blacklist.is_revoked(jti):
-        raise UnauthorizedException("Token 已被吊销")
-
-    user_id = payload.get("sub")
-    if not user_id:
-        raise UnauthorizedException("无效的 Token")
-
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise UnauthorizedException("用户不存在")
-    if not user.is_active:
-        raise ForbiddenException("用户已被禁用")
-
-    return user
-
-
-SSECurrentUser = Annotated[User, Depends(get_current_user_for_sse)]
 
 
 async def get_current_tenant_id(request: Request) -> str | None:

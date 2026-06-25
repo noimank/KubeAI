@@ -105,9 +105,9 @@ job = (
 
 训练任务支持实时日志查看：
 
-1. **REST API**：`GET /api/training-jobs/{id}/logs` — 分页获取历史日志
-2. **WebSocket**：`WS /api/ws` — 实时日志流推送
-3. **SSE**：`GET /api/training-jobs/{id}/logs/stream` — Server-Sent Events 日志流
+1. **REST API**：`GET /api/training-jobs/{id}/logs` — 获取历史日志(已完成任务)
+2. **WebSocket 日志流**：`WS /api/training-jobs/{id}/logs/ws` — 实时训练日志流(运行中任务)
+3. **实时通知**：`WS /api/ws` — 任务状态变更等通知推送
 
 ## GPU 指标
 
@@ -138,4 +138,4 @@ job = (
 | `/api/training-jobs/{id}` | DELETE | 删除任务 |
 | `/api/training-jobs/{id}/stop` | POST | 停止运行中的任务 |
 | `/api/training-jobs/{id}/logs` | GET | 获取任务日志 |
-| `/api/training-jobs/{id}/logs/stream` | GET | SSE 日志流 |
+| `/api/training-jobs/{id}/logs/ws` | WS | 实时日志流 |

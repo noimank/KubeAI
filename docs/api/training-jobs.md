@@ -60,15 +60,23 @@
 | `page` | int | 页码 |
 | `page_size` | int | 每页条数 |
 
-## GET /api/training-jobs/{id}/logs/stream
+## WS /api/training-jobs/{id}/logs/ws
 
-SSE 流式获取训练日志。
+WebSocket 实时推送训练日志(运行中任务)。WebSocket 为升级连接, nginx 直接透传, 不受代理缓冲影响(SSE 在双层 nginx 下会被缓冲, 故改用 WS)。
 
-**事件格式：**
+**消息格式：**
 
 ```
-event: log
-data: {"timestamp": "2025-01-01T00:00:00", "message": "Epoch 1/100, Loss: 0.5"}
+{"line": "2025-01-01T00:00:00 Epoch 1/100, Loss: 0.5"}
 ```
 
-认证通过查询参数 `?token=<access_token>` 进行。
+- 客户端可定期发送文本帧 `ping`, 服务端回 `{"type":"pong"}`, 用于 half-open 链路检测。
+- 任务不存在 / 尚未提交 / 无关联 Pod 时, 服务端发送 `{"error":"..."}` 后关闭连接。
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `token` | string | 必填, access token(浏览器 WebSocket 无法设置 Authorization 头) |
+| `pod_name` | string | 可选, 分布式任务指定 Pod |
+| `tail_lines` | int | 可选, 首批历史日志行数, 默认 100 |

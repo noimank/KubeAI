@@ -30,7 +30,7 @@ import LogStream from '@/components/LogStream'
 import GpuMetricsChart from '@/components/GpuMetricsChart'
 import { useRbacStore } from '@/stores/rbacStore'
 import {
-  buildLogStreamUrl,
+  buildLogStreamWsUrl,
   getTrainingJob,
   getTrainingJobLogs,
   getTrainingJobMetrics,
@@ -235,7 +235,7 @@ export default function TrainingJobDetailPage() {
   const token = typeof window !== 'undefined' ? localStorage.getItem(ACCESS_TOKEN_KEY) : ''
   const streamUrl =
     isStreamable && id && token
-      ? buildLogStreamUrl(id, { podName: selectedPod, tailLines: 100 })
+      ? buildLogStreamWsUrl(id, { podName: selectedPod, tailLines: 100 })
       : null
 
   const logTabContent = (() => {

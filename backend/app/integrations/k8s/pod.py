@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 _VCJOB_LABEL = "volcano.sh/job-name"
 _ROLE_PATTERN = re.compile(r"-(master|worker)-(\d+)")
+_WORKER_INDEX_PATTERN = re.compile(r"worker-(\d+)")
 
 
 def _parse_pod_role(pod_name: str) -> str:
@@ -24,13 +25,25 @@ def _parse_pod_role(pod_name: str) -> str:
     return "master" if task_role == "master" else f"worker-{idx}"
 
 
+def _pod_order_key(pod: dict[str, Any]) -> tuple[int, int]:
+    """Sort master first, then workers by index — gives a deterministic default
+    pod (the chief) for distributed jobs instead of relying on K8s API order."""
+    role = pod.get("role", "")
+    if role == "master":
+        return (0, 0)
+    m = _WORKER_INDEX_PATTERN.match(role)
+    if m:
+        return (1, int(m.group(1)))
+    return (2, 0)
+
+
 async def stream_pod_logs(
     namespace: str,
     pod_name: str,
     container: str | None = None,
     tail_lines: int = 100,
 ) -> AsyncGenerator[str, None]:
-    from aiohttp import ClientResponse  # noqa: TC002
+    from aiohttp import ClientError, ClientResponse
 
     k8s = await get_k8s_clients()
     core_v1: client.CoreV1Api = k8s["core_v1"]
@@ -46,12 +59,26 @@ async def stream_pod_logs(
     if container:
         kwargs["container"] = container
 
-    raw_resp: ClientResponse = await core_v1.read_namespaced_pod_log(**kwargs)  # type: ignore[assignment]
+    try:
+        raw_resp: ClientResponse = await core_v1.read_namespaced_pod_log(**kwargs)  # type: ignore[assignment]
+    except ApiException as e:
+        # 400: container not yet running (Pending / ContainerCreating); 404: pod gone.
+        # End gracefully — the client reconnects and retries once logs are available,
+        # matching get_pod_log's tolerance rather than surfacing a 500.
+        if e.status in (400, 404):
+            logger.warning("Pod logs not streamable for %s: %s", pod_name, e.reason)
+            return
+        raise
+
     try:
         async for line in raw_resp.content:
             decoded = line.decode("utf-8").rstrip("\n")
             if decoded:
                 yield decoded
+    except ClientError as e:
+        # Mid-stream hiccup (connection reset, idle timeout). End cleanly so the
+        # client reconnects instead of surfacing a 500. CancelledError propagates.
+        logger.warning("Log stream interrupted for %s: %s", pod_name, e)
     finally:
         raw_resp.close()
 
@@ -121,6 +148,7 @@ async def list_vcjob_pods(namespace: str, vcjob_name: str) -> list[dict[str, Any
                 "status": pod.status.phase.lower() if pod.status.phase else "unknown",
             }
         )
+    result.sort(key=_pod_order_key)
     return result
 
 
