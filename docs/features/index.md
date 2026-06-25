@@ -30,6 +30,6 @@ graph LR
 | 模型注册与推理 | 模型版本管理、KServe 推理、金丝雀发布 | [详细文档](model-inference.md) |
 | 实验跟踪 | MLflow 集成、实验对比、复现实验 | [详细文档](experiments.md) |
 | 数据标注 | Label Studio 集成、多类型标注、任务分配 | [详细文档](annotations.md) |
-| 开发环境 | JupyterHub、数据集挂载、空闲停止 | [详细文档](dev-environments.md) |
+| 开发环境 | 原生 Pod、数据集挂载、空闲停止 | [详细文档](dev-environments.md) |
 | 镜像管理 | 自定义镜像构建、Harbor 推送 | [详细文档](images.md) |
 | 监控告警 | Prometheus 监控、GPU 指标、配额管理 | [详细文档](monitoring.md) |

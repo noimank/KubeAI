@@ -145,7 +145,7 @@ class DatasetService:
 | `TrainingJobService` | Volcano VCJob 创建，PVC 数据集挂载，配额追踪 |
 | `InferenceService` | KServe 推理服务 + KEDA 自动扩缩容 + 金丝雀发布 |
 | `AnnotationService` | Label Studio 标注项目 + XML 模板 + 标注写回 |
-| `DevEnvironmentService` | JupyterHub 环境 + 数据集挂载 + 空闲自动停止 |
+| `DevEnvironmentService` | 原生 K8s Pod 环境 + 数据集挂载 + 空闲自动停止 |
 | `ImageService` | K8s Job 自定义镜像构建 + Harbor 推送 |
 | `ExperimentService` | MLflow 实验跟踪 + 实验复现为训练任务 |
 | `MonitoringService` | Prometheus 指标采集 + WebSocket 推送 |

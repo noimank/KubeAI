@@ -16,7 +16,6 @@ KubeAI 通过 `backend/app/integrations/` 目录封装所有外部系统交互�
 | `harbor/` | `httpx` (同步) | `asyncio.to_thread()` | Harbor REST API |
 | `mlflow/` | `httpx` (同步) | `asyncio.to_thread()` | MLflow REST API |
 | `labelstudio/` | `httpx` (同步) | `asyncio.to_thread()` | Label Studio REST API |
-| `jupyterhub/` | `httpx` (同步) | `asyncio.to_thread()` | JupyterHub REST API |
 | `prometheus/` | `httpx` (同步) | `asyncio.to_thread()` | Prometheus HTTP API |
 
 ## Kubernetes 集成

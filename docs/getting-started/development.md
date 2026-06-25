@@ -18,7 +18,6 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo add volcano-sh https://volcano-sh.github.io/helm-charts
 helm repo add kedacore https://kedacore.github.io/charts
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/
 helm repo add nvidia https://nvidia.github.io/dcgm-exporter/helm-charts
 helm repo add harbor https://helm.goharbor.io
 helm dependency update infra/helm/kubeai/
@@ -39,7 +38,7 @@ helm upgrade --install kubeai infra/helm/kubeai/ \
 | MinIO Console | `localhost:30901` |
 | MLflow | `localhost:30500` |
 | Label Studio | `localhost:30800` |
-| JupyterHub | `localhost:30801` |
+| APISIX 网关 | Gateway `localhost:30080` / Admin `localhost:30918` |
 
 Helm 还会安装 cert-manager、Volcano、KEDA、KServe 等本地联调基础设施。Helm 不部署后端、Taskiq worker/scheduler 和前端，这三个进程都在本机启动。
 
@@ -80,10 +79,10 @@ MLFLOW_TRACKING_URI=http://localhost:30500
 # Harbor（开发环境可选）
 HARBOR_URL=http://harbor.kubeai.local
 
-# JupyterHub
-JUPYTERHUB_API_URL=http://localhost:30801/hub/api
-JUPYTERHUB_API_TOKEN=kubeai-dev-jupyterhub-token
-JUPYTERHUB_BASE_URL=http://localhost:30801
+# APISIX（原生 Pod 开发环境动态路由）
+KUBEAI_APISIX_ADMIN_URL=http://localhost:30918
+KUBEAI_APISIX_ADMIN_KEY=edd1c9f034335f136f87ad84b625c8f1
+KUBEAI_BACKEND_INTERNAL_URL=http://localhost:8000
 ```
 
 安装依赖并启动：

@@ -1,7 +1,7 @@
 # Jupyter TensorFlow Notebook (GPU)
 # Deep learning with TensorFlow + CUDA
 #
-# Native entrypoint — no JupyterHub dependency.
+# Native entrypoint — runs directly on port 8888.
 # The KubeAI backend runs "jupyter lab" directly on port 8888
 # with --ServerApp.base_url set to the environment's path prefix.
 #

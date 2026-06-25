@@ -1,7 +1,7 @@
 # RStudio + Tidyverse (CPU)
 # R development with tidyverse, TeX, and common R packages
 #
-# Native entrypoint — no JupyterHub dependency.
+# Native entrypoint — runs directly on port 8888.
 # The KubeAI backend runs "rserver" directly with --www-root-path
 # set to the environment's path prefix (APISIX does NOT strip the prefix).
 # Auth is disabled in rserver.conf; authentication is handled by the

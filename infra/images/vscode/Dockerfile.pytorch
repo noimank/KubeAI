@@ -1,7 +1,7 @@
 # VS Code Server + PyTorch (GPU)
 # Code-server with CUDA 12 + PyTorch for GPU-accelerated development
 #
-# Native entrypoint — no JupyterHub dependency.
+# Native entrypoint — runs directly on port 8888.
 # The KubeAI backend runs "code-server" directly on port 8888
 # with auth disabled.  Path-based routing is handled by APISIX
 # proxy-rewrite (code-server has no sub-path flag, so APISIX

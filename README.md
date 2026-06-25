@@ -21,7 +21,6 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo add volcano-sh https://volcano-sh.github.io/helm-charts
 helm repo add kedacore https://kedacore.github.io/charts
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/
 helm repo add nvidia https://nvidia.github.io/dcgm-exporter/helm-charts
 helm repo add harbor https://helm.goharbor.io
 helm dependency update infra/helm/kubeai/
@@ -31,7 +30,7 @@ helm upgrade --install kubeai infra/helm/kubeai/ \
   -n kubeai --create-namespace
 ```
 
-Helm 只部署本地调试基础设施，例如 cert-manager、PostgreSQL、Redis、MinIO、Volcano、KEDA、KServe、Prometheus、MLflow、Label Studio、JupyterHub。后端 API、Taskiq worker/scheduler 和前端不通过 Helm/K8s 部署。
+Helm 只部署本地调试基础设施，例如 cert-manager、PostgreSQL、Redis、MinIO、Volcano、KEDA、KServe、Prometheus、MLflow、Label Studio、APISIX。后端 API、Taskiq worker/scheduler 和前端不通过 Helm/K8s 部署。
 
 ### 2. 本地开发
 

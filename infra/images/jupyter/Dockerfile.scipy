@@ -1,7 +1,7 @@
 # Jupyter SciPy Notebook (CPU)
 # Scientific computing with NumPy, SciPy, Pandas, Matplotlib
 #
-# Native entrypoint — no JupyterHub dependency.
+# Native entrypoint — runs directly on port 8888.
 # The KubeAI backend runs "jupyter lab" directly on port 8888
 # with --ServerApp.base_url set to the environment's path prefix.
 #

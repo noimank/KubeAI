@@ -24,7 +24,7 @@ kubectl apply -f infra/k8s/namespace.yaml
 
 部署前修改：
 
-- `infra/k8s/backend-config.yaml`：数据库、Redis、MinIO、Harbor、JupyterHub、域名、密钥等配置
+- `infra/k8s/backend-config.yaml`：数据库、Redis、MinIO、Harbor、APISIX、域名、密钥等配置
 - `infra/k8s/ingress/ingress.yaml`：生产域名和 TLS
 - `infra/k8s/backend/`、`infra/k8s/frontend/`：镜像仓库、资源规格、副本数、调度策略
 
@@ -53,7 +53,6 @@ kubectl apply --server-side -f infra/k8s/kserve/kserve-cluster-resources.yaml
 kubectl apply -f infra/k8s/harbor/
 kubectl apply -f infra/k8s/mlflow/
 kubectl apply -f infra/k8s/labelstudio/
-kubectl apply -f infra/k8s/jupyterhub/
 kubectl apply -f infra/k8s/prometheus/
 kubectl apply -f infra/k8s/dcgm-exporter/
 ```

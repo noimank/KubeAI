@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 KubeAI is a Kubernetes-native AI/ML platform with multi-tenant RBAC. Monorepo with FastAPI backend (`backend/`) and React frontend (`frontend/`). All user-facing text is in Chinese (zh-CN) — no i18n library, strings are hardcoded.
 
 **部署方式**:
-- **本地开发**: Helm chart (`infra/helm/kubeai/`) 仅用于本地开发环境，一键部署完整依赖链（PostgreSQL, Redis, MinIO, Volcano, Harbor, JupyterHub, Prometheus stack, backend, frontend）
+- **本地开发**: Helm chart (`infra/helm/kubeai/`) 仅用于本地开发环境，一键部署完整依赖链（PostgreSQL, Redis, MinIO, Volcano, Harbor, APISIX, Prometheus stack, backend, frontend）
 - **生产环境**: `infra/k8s/` 下的 K8s manifests 为生产专用，所有生产配置部署在 `kubeai-prod-env` 服务器的 `/root/kubeai` 目录下
 
 ## Development Commands
@@ -69,9 +69,9 @@ Pre-commit hooks (ruff+mypy on backend, eslint+prettier+tsc on frontend): `pre-c
 - **RBAC**: Casbin (`app/core/casbin.py`, model at `rbac_model.conf`). Roles: admin > mlops > engineer > annotator. `manage` action is wildcard in matcher. Policies seeded from `permissions.py`
 - **Dependency injection**: `app/api/deps.py` — `CurrentUser` (JWT + blacklist check), `require_permission(resource, action)`, `require_tenant_access()`. **Critical**: `get_db()` exists in both `core/database.py` and `api/deps.py` — endpoints must use `deps.py`
 - **API pattern**: All responses wrapped in `BaseResponse[T]` (`{success, message, data}`). `AppException` hierarchy in `core/exceptions.py` caught by middleware
-- **Services**: Constructor-injected with `AsyncSession` (+ optional Redis/MinIO). All in `app/services/` — covering auth, tenants, datasets, training jobs (Volcano VCJobs), inference (KServe + KEDA), experiments (MLflow), annotations (Label Studio), dev environments (JupyterHub), images (Harbor), algorithms, monitoring, notifications, dashboard, audit. Model registry has no dedicated service — logic is in the endpoint module directly
+- **Services**: Constructor-injected with `AsyncSession` (+ optional Redis/MinIO). All in `app/services/` — covering auth, tenants, datasets, training jobs (Volcano VCJobs), inference (KServe + KEDA), experiments (MLflow), annotations (Label Studio), dev environments (native K8s Pod + APISIX routing), images (Harbor), algorithms, monitoring, notifications, dashboard, audit. Model registry has no dedicated service — logic is in the endpoint module directly
 - **Multi-tenancy**: DB (`TenantMixin` + FK) → app (`TenantMiddleware` + `require_tenant_access`) → infra (K8s NetworkPolicy per namespace)
-- **Integrations** (`app/integrations/`): `k8s/` (async kubernetes_asyncio), `volcano/` (VCJob CRDs), `kserve/` + `keda/` (inference CRDs), `harbor/`, `minio/`, `mlflow/`, `jupyterhub/`, `labelstudio/`, `prometheus/` (DCGM GPU metrics), `storage/` (local filesystem). K8s calls are fully async; MinIO/Harbor/MLflow clients are sync — wrap in `asyncio.to_thread()` at service layer. Namespace prefix: `kubeai-`
+- **Integrations** (`app/integrations/`): `k8s/` (async kubernetes_asyncio — incl. `dev_pod.py` native dev-environment pods), `volcano/` (VCJob CRDs), `kserve/` + `keda/` (inference CRDs), `harbor/`, `minio/`, `mlflow/`, `labelstudio/`, `prometheus/` (DCGM GPU metrics), `storage/` (local filesystem). K8s calls are fully async; MinIO/Harbor/MLflow clients are sync — wrap in `asyncio.to_thread()` at service layer. Namespace prefix: `kubeai-`
 - **WebSocket**: `WS /api/ws?token=<jwt>`. Connection manager (`ws_manager.py`) groups by tenant+user (max 5/user). Redis Pub/Sub (`ws_pubsub.py`) bridges multi-replica broadcast on `kubeai:*` channels
 - **Startup** (`core/events.py`): seeds admin (`admin`/`Admin123456`), delegates to `clients.init_clients()` for shared client init, initializes Casbin, starts WebSocket Pub/Sub and metrics push loop. Idle checker / resource cleaner moved to Taskiq scheduled tasks
 - **Taskiq background tasks** (`app/core/taskiq_app.py`): Three process types — FastAPI (API server), Worker (consumes async tasks), Scheduler (fires scheduled tasks). Worker/Scheduler use Redis Streams as broker (DB 1) and result backend (DB 2). Scheduler must be single-replica; Worker can scale. Config: `TASK_MAX_RETRIES` (default 3), `TASK_RETRY_BACKOFF_SECONDS` (default 10)
@@ -93,7 +93,7 @@ Pre-commit hooks (ruff+mypy on backend, eslint+prettier+tsc on frontend): `pre-c
 
 ### Infrastructure (`infra/`)
 
-- **Helm** (`infra/helm/kubeai/`): **仅限本地开发部署使用**，包含 12 个组件（PostgreSQL, Redis, MinIO, Volcano, Harbor, kube-prometheus-stack, DCGM exporter, JupyterHub, backend, frontend, Taskiq worker, Taskiq scheduler）。不要用于生产环境
+- **Helm** (`infra/helm/kubeai/`): **仅限本地开发部署使用**，包含 12 个组件（PostgreSQL, Redis, MinIO, Volcano, Harbor, kube-prometheus-stack, DCGM exporter, APISIX, backend, frontend, Taskiq worker, Taskiq scheduler）。不要用于生产环境
 - **K8s manifests** (`infra/k8s/backend/`): **生产环境专用** — `deployment.yaml` (FastAPI), `worker.yaml` (Taskiq worker: 消费异步任务), `beat.yaml` (Taskiq scheduler: 单副本，触发定时任务)。三者共享 `backend-config` ConfigMap 和 `backend-secret`
 - **生产部署位置**: 所有 `infra/k8s/` 下的配置已部署至 **`kubeai-prod-env` 服务器**的 `/root/kubeai` 目录。修改生产配置需通过该服务器操作
 - **Images**: Backend/frontend + Jupyter/VS Code/RStudio 开发环境镜像在 `infra/images/`

@@ -25,7 +25,7 @@
 | Prometheus/Grafana | 启用 | 本地监控调试，`values-dev.yaml` 暴露 `30090/30030` |
 | MLflow | 开发启用 | `values-dev.yaml` 暴露 `30500` |
 | Label Studio | 开发启用 | `values-dev.yaml` 暴露 `30800` |
-| JupyterHub | 开发启用 | `values-dev.yaml` 暴露 `30801` |
+| APISIX | 启用 | `values-dev.yaml` Gateway `30080` / Admin `30918` |
 | Harbor | 默认关闭 | 按需启用，资源占用较高 |
 
 本地开发基础设施统一通过 Helm 安装。生产部署仍使用 `infra/k8s/`，其中 KServe 生产 manifests 安装到独立的 `kserve` namespace；本地 Helm 依赖会跟随 release 安装到 `kubeai` namespace。
@@ -38,7 +38,6 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo add volcano-sh https://volcano-sh.github.io/helm-charts
 helm repo add kedacore https://kedacore.github.io/charts
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/
 helm repo add nvidia https://nvidia.github.io/dcgm-exporter/helm-charts
 helm repo add harbor https://helm.goharbor.io
 
@@ -59,9 +58,10 @@ REDIS_URL=redis://localhost:30379/0
 MINIO_ENDPOINT=localhost:30900
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
-JUPYTERHUB_API_URL=http://localhost:30801/hub/api
-JUPYTERHUB_API_TOKEN=kubeai-dev-jupyterhub-token
-JUPYTERHUB_BASE_URL=http://localhost:30801
+# APISIX (原生 Pod 开发环境动态路由)
+KUBEAI_APISIX_ADMIN_URL=http://localhost:30918
+KUBEAI_APISIX_ADMIN_KEY=edd1c9f034335f136f87ad84b625c8f1
+KUBEAI_BACKEND_INTERNAL_URL=http://localhost:8000
 ```
 
 本地需要分别启动：
@@ -87,4 +87,4 @@ Helm Chart 仅保留依赖服务模板：
 | `mlflow.yaml` | MLflow |
 | `labelstudio.yaml` | Label Studio |
 
-其他依赖来自 Helm sub-chart：cert-manager、PostgreSQL、Volcano、KEDA、Prometheus、DCGM Exporter、Harbor、KServe、JupyterHub。
+其他依赖来自 Helm sub-chart：cert-manager、PostgreSQL、Volcano、KEDA、Prometheus、DCGM Exporter、Harbor、KServe、APISIX。
