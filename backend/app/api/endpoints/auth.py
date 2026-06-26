@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, OptionalCurrentUser, get_db
+from app.api.deps import CurrentUser, CurrentUserEntity, OptionalCurrentUser, get_db
 from app.core.config import settings
 from app.core.exceptions import BadRequestException, ConflictException
 from app.core.redis import get_redis
@@ -136,14 +136,14 @@ def _build_user_response(user: UserModel) -> UserResponse:
 
 
 @router.get("/me", response_model=BaseResponse[UserResponse])
-async def me(user: CurrentUser) -> BaseResponse[UserResponse]:
+async def me(user: CurrentUserEntity) -> BaseResponse[UserResponse]:
     return BaseResponse(data=_build_user_response(user), message="获取成功")
 
 
 @router.patch("/me/profile", response_model=BaseResponse[UserResponse])
 async def update_profile(
     req: ProfileUpdateRequest,
-    user: CurrentUser,
+    user: CurrentUserEntity,
     db: DbDep,
 ) -> BaseResponse[UserResponse]:
     if req.email is not None and req.email != user.email:
@@ -165,7 +165,7 @@ MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2 MB
 
 @router.post("/me/avatar", response_model=BaseResponse[UserResponse])
 async def upload_avatar(
-    user: CurrentUser,
+    user: CurrentUserEntity,
     db: DbDep,
     file: UploadFile = File(...),  # noqa: B008
 ) -> BaseResponse[UserResponse]:
@@ -183,7 +183,7 @@ async def upload_avatar(
 @router.post("/me/password", response_model=BaseResponse[None])
 async def change_password(
     req: PasswordChangeRequest,
-    user: CurrentUser,
+    user: CurrentUserEntity,
     db: DbDep,
 ) -> BaseResponse[None]:
     if not await verify_password(req.current_password, user.hashed_password):

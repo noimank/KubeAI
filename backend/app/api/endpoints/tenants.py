@@ -1,12 +1,15 @@
 import uuid
 from typing import Annotated, Any
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.exceptions import ConflictException
+from app.core.identity import invalidate_tenant_status
+from app.core.redis import get_redis
 from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -29,7 +32,7 @@ from app.services.invitation_service import InvitationService
 from app.services.tenant_service import TenantService
 
 
-def _audit_ctx(request: Request, user: User) -> dict[str, Any]:
+def _audit_ctx(request: Request, user: Any) -> dict[str, Any]:
     return {
         "user_id": user.id,
         "ip_address": request.client.host if request.client else "unknown",
@@ -133,12 +136,16 @@ async def toggle_tenant_status(
     req: TenantStatusRequest,
     db: DbDep,
     request: Request,
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
     user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[TenantResponse]:
     if req.status == TenantStatus.DISABLED and user.tenant_id == tenant_id:
         raise ConflictException("不能禁用自身所属的租户")
     service = TenantService(db)
     tenant = await service.toggle_tenant_status(tenant_id, req.status, audit_context=_audit_ctx(request, user))
+    # 禁用租户: 使其状态缓存立即反映 disabled, 该租户用户的身份解析随即被拒
+    if req.status == TenantStatus.DISABLED:
+        await invalidate_tenant_status(redis, tenant_id)
     member_count = await _get_member_count(db, tenant_id)
     data = _build_tenant_response(tenant, member_count)
     status_label = "禁用" if req.status == TenantStatus.DISABLED else "恢复"

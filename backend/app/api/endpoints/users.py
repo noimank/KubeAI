@@ -2,13 +2,15 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.exceptions import ForbiddenException
+from app.core.identity import invalidate_user_identity
+from app.core.redis import get_redis
 from app.models.enums import UserRole
-from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.user import (
     UserDetailResponse,
@@ -19,7 +21,7 @@ from app.schemas.user import (
 from app.services.user_service import UserService
 
 
-def _audit_ctx(request: Request, user: User) -> dict[str, Any]:
+def _audit_ctx(request: Request, user: Any) -> dict[str, Any]:
     return {
         "user_id": user.id,
         "ip_address": request.client.host if request.client else "unknown",
@@ -101,12 +103,17 @@ async def toggle_user_status(
     req: UserStatusToggleRequest,
     db: DbDep,
     request: Request,
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
     user: Annotated[CurrentUser, Depends(require_permission("users", "manage"))],
 ) -> BaseResponse[UserDetailResponse]:
     service = UserService(db)
     if user_id == user.id:
         raise ForbiddenException("不能禁用自身账户")
     detail = await service.toggle_user_status(user_id, req.is_active, audit_context=_audit_ctx(request, user))
+    # 禁用用户: 使其所有已签发 token 的身份缓存立即失效 (修复历史缺陷 —
+    # 原先禁用后 token 在 180min 有效期内仍可用)
+    if not req.is_active:
+        await invalidate_user_identity(redis, user_id)
     label = "启用" if req.is_active else "禁用"
     return BaseResponse(data=UserDetailResponse(**detail), message=f"用户{label}成功")
 
@@ -116,10 +123,12 @@ async def delete_user(
     user_id: uuid.UUID,
     db: DbDep,
     request: Request,
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
     user: Annotated[CurrentUser, Depends(require_permission("users", "manage"))],
 ) -> BaseResponse[None]:
     service = UserService(db)
     if user_id == user.id:
         raise ForbiddenException("不能删除自身账户")
     await service.delete_user(user_id, audit_context=_audit_ctx(request, user))
+    await invalidate_user_identity(redis, user_id)
     return BaseResponse(message="用户删除成功")

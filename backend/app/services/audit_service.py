@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenException, NotFoundException
+from app.core.identity import TokenIdentity
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole
 from app.models.user import User
@@ -43,7 +44,7 @@ class AuditService:
         return entry
 
     async def query_logs(
-        self, query_params: AuditLogQueryParams, current_user: User
+        self, query_params: AuditLogQueryParams, current_user: TokenIdentity
     ) -> tuple[list[tuple[AuditLog, str | None]], int]:
         query = select(AuditLog, User.username).outerjoin(User, AuditLog.user_id == User.id)
 
@@ -83,7 +84,7 @@ class AuditService:
         items = [(log, username) for log, username in rows]
         return items, total
 
-    async def get_log(self, log_id: uuid.UUID, current_user: User) -> tuple[AuditLog, str | None]:
+    async def get_log(self, log_id: uuid.UUID, current_user: TokenIdentity) -> tuple[AuditLog, str | None]:
         result = await self.db.execute(
             select(AuditLog, User.username).outerjoin(User, AuditLog.user_id == User.id).where(AuditLog.id == log_id)
         )

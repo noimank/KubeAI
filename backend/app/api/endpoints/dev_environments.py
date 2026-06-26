@@ -1,14 +1,16 @@
 import uuid
 from typing import Annotated, cast
 
+import redis.asyncio as aioredis
 import structlog
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
+from app.core.auth_helpers import resolve_identity_from_request
 from app.core.exceptions import ForbiddenException, UnauthorizedException
-from app.core.security import decode_token
+from app.core.redis import get_redis
 from app.models.dev_environment import DevEnvironment
 from app.models.enums import DevEnvironmentStatus, UserRole
 from app.schemas.base import BaseResponse, PageData, PageResponse
@@ -31,7 +33,6 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
 _status_query = Query(None)
 _name_query = Query(None)
 
-COOKIE_NAME = "kubeai_access_token"
 logger = structlog.get_logger(__name__)
 
 
@@ -119,87 +120,30 @@ async def auth_check_dev_environment(
     request: Request,
     env_id: Annotated[uuid.UUID, Query()],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
 ) -> Response:
     """APISIX forward-auth sub-request — validates the ``kubeai_access_token``
     cookie forwarded by APISIX ``request_headers: [Cookie]`` and returns
-    ``X-KubeAI-User`` upstream on success."""
+    ``X-KubeAI-User`` upstream on success.
 
-    token = _extract_token_from_request(request)
-    if not token:
-        raise UnauthorizedException("未登录")
-
-    user = await _validate_token_and_get_user(token, db)
-    if not user:
-        raise UnauthorizedException("Token 无效或已过期")
-
-    tenant_id = getattr(user, "tenant_id", None)
-    if not tenant_id:
+    身份解析 (JWT / 黑名单 / 用户与租户状态) 统一由 IdentityResolver 完成.
+    """
+    identity = await resolve_identity_from_request(request, db, redis)
+    if not identity:
+        raise UnauthorizedException("未登录或 Token 无效")
+    if not identity.tenant_id:
         raise ForbiddenException("需要租户上下文")
 
     service = DevEnvironmentService(db)
-    env = await service.get_environment(env_id, tenant_id)
+    env = await service.get_environment(env_id, identity.tenant_id)
     if env.status != DevEnvironmentStatus.RUNNING:
         raise ForbiddenException("环境未运行")
 
-    if env.created_by != getattr(user, "id", None):
-        role = getattr(user, "role", None)
-        if role not in (UserRole.ADMIN, UserRole.MLOPS):
-            raise ForbiddenException("无权访问此环境")
+    if env.created_by != identity.id and identity.role not in (UserRole.ADMIN, UserRole.MLOPS):
+        raise ForbiddenException("无权访问此环境")
 
-    username = getattr(user, "username", "")
-    logger.info("dev_env_auth_check_success", env_id=str(env_id), username=username)
-    return Response(status_code=200, headers={"X-KubeAI-User": username})
-
-
-def _extract_token_from_request(request: Request) -> str | None:
-    """Extract JWT from the forwarded request.
-
-    1. Cookie (forwarded by APISIX ``request_headers: [Cookie]``)
-    2. Bearer header (programmatic / API access)
-    """
-    # 1. Cookie — primary path, forwarding configured in APISIX route
-    token = request.cookies.get(COOKIE_NAME)
-    if token:
-        return token.strip()
-
-    # 2. Raw Cookie header parse — fallback for ASGI / proxy edge cases
-    raw_cookie = request.headers.get("Cookie", "")
-    if raw_cookie:
-        for part in raw_cookie.split(";"):
-            part = part.strip()
-            if part.startswith(COOKIE_NAME + "="):
-                token = part[len(COOKIE_NAME) + 1 :]
-                if token:
-                    return token.strip()
-
-    # 3. Bearer header — programmatic access
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.lower().startswith("bearer "):
-        return auth_header[7:].strip()
-
-    return None
-
-
-async def _validate_token_and_get_user(token: str, db: AsyncSession) -> object:
-    """Validate JWT and return the User row. Returns None on any failure."""
-    try:
-        payload = decode_token(token)
-    except ValueError:
-        return None
-    if payload.get("type") != "access":
-        return None
-
-    from sqlalchemy import select
-
-    from app.models.user import User as UserModel
-
-    user_id = payload.get("sub")
-    if not user_id:
-        return None
-
-    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
-    user = result.scalar_one_or_none()
-    return user if (user and getattr(user, "is_active", False)) else None
+    logger.info("dev_env_auth_check_success", env_id=str(env_id), username=identity.username)
+    return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
 
 
 # ---------------------------------------------------------------------------

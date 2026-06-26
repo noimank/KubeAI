@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 180
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # -- 身份解析层 (IdentityResolver) 缓存 TTL (秒)
+    # identity:<user_id>:<user_token_version>  — 解析后的身份, user/tenant 禁用时主动失效
+    IDENTITY_CACHE_TTL_SECONDS: int = 300
+    # tenant_status:<tenant_id> — 租户启用状态, 禁用时主动覆盖, 此 TTL 仅兜底
+    TENANT_STATUS_CACHE_TTL_SECONDS: int = 120
+
     IDLE_TIMEOUT_MINUTES: int = 30
     DEV_ENV_IDLE_TIMEOUT_MINUTES: int = 60
     DEV_ENV_IDLE_CHECK_INTERVAL_SECONDS: int = 300
@@ -64,7 +71,6 @@ class Settings(BaseSettings):
     API_BASE_URL: str = "http://localhost:8000"
 
     MLFLOW_TRACKING_URI: str = "http://localhost:5000"
-    MLFLOW_ENABLED: bool = False
 
     LABEL_STUDIO_URL: str = "http://labelstudio.kubeai.local"
     LABEL_STUDIO_API_TOKEN: str = ""
@@ -90,6 +96,10 @@ class Settings(BaseSettings):
     KANIKO_IMAGE: str = "gcr.io/kaniko-project/executor:latest"
     MINIO_MC_IMAGE: str = "minio/mc:latest"
     BUSYBOX_IMAGE: str = "busybox:1.36"
+
+    # TensorBoard sidecar 镜像与端口. 镜像地址在本地/生产/不同 registry 间需可覆盖.
+    TENSORBOARD_IMAGE: str = "kubeai-tensorboard:latest"
+    TENSORBOARD_PORT: int = 6006
 
     BACKEND_API_URL: str = ""
 
