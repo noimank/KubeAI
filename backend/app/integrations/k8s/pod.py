@@ -178,3 +178,56 @@ async def get_pod_log(
             logger.warning("Pod logs not available for %s: %s", pod_name, e.reason)
             return ""
         raise
+
+
+# ---------------------------------------------------------------------------
+# Failure reason — shared by TrainingJobService and the pod watcher
+# ---------------------------------------------------------------------------
+
+
+def map_failure_message(failure: dict[str, Any]) -> str:
+    """Map a K8s container termination to a Chinese, human-readable message."""
+    reason = failure.get("reason", "")
+    exit_code = failure.get("exit_code", -1)
+
+    if reason == "OOMKilled":
+        return "内存不足 (OOM)：训练容器因超出内存限制被终止。建议增加内存配置或优化训练脚本。"  # noqa: RUF001
+    if reason in ("ImagePullBackOff", "ErrImagePull"):
+        return "镜像拉取失败：请检查镜像地址是否正确，以及是否具有拉取权限。"  # noqa: RUF001
+    if reason == "ContainerCannotRun":
+        return "容器启动失败：请检查镜像和启动命令是否正确。"  # noqa: RUF001
+    if exit_code == 137:
+        return "进程被终止 (SIGKILL)：可能是内存不足。建议增加内存或检查训练脚本。"  # noqa: RUF001
+    if exit_code == 1:
+        return "训练脚本执行错误：请查看日志获取详细错误信息。"  # noqa: RUF001
+    if exit_code != 0:
+        return f"训练异常退出 (退出码: {exit_code})：请查看日志获取详细信息。"  # noqa: RUF001
+    return f"训练任务失败 (原因: {reason})：请查看日志获取详细信息。"  # noqa: RUF001
+
+
+async def resolve_pod_failure_reason(namespace: str, vcjob_name: str | None) -> str:
+    """Best-effort extraction of a human-readable failure reason from a VCJob's pods.
+
+    Returns a generic message when pods are gone or no termination detail is
+    available — never raises, so it is safe to call while building a DB error row.
+    """
+    if not vcjob_name:
+        return "训练任务已失败"
+
+    try:
+        pods = await list_vcjob_pods(namespace, vcjob_name)
+    except Exception:
+        return "训练任务已失败，但失败详情不可用（无法查询 Pod 信息）。"  # noqa: RUF001
+
+    if not pods:
+        return "训练任务已失败，但失败详情不可用（任务资源已被清理）。"  # noqa: RUF001
+
+    for pod_info in pods:
+        try:
+            failure = await get_pod_failure_info(namespace, pod_info["pod_name"])
+        except Exception:
+            continue
+        if failure:
+            return map_failure_message(failure)
+
+    return "训练任务已失败，但未能获取具体失败原因。"  # noqa: RUF001

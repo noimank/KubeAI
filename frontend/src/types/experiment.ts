@@ -35,7 +35,8 @@ export interface TrainingJobInfo {
   gpuMode: string | null
   workerCount: number | null
   priority: string | null
-  metricsPort: number | null
+  mlflowEnabled: boolean | null
+  tensorboardEnabled: boolean | null
 }
 
 export interface ExperimentDetail extends Experiment {

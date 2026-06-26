@@ -3,15 +3,20 @@ import uuid
 from contextlib import suppress
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+import redis.asyncio as aioredis
+import structlog
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, authenticate_ws_token, get_db, require_permission
+from app.core.auth_helpers import resolve_identity_from_request
 from app.core.clients import get_prometheus_client
-from app.core.exceptions import AppException, ForbiddenException
-from app.core.redis import _redis_pool
+from app.core.exceptions import AppException, ForbiddenException, UnauthorizedException
+from app.core.redis import _redis_pool, get_redis
 from app.integrations.base import sanitize_k8s_name
+from app.models.enums import TrainingJobStatus, UserRole
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.training_job import (
@@ -34,6 +39,7 @@ router = APIRouter(prefix="/training-jobs", tags=["training-jobs"])
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 _status_query = Query(None)
 _name_query = Query(None)
+logger = structlog.get_logger(__name__)
 
 
 def _require_tenant_id(user: object) -> uuid.UUID:
@@ -77,8 +83,9 @@ async def create_training_job(
         memory=req.memory,
         priority=req.priority,
         worker_count=req.worker_count,
-        metrics_port=req.metrics_port,
         source_experiment_id=req.source_experiment_id,
+        mlflow_enabled=req.mlflow_enabled,
+        tensorboard_enabled=req.tensorboard_enabled,
     )
     await enqueue_submit_training_job(job.id, tenant_id)
     username = getattr(user, "username", "")
@@ -116,7 +123,8 @@ async def create_from_environment(
         priority=req.priority,
         worker_count=req.worker_count,
         hyperparameters=hyperparams,
-        metrics_port=req.metrics_port,
+        mlflow_enabled=req.mlflow_enabled,
+        tensorboard_enabled=req.tensorboard_enabled,
     )
     await enqueue_submit_training_job(job.id, tenant_id)
     return BaseResponse(data=_to_response(job), message="训练任务创建成功")
@@ -143,6 +151,56 @@ async def list_training_jobs(
     job_list = [_to_response(job) for job in items]
     page_data = PageData(items=job_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
+
+
+# ---------------------------------------------------------------------------
+# APISIX forward-auth — MUST be registered BEFORE /{training_job_id} to avoid
+# path conflict. Mirrors dev_environments.py:117-151.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/auth-check", include_in_schema=False)
+async def auth_check_training_job(
+    request: Request,
+    job_id: Annotated[uuid.UUID, Query()],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
+) -> Response:
+    """APISIX forward-auth for TensorBoard 可视化访问.
+
+    身份解析 (JWT / 黑名单 / 用户与租户状态) 统一由 IdentityResolver 完成, 此处仅做
+    资源级鉴权:
+      1. job 存在且租户匹配
+      2. 作业非终态 (sidecar 容器已销毁, 无意义放行)
+      3. 创建者本人 OR admin/mlops
+    """
+    identity = await resolve_identity_from_request(request, db, redis)
+    if not identity:
+        raise UnauthorizedException("未登录或 Token 无效")
+    if not identity.tenant_id:
+        raise ForbiddenException("需要租户上下文")
+
+    service = TrainingJobService(db)
+    try:
+        # DB-only fetch: forward-auth fires on every TensorBoard sub-request, so a
+        # full get_training_job (K8s sync + commit) here would hammer K8s and the DB.
+        job = await service.get_training_job_record(job_id, identity.tenant_id)
+    except Exception:
+        raise ForbiddenException("训练任务不存在或无权访问") from None
+
+    # 终态任务: sidecar 已随 Pod 销毁, 不再放行 (避免上游 502 误导).
+    if job.status in {
+        TrainingJobStatus.SUCCEEDED,
+        TrainingJobStatus.FAILED,
+        TrainingJobStatus.STOPPED,
+    }:
+        raise ForbiddenException("任务已结束, TensorBoard 服务已销毁")
+
+    if job.created_by != identity.id and identity.role not in (UserRole.ADMIN, UserRole.MLOPS):
+        raise ForbiddenException("无权访问此任务的 TensorBoard")
+
+    logger.info("training_job_tensorboard_auth_check_success", job_id=str(job_id), username=identity.username)
+    return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
 
 
 @router.get("/{training_job_id}", response_model=BaseResponse[TrainingJobResponse])
@@ -195,8 +253,10 @@ async def delete_training_job(
 ) -> BaseResponse[None]:
     service = TrainingJobService(db)
     tenant_id = _require_tenant_id(user)
-    vcjob_name, namespace = await service.delete_training_job_record(training_job_id, tenant_id)
-    await enqueue_delete_training_job(vcjob_name, namespace)
+    vcjob_name, namespace, tensorboard_enabled, mlflow_experiment_id = await service.delete_training_job_record(
+        training_job_id, tenant_id
+    )
+    await enqueue_delete_training_job(training_job_id, vcjob_name, namespace, tensorboard_enabled, mlflow_experiment_id)
     return BaseResponse(message="训练任务已删除")
 
 

@@ -117,12 +117,12 @@ def get_config() -> dict:
     )
     parser.add_argument(
         "--data-path",
-        default=os.getenv("KUBEAI_DATASET_PATH", "./data"),
+        default="./data",
         help="数据集路径 (默认: ./data, KubeAI: KUBEAI_DATASET_PATH)",
     )
     parser.add_argument(
         "--output-dir",
-        default=os.getenv("KUBEAI_WORKSPACE_PATH", "./output"),
+        default="./output",
         help="模型输出目录 (默认: ./output, KubeAI: KUBEAI_WORKSPACE_PATH)",
     )
 
@@ -138,6 +138,8 @@ def get_config() -> dict:
         "mlflow_tracking_uri": os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000"),
         "mlflow_experiment_name": os.getenv("MLFLOW_EXPERIMENT_NAME", "mnist-cnn"),
         "mlflow_run_name": os.getenv("MLFLOW_RUN_NAME", None),
+        # 平台预创建的 run_id (KubeAI 模式注入 MLFLOW_RUN_ID); 存在则 resume 实现 job↔run 强绑定.
+        "mlflow_run_id": os.getenv("MLFLOW_RUN_ID", None),
     }
 
 
@@ -366,6 +368,8 @@ def main() -> None:
         mlflow.set_tracking_uri(config["mlflow_tracking_uri"])
         mlflow.set_experiment(config["mlflow_experiment_name"])
         print(f"\n📈 MLflow 实验: {config['mlflow_experiment_name']}")
+        if config["mlflow_run_id"]:
+            print(f"   🔗 恢复平台预创建的 run: {config['mlflow_run_id']}")
 
     # 创建模型
     model = MNISTCNN(num_classes=10).to(config["device"])
@@ -378,7 +382,14 @@ def main() -> None:
     train_losses, train_accs = [], []
     val_losses, val_accs = [], []
 
-    with mlflow.start_run(run_name=config["mlflow_run_name"]) if not config["no_mlflow"] else _dummy_context():
+    # 选择 run 上下文: 平台预创建 run_id 时 resume 它 (强绑定), 否则本地新建.
+    run_ctx = (
+        _dummy_context() if config["no_mlflow"]
+        else mlflow.start_run(run_id=config["mlflow_run_id"]) if config["mlflow_run_id"]
+        else mlflow.start_run(run_name=config["mlflow_run_name"])
+    )
+
+    with run_ctx:
         # 日志超参
         if not config["no_mlflow"]:
             mlflow.log_params({

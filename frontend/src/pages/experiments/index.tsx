@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react'
 import {
-  Alert,
   Button,
   DatePicker,
   Empty,
@@ -68,7 +67,7 @@ export default function ExperimentsPage() {
   const [datasetId, setDatasetId] = useState<string | undefined>()
   const [imageId, setImageId] = useState<string | undefined>()
 
-  const { data, isLoading, isPending, isFetching } = useQuery({
+  const { data, isPending, isFetching } = useQuery({
     queryKey: [
       'experiments',
       page,
@@ -222,7 +221,7 @@ export default function ExperimentsPage() {
 
   const emptyContent = (
     <Empty
-      description="还没有实验记录，提交训练任务后实验会自动追踪到这里"
+      description="还没有实验记录. 创建训练任务时在『高级配置』中开启『实验追踪 (MLflow)』, 训练任务执行后实验会自动同步到这里."
       image={Empty.PRESENTED_IMAGE_SIMPLE}
     >
       <Link to="/training-jobs/create">
@@ -233,14 +232,6 @@ export default function ExperimentsPage() {
 
   return (
     <div style={{ padding: 0 }}>
-      {!data && !isLoading && (
-        <Alert
-          message="MLflow 实验追踪未启用，请联系管理员配置"
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-      )}
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
         <Space wrap>
           <Segmented

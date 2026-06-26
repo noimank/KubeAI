@@ -311,7 +311,7 @@ kubectl get nodes -l 'node-role.kubernetes.io/worker' -o name | xargs -I {} kube
 
 | 组件 | 启用方式 |
 |-----|---------|
-| MLflow | `MLFLOW_ENABLED: "true"` + `MLFLOW_TRACKING_URI` 指向 MLflow Service |
+| MLflow | `MLFLOW_TRACKING_URI` 指向 MLflow Service；后端启动时会做健康检查, 不可达则 fail-fast. 前端创建训练任务时可选择是否启用实验追踪. |
 | Label Studio | `LABEL_STUDIO_URL` 指向 Label Studio Service + Secret 中配置 `LABEL_STUDIO_API_TOKEN` |
 | 开发环境 | 由 Backend 动态管理 Pod/Service/Ingress，无需额外组件部署 |
 | OIDC/SSO | `OIDC_ENABLED: "true"` + Secret 中配置 `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` |

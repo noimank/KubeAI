@@ -18,13 +18,14 @@ from app.core.exceptions import (
 from app.core.ws_pubsub import get_ws_pubsub
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.namespace import make_namespace_name
-from app.integrations.k8s.pod import get_pod_failure_info, get_pod_log, list_vcjob_pods, stream_pod_logs
+from app.integrations.k8s.pod import get_pod_log, list_vcjob_pods, resolve_pod_failure_reason, stream_pod_logs
 from app.integrations.k8s.pvc import (
     make_dataset_host_path,
     make_user_home_host_path,
     make_workspace_host_path,
 )
 from app.integrations.k8s.resource_quota import get_quota_used
+from app.integrations.k8s.tensorboard import get_tensorboard_manager, tensorboard_access_url
 from app.integrations.volcano.client import (
     batch_get_vcjob_phases,
     create_vcjob,
@@ -34,6 +35,7 @@ from app.integrations.volcano.job_builder import build_vcjob
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.dev_environment import DevEnvironment
 from app.models.enums import DevEnvironmentStatus, TrainingJobStatus
+from app.models.experiment import Experiment
 from app.models.image import Image
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
@@ -75,14 +77,22 @@ class TrainingJobService:
         memory: str = "8Gi",
         priority: str = "normal",
         worker_count: int = 1,
-        metrics_port: int | None = None,
         source_experiment_id: uuid.UUID | None = None,
         source: str = "manual",
         source_env_id: uuid.UUID | None = None,
+        mlflow_enabled: bool = False,
+        tensorboard_enabled: bool = False,
     ) -> TrainingJob:
         """创建训练任务 DB 记录 (仅校验 + 写入, 不执行 K8s 操作).
 
         Volcano VCJob 提交由 Taskiq worker 异步执行.
+
+        Args:
+            mlflow_enabled: 是否为此任务启用 MLflow 实验追踪. 默认 False (不启用).
+                开启后平台创建 Experiment 记录, 训练脚本收到 MLFLOW_* 环境变量.
+            tensorboard_enabled: 是否注入 TensorBoard sidecar 容器. 默认 False (不注入).
+                开启后 trainer 与 sidecar 共享 emptyDir 卷, trainer 写到 /kubeai/tensorboard
+                的 tfevents 文件会被 TensorBoard 自动读取.
         """
         await self._get_image_or_fail(image_id)
 
@@ -123,7 +133,8 @@ class TrainingJobService:
             memory=memory,
             priority=priority,
             worker_count=worker_count,
-            metrics_port=metrics_port,
+            mlflow_enabled=mlflow_enabled,
+            tensorboard_enabled=tensorboard_enabled,
             status=TrainingJobStatus.PENDING,
             source=source,
             source_env_id=source_env_id,
@@ -138,7 +149,7 @@ class TrainingJobService:
         job_id: uuid.UUID,
         tenant_id: uuid.UUID,
     ) -> TrainingJob:
-        """由 Taskiq worker 调用: 提交 Volcano VCJob + 创建 MLflow 实验."""
+        """由 Taskiq worker 调用: 提交 Volcano VCJob + 创建 MLflow 实验 (若 mlflow_enabled)."""
         job = await self._get_job_or_fail(job_id, tenant_id)
 
         # 防止竞态: 任务在队列中积压期间被用户停止
@@ -171,15 +182,27 @@ class TrainingJobService:
 
         vcjob_name = f"training-{sanitize_k8s_name(job.name)}"
 
-        mlflow_tracking_uri = settings.MLFLOW_TRACKING_URI if settings.MLFLOW_ENABLED else None
-        mlflow_experiment_name = None
-        mlflow_run_name = None
-        if mlflow_tracking_uri:
-            tenant_id_short = str(tenant_id)[:8]
-            mlflow_experiment_name = f"kubeai-{tenant_id_short}-{sanitize_k8s_name(job.name)}"
-            mlflow_run_name = f"job-{str(job.id)[:8]}"
+        # MLflow 绑定是训练任务的属性, 不是平台假设.
+        mlflow_tracking_uri: str | None = None
+        mlflow_experiment_name: str | None = None
+        mlflow_run_id: str | None = None
+        if job.mlflow_enabled:
+            mlflow_tracking_uri = settings.MLFLOW_TRACKING_URI
+            mlflow_experiment_name = f"kubeai-{str(tenant_id)[:8]}-{sanitize_k8s_name(job.name)}"
 
         hp_dict = job.hyperparameters
+
+        # MLflow Experiment + Run 创建 (如启用): 在 VCJob 构建之前完成.
+        # 平台预创建 run 并把 run_id 注入容器 MLFLOW_RUN_ID, 训练脚本 resume 它形成强绑定.
+        # 若 MLflow 不可用, 直接抛错 — 不构建 VCJob, 避免留下半截状态.
+        if job.mlflow_enabled:
+            experiment_service = ExperimentService(self.db)
+            experiment = await experiment_service.create_experiment(
+                tenant_id=tenant_id,
+                training_job_id=job.id,
+                mlflow_experiment_name=mlflow_experiment_name or "",
+            )
+            mlflow_run_id = experiment.mlflow_run_id
 
         vcjob_body = build_vcjob(
             vcjob_name=vcjob_name,
@@ -199,10 +222,10 @@ class TrainingJobService:
             workspace_host_path=workspace_host_path,
             user_home_host_path=user_home_host_path,
             username=user.username,
-            metrics_port=job.metrics_port,
             mlflow_tracking_uri=mlflow_tracking_uri,
             mlflow_experiment_name=mlflow_experiment_name,
-            mlflow_run_name=mlflow_run_name,
+            mlflow_run_id=mlflow_run_id,
+            tensorboard_enabled=job.tensorboard_enabled,
         )
 
         try:
@@ -214,20 +237,17 @@ class TrainingJobService:
             await self.db.commit()
             raise
 
+        # TensorBoard 可视化资源 (Service + APISIX 路由). 失败仅记录,
+        # 不回滚 VCJob — 可视化是辅助功能, 不应阻塞训练.
+        if job.tensorboard_enabled:
+            try:
+                await get_tensorboard_manager().create(job_id=job.id, namespace=namespace, vcjob_name=vcjob_name)
+            except Exception as e:
+                logger.warning("TensorBoard 资源创建失败 (job=%s): %s", job.id, e)
+
         old_status = job.status
         job.vcjob_name = vcjob_name
         job.status = TrainingJobStatus.QUEUED
-
-        if settings.MLFLOW_ENABLED:
-            try:
-                experiment_service = ExperimentService(self.db)
-                await experiment_service.create_experiment(
-                    tenant_id=tenant_id,
-                    training_job_id=job.id,
-                    mlflow_experiment_name=mlflow_experiment_name,
-                )
-            except Exception as e:
-                logger.warning("Failed to create experiment record: %s", e)
 
         await self.db.commit()
         await self.db.refresh(job)
@@ -307,6 +327,14 @@ class TrainingJobService:
         await self.db.refresh(job)
         return job
 
+    async def get_training_job_record(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> TrainingJob:
+        """DB-only fetch — no K8s status sync, no commit.
+
+        Used by hot paths (e.g. APISIX forward-auth, which fires per TensorBoard
+        sub-request) where a full ``get_training_job`` would hammer K8s + the DB.
+        """
+        return await self._get_job_or_fail(job_id, tenant_id)
+
     async def stop_training_job_record(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> TrainingJob:
         """标记训练任务为已停止 (仅 DB 操作, K8s 删除由 Taskiq worker 异步执行)."""
         job = await self._get_job_or_fail(job_id, tenant_id)
@@ -322,7 +350,12 @@ class TrainingJobService:
         return job
 
     async def execute_training_job_stop(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """由 Taskiq worker 调用: 删除 K8s Volcano VCJob (best-effort)."""
+        """由 Taskiq worker 调用: 删除 K8s Volcano VCJob (best-effort).
+
+        若作业启用了 TensorBoard 可视化, 一并清理 Service + APISIX 路由.
+        若作业启用了 MLflow 追踪, 先把 run 置为 KILLED (Pod 被 SIGTERM 强杀时脚本
+        来不及 end_run, 否则 run 会永远停在 RUNNING).
+        """
         job = await self._get_job_or_fail(job_id, tenant_id)
 
         if not job.vcjob_name:
@@ -330,14 +363,33 @@ class TrainingJobService:
 
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+
+        # MLflow run 终止先于 VCJob 删除: 主动把 latest run 置 KILLED, 回填 run_id.
+        if job.mlflow_enabled:
+            try:
+                experiment_service = ExperimentService(self.db)
+                await experiment_service.terminate_experiments_for_job(job.id)
+                await self.db.commit()
+            except Exception as e:
+                logger.warning("Failed to terminate MLflow runs for job %s: %s", job.id, e)
+
+        # TensorBoard 资源先于 VCJob 清理 (顺序无关, 都 best-effort).
+        if job.tensorboard_enabled:
+            try:
+                await get_tensorboard_manager().delete(job.id, namespace)
+            except Exception as e:
+                logger.warning("TensorBoard 资源清理失败 (job=%s): %s", job.id, e)
+
         try:
             await delete_vcjob(namespace, job.vcjob_name)
             logger.info("Deleted VCJob %s for stopped job %s", job.vcjob_name, job.id)
         except Exception as e:
             logger.warning("Failed to delete VCJob %s: %s", job.vcjob_name, e)
 
-    async def delete_training_job_record(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> tuple[str | None, str]:
-        """标记训练任务为已删除 (DB 操作), 返回 vcjob_name 和 namespace 供 Taskiq 清理 K8s.
+    async def delete_training_job_record(
+        self, job_id: uuid.UUID, tenant_id: uuid.UUID
+    ) -> tuple[str | None, str, bool, str | None]:
+        """标记训练任务为已删除 (DB 操作), 返回 vcjob_name / namespace / tensorboard_enabled / mlflow_experiment_id.
 
         仅允许删除终态任务 (已成功/已失败/已停止).
         """
@@ -349,16 +401,45 @@ class TrainingJobService:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
         vcjob_name = job.vcjob_name
+        tensorboard_enabled = job.tensorboard_enabled
+
+        # 删 job 前先取 MLflow experiment_id: Experiment 记录会随 job 的 FK CASCADE 删除,
+        # worker 阶段无法再查到, 须由此带出交给 worker 清理 MLflow 侧数据.
+        exp_result = await self.db.execute(
+            select(Experiment.mlflow_experiment_id).where(Experiment.training_job_id == job_id)
+        )
+        mlflow_experiment_id = exp_result.scalar_one_or_none()
 
         await self.db.delete(job)
         await self.db.commit()
-        return vcjob_name, namespace
+        return vcjob_name, namespace, tensorboard_enabled, mlflow_experiment_id
 
-    async def execute_training_job_delete(self, vcjob_name: str | None, namespace: str) -> None:
-        """由 Taskiq worker 调用: 清理 K8s VCJob 资源 (best-effort).
+    async def execute_training_job_delete(
+        self,
+        job_id: uuid.UUID,
+        vcjob_name: str | None,
+        namespace: str,
+        tensorboard_enabled: bool = False,
+        mlflow_experiment_id: str | None = None,
+    ) -> None:
+        """由 Taskiq worker 调用: 清理 K8s VCJob + TensorBoard + MLflow 资源 (best-effort).
 
-        DB 记录已由 API 同步删除, 此处仅做 K8s 资源清理.
+        DB 记录已由 API 同步删除, 此处仅做外部资源清理.
         """
+        # TensorBoard 资源先于 VCJob 清理 (顺序无关, 都 best-effort).
+        if tensorboard_enabled:
+            try:
+                await get_tensorboard_manager().delete(job_id, namespace)
+            except Exception as e:
+                logger.warning("TensorBoard 资源清理失败 (job=%s): %s", job_id, e)
+
+        # MLflow experiment 删除 (连带其下 run), 避免孤儿 MLflow 数据.
+        if mlflow_experiment_id:
+            try:
+                await ExperimentService(self.db).delete_experiment(mlflow_experiment_id)
+            except Exception as e:
+                logger.warning("MLflow 清理失败 (job=%s, exp=%s): %s", job_id, mlflow_experiment_id, e)
+
         if not vcjob_name:
             return
         try:
@@ -405,7 +486,8 @@ class TrainingJobService:
             memory=job.memory,
             priority=job.priority,
             worker_count=job.worker_count,
-            metrics_port=job.metrics_port,
+            mlflow_enabled=job.mlflow_enabled,
+            tensorboard_enabled=job.tensorboard_enabled,
         )
 
     async def create_from_environment(
@@ -427,7 +509,8 @@ class TrainingJobService:
         priority: str = "normal",
         worker_count: int = 1,
         hyperparameters: list[dict[str, str]] | None = None,
-        metrics_port: int | None = None,
+        mlflow_enabled: bool = False,
+        tensorboard_enabled: bool = False,
     ) -> TrainingJob:
         env = await self._get_environment_or_fail(environment_id, tenant_id)
         if env.status != DevEnvironmentStatus.RUNNING:
@@ -462,7 +545,8 @@ class TrainingJobService:
             memory=resolved_memory,
             priority=priority,
             worker_count=worker_count,
-            metrics_port=metrics_port,
+            mlflow_enabled=mlflow_enabled,
+            tensorboard_enabled=tensorboard_enabled,
             source="dev_environment",
             source_env_id=environment_id,
         )
@@ -510,20 +594,10 @@ class TrainingJobService:
                     except Exception as e:
                         logger.warning("Failed to sync experiment status for job %s: %s", job.id, e)
                     try:
-                        from app.models.enums import NotificationPriority, NotificationType
                         from app.services.notification_service import NotificationService
 
-                        notif_service = NotificationService(self.db)
-                        is_success = new_status == TrainingJobStatus.SUCCEEDED
-                        await notif_service.create_notification(
-                            user_id=job.created_by,
-                            tenant_id=job.tenant_id,
-                            type=NotificationType.TRAINING_JOB,
-                            title=f"训练任务{'完成' if is_success else '失败'}",
-                            content=f"训练任务「{job.name}」已{'完成' if is_success else '失败'}.",
-                            priority=NotificationPriority.HIGH if not is_success else NotificationPriority.MEDIUM,
-                            resource_type="training_job",
-                            resource_id=str(job.id),
+                        await NotificationService(self.db).create_training_outcome_notification(
+                            job, is_success=(new_status == TrainingJobStatus.SUCCEEDED)
                         )
                     except Exception as e:
                         logger.warning("Failed to send notification for job %s: %s", job.id, e)
@@ -534,39 +608,7 @@ class TrainingJobService:
             logger.warning("Failed to sync VCJob status for %s: %s", job.vcjob_name, e)
 
     async def _extract_failure_reason(self, namespace: str, vcjob_name: str) -> str:
-        try:
-            pods = await list_vcjob_pods(namespace, vcjob_name)
-        except Exception:
-            return "训练任务已失败，但失败详情不可用（无法查询 Pod 信息）。"  # noqa: RUF001
-
-        if not pods:
-            return "训练任务已失败，但失败详情不可用（任务资源已被清理）。"  # noqa: RUF001
-
-        for pod_info in pods:
-            failure = await get_pod_failure_info(namespace, pod_info["pod_name"])
-            if failure:
-                return self._map_failure_message(failure)
-
-        return "训练任务已失败，但未能获取具体失败原因。"  # noqa: RUF001
-
-    @staticmethod
-    def _map_failure_message(failure: dict[str, Any]) -> str:
-        reason = failure.get("reason", "")
-        exit_code = failure.get("exit_code", -1)
-
-        if reason == "OOMKilled":
-            return "内存不足 (OOM)：训练容器因超出内存限制被终止。建议增加内存配置或优化训练脚本。"  # noqa: RUF001
-        if reason in ("ImagePullBackOff", "ErrImagePull"):
-            return "镜像拉取失败：请检查镜像地址是否正确，以及是否具有拉取权限。"  # noqa: RUF001
-        if reason == "ContainerCannotRun":
-            return "容器启动失败：请检查镜像和启动命令是否正确。"  # noqa: RUF001
-        if exit_code == 137:
-            return "进程被终止 (SIGKILL)：可能是内存不足。建议增加内存或检查训练脚本。"  # noqa: RUF001
-        if exit_code == 1:
-            return "训练脚本执行错误：请查看日志获取详细错误信息。"  # noqa: RUF001
-        if exit_code != 0:
-            return f"训练异常退出 (退出码: {exit_code})：请查看日志获取详细信息。"  # noqa: RUF001
-        return f"训练任务失败 (原因: {reason})：请查看日志获取详细信息。"  # noqa: RUF001
+        return await resolve_pod_failure_reason(namespace, vcjob_name)
 
     @staticmethod
     def _update_job_timestamps(job: TrainingJob, new_status: TrainingJobStatus) -> None:
@@ -676,24 +718,11 @@ class TrainingJobService:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
-        # Build metrics_url
+        # TensorBoard 可视化入口: 启用了 TensorBoard 的作业返回 APISIX 鉴权后的 URL.
+        # 仅作业处于非终态时返回, 终态后 sidecar 容器随 Pod 销毁, URL 不再可访问.
         metrics_url: str | None = None
-        if job.metrics_port and job.vcjob_name:
-            try:
-                pods = await list_vcjob_pods(namespace, job.vcjob_name)
-                running_pods = [p for p in pods if p["status"] == "running"]
-                if running_pods:
-                    from kubernetes_asyncio import client as k8s_client
-
-                    from app.integrations.k8s.client import get_k8s_clients
-
-                    clients = await get_k8s_clients()
-                    core_v1 = k8s_client.CoreV1Api(clients["api_client"])
-                    pod_obj = await core_v1.read_namespaced_pod(running_pods[0]["pod_name"], namespace)
-                    if pod_obj.status and pod_obj.status.pod_ip:
-                        metrics_url = f"http://{pod_obj.status.pod_ip}:{job.metrics_port}"
-            except Exception as e:
-                logger.warning("Failed to get pod IP for metrics_url: %s", e)
+        if job.tensorboard_enabled and job.status not in TERMINAL_STATUSES:
+            metrics_url = tensorboard_access_url(job.id)
 
         # Degraded response when Prometheus unavailable
         prometheus_available = prom_client is not None

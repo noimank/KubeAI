@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.exceptions import QuotaExceededException
+from app.integrations.k8s.pod import map_failure_message
 from app.models.enums import TrainingJobStatus
 from app.models.image import Image
 from app.models.tenant import Tenant
@@ -30,6 +31,7 @@ def _make_tenant(**overrides):
     }
     defaults.update(overrides)
     t = Tenant(**defaults)
+    t.id = uuid.uuid4()
     t.created_at = _NOW
     t.updated_at = _NOW
     return t
@@ -82,6 +84,7 @@ def _make_job(**overrides):
         "memory": "8Gi",
         "priority": "normal",
         "worker_count": 1,
+        "mlflow_enabled": False,
         "status": TrainingJobStatus.PENDING,
     }
     defaults.update(overrides)
@@ -285,6 +288,99 @@ class TestStopTrainingJob:
         assert result.status == TrainingJobStatus.STOPPED
 
 
+class TestDeleteJobMlflowCleanup:
+    """删除训练任务时一并删除 MLflow experiment (连带 run), 避免孤儿 MLflow 数据."""
+
+    @patch("app.services.training_job_service.delete_vcjob", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.ExperimentService")
+    async def test_execute_delete_cleans_mlflow(self, mock_exp_cls, mock_delete, service, mock_db):
+        mock_exp_cls.return_value.delete_experiment = AsyncMock()
+
+        await service.execute_training_job_delete(
+            uuid.uuid4(),
+            "training-x",
+            "kubeai-default",
+            tensorboard_enabled=False,
+            mlflow_experiment_id="exp-42",
+        )
+
+        mock_exp_cls.return_value.delete_experiment.assert_awaited_once_with("exp-42")
+        mock_delete.assert_awaited_once()  # VCJob 仍被删除
+
+    @patch("app.services.training_job_service.delete_vcjob", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.ExperimentService")
+    async def test_execute_delete_skips_mlflow_when_no_experiment(self, mock_exp_cls, mock_delete, service, mock_db):
+        await service.execute_training_job_delete(
+            uuid.uuid4(),
+            "training-x",
+            "kubeai-default",
+            tensorboard_enabled=False,
+            mlflow_experiment_id=None,
+        )
+
+        mock_exp_cls.return_value.delete_experiment.assert_not_called()
+
+    async def test_delete_record_returns_mlflow_experiment_id(self, service, mock_db):
+        """delete_training_job_record 须在 cascade 删除 Experiment 前带出 mlflow_experiment_id."""
+        job = _make_job(status=TrainingJobStatus.SUCCEEDED, vcjob_name="training-x", tensorboard_enabled=False)
+        tenant = _make_tenant()
+        exp_result = MagicMock()
+        exp_result.scalar_one_or_none.return_value = "exp-99"
+        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant), exp_result]
+
+        result = await service.delete_training_job_record(job.id, job.tenant_id)
+
+        assert result == ("training-x", "kubeai-default", False, "exp-99")
+
+
+class TestStopJobMlflowTermination:
+    """P0 回归: 停止任务时主动 KILL MLflow run, 避免留下永远 RUNNING 的僵尸 run.
+
+    Pod 被 SIGTERM 强杀时脚本来不及 end_run, 若平台不主动终止, MLflow run 永远停在 RUNNING,
+    且会把后续 sync 的 experiment 状态锁死在 active.
+    """
+
+    @patch("app.services.training_job_service.delete_vcjob", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.ExperimentService")
+    async def test_stop_terminates_mlflow_when_enabled(self, mock_exp_cls, mock_delete, service, mock_db):
+        tenant = _make_tenant()
+        job = _make_job(mlflow_enabled=True, vcjob_name="training-x")
+        mock_exp_cls.return_value.terminate_experiments_for_job = AsyncMock()
+        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant)]
+
+        await service.execute_training_job_stop(job.id, tenant.id)
+
+        mock_exp_cls.return_value.terminate_experiments_for_job.assert_awaited_once_with(job.id)
+        mock_delete.assert_awaited_once()  # VCJob 仍被删除
+
+    @patch("app.services.training_job_service.delete_vcjob", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.ExperimentService")
+    async def test_stop_skips_terminate_when_mlflow_disabled(self, mock_exp_cls, mock_delete, service, mock_db):
+        tenant = _make_tenant()
+        job = _make_job(mlflow_enabled=False, vcjob_name="training-x")
+        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant)]
+
+        await service.execute_training_job_stop(job.id, tenant.id)
+
+        mock_exp_cls.return_value.terminate_experiments_for_job.assert_not_called()
+        mock_delete.assert_awaited_once()
+
+    @patch("app.services.training_job_service.delete_vcjob", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.ExperimentService")
+    async def test_stop_terminate_failure_does_not_block_vcjob_delete(
+        self, mock_exp_cls, mock_delete, service, mock_db
+    ):
+        """MLflow 终止失败 (best-effort) → 不影响 VCJob 删除."""
+        tenant = _make_tenant()
+        job = _make_job(mlflow_enabled=True, vcjob_name="training-x")
+        mock_exp_cls.return_value.terminate_experiments_for_job = AsyncMock(side_effect=RuntimeError("MLflow down"))
+        mock_db.execute.side_effect = [_sync_result(job), _sync_result(tenant)]
+
+        await service.execute_training_job_stop(job.id, tenant.id)  # 不应抛错
+
+        mock_delete.assert_awaited_once()
+
+
 class TestStreamLogs:
     @patch("app.services.training_job_service.stream_pod_logs")
     @patch("app.services.training_job_service.list_vcjob_pods")
@@ -402,42 +498,44 @@ class TestListPods:
 
 class TestMapFailureMessage:
     def test_oom_killed(self):
-        msg = TrainingJobService._map_failure_message({"exit_code": 137, "reason": "OOMKilled", "message": ""})
+        msg = map_failure_message({"exit_code": 137, "reason": "OOMKilled", "message": ""})
         assert "OOM" in msg
         assert "内存" in msg
 
     def test_exit_code_137(self):
-        msg = TrainingJobService._map_failure_message({"exit_code": 137, "reason": "Error", "message": ""})
+        msg = map_failure_message({"exit_code": 137, "reason": "Error", "message": ""})
         assert "SIGKILL" in msg
 
     def test_image_pull_backoff(self):
-        msg = TrainingJobService._map_failure_message({"exit_code": 0, "reason": "ImagePullBackOff", "message": ""})
+        msg = map_failure_message({"exit_code": 0, "reason": "ImagePullBackOff", "message": ""})
         assert "镜像拉取失败" in msg
 
     def test_err_image_pull(self):
-        msg = TrainingJobService._map_failure_message({"exit_code": 0, "reason": "ErrImagePull", "message": ""})
+        msg = map_failure_message({"exit_code": 0, "reason": "ErrImagePull", "message": ""})
         assert "镜像拉取失败" in msg
 
     def test_container_cannot_run(self):
-        msg = TrainingJobService._map_failure_message({"exit_code": 1, "reason": "ContainerCannotRun", "message": ""})
+        msg = map_failure_message({"exit_code": 1, "reason": "ContainerCannotRun", "message": ""})
         assert "容器启动失败" in msg
 
     def test_exit_code_1(self):
-        msg = TrainingJobService._map_failure_message({"exit_code": 1, "reason": "Error", "message": ""})
+        msg = map_failure_message({"exit_code": 1, "reason": "Error", "message": ""})
         assert "训练脚本执行错误" in msg
 
     def test_other_exit_code(self):
-        msg = TrainingJobService._map_failure_message({"exit_code": 42, "reason": "Error", "message": ""})
+        msg = map_failure_message({"exit_code": 42, "reason": "Error", "message": ""})
         assert "退出码: 42" in msg
 
     def test_zero_exit_code_with_reason(self):
-        msg = TrainingJobService._map_failure_message({"exit_code": 0, "reason": "Unknown", "message": ""})
+        msg = map_failure_message({"exit_code": 0, "reason": "Unknown", "message": ""})
         assert "失败" in msg
 
 
 class TestExtractFailureReason:
-    @patch("app.services.training_job_service.get_pod_failure_info")
-    @patch("app.services.training_job_service.list_vcjob_pods")
+    # _extract_failure_reason 现在委托给 pod.resolve_pod_failure_reason, 后者使用
+    # pod 模块自身的 list_vcjob_pods / get_pod_failure_info, 因此 patch 目标是 pod 模块.
+    @patch("app.integrations.k8s.pod.get_pod_failure_info")
+    @patch("app.integrations.k8s.pod.list_vcjob_pods")
     async def test_oom_failure(self, mock_list_pods, mock_failure_info, service):
         mock_list_pods.return_value = [{"pod_name": "pod-1", "role": "master", "status": "failed"}]
         mock_failure_info.return_value = {
@@ -451,8 +549,8 @@ class TestExtractFailureReason:
         result = await service._extract_failure_reason("ns", "vcjob-1")
         assert "OOM" in result
 
-    @patch("app.services.training_job_service.get_pod_failure_info")
-    @patch("app.services.training_job_service.list_vcjob_pods")
+    @patch("app.integrations.k8s.pod.get_pod_failure_info")
+    @patch("app.integrations.k8s.pod.list_vcjob_pods")
     async def test_image_pull_failure(self, mock_list_pods, mock_failure_info, service):
         mock_list_pods.return_value = [{"pod_name": "pod-1", "role": "master", "status": "pending"}]
         mock_failure_info.return_value = {
@@ -466,8 +564,8 @@ class TestExtractFailureReason:
         result = await service._extract_failure_reason("ns", "vcjob-1")
         assert "镜像拉取失败" in result
 
-    @patch("app.services.training_job_service.get_pod_failure_info")
-    @patch("app.services.training_job_service.list_vcjob_pods")
+    @patch("app.integrations.k8s.pod.get_pod_failure_info")
+    @patch("app.integrations.k8s.pod.list_vcjob_pods")
     async def test_no_failure_info(self, mock_list_pods, mock_failure_info, service):
         mock_list_pods.return_value = [{"pod_name": "pod-1", "role": "master", "status": "failed"}]
         mock_failure_info.return_value = None
@@ -475,22 +573,22 @@ class TestExtractFailureReason:
         result = await service._extract_failure_reason("ns", "vcjob-1")
         assert "未能获取具体失败原因" in result
 
-    @patch("app.services.training_job_service.list_vcjob_pods")
+    @patch("app.integrations.k8s.pod.list_vcjob_pods")
     async def test_no_pods(self, mock_list_pods, service):
         mock_list_pods.return_value = []
 
         result = await service._extract_failure_reason("ns", "vcjob-1")
         assert "已被清理" in result
 
-    @patch("app.services.training_job_service.list_vcjob_pods")
+    @patch("app.integrations.k8s.pod.list_vcjob_pods")
     async def test_list_pods_exception(self, mock_list_pods, service):
         mock_list_pods.side_effect = Exception("K8s error")
 
         result = await service._extract_failure_reason("ns", "vcjob-1")
         assert "不可用" in result
 
-    @patch("app.services.training_job_service.get_pod_failure_info")
-    @patch("app.services.training_job_service.list_vcjob_pods")
+    @patch("app.integrations.k8s.pod.get_pod_failure_info")
+    @patch("app.integrations.k8s.pod.list_vcjob_pods")
     async def test_multiple_pods_first_has_reason(self, mock_list_pods, mock_failure_info, service):
         mock_list_pods.return_value = [
             {"pod_name": "pod-master", "role": "master", "status": "failed"},
@@ -539,7 +637,7 @@ class TestRetryTrainingJob:
         original_job = _make_job(status=TrainingJobStatus.FAILED, vcjob_name="training-test-job")
         original_job.hyperparameters = {"lr": "0.001", "epochs": "10"}
         original_job.description = "测试任务"
-        original_job.metrics_port = 6006
+        original_job.tensorboard_enabled = True
         tenant = _make_tenant(id=original_job.tenant_id)
         image = _make_image(id=original_job.image_id)
 
@@ -663,3 +761,134 @@ class TestSourceFieldDefaults:
 
         assert job.source == "experiment_reproduction"
         assert f"基于实验 #{source_exp_id} 复现" in job.description
+
+
+class TestMlflowPerJobBinding:
+    @patch("app.services.training_job_service.create_vcjob", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.build_vcjob", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.get_quota_used", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.ExperimentService")
+    async def test_execute_creates_experiment_when_enabled(
+        self, mock_exp_service_cls, mock_quota, mock_build, mock_create, service, mock_db
+    ):
+        tenant = _make_tenant()
+        image = _make_image()
+        user = _make_user()
+        job = _make_job(mlflow_enabled=True)
+
+        mock_quota.return_value = {}
+        mock_build.return_value = {"metadata": {"name": "test"}}
+        mock_create.return_value = None
+
+        mock_db.execute.side_effect = [
+            _sync_result(job),
+            _sync_result(tenant),
+            _sync_result(user),
+            _sync_result(image),
+        ]
+
+        # experiment_service.create_experiment 应当被调用 1 次, 返回带 run_id 的 experiment
+        mock_experiment = MagicMock()
+        mock_experiment.mlflow_run_id = "run-xyz"
+        mock_exp_service_cls.return_value.create_experiment = AsyncMock(return_value=mock_experiment)
+
+        await service.execute_training_job_submission(job.id, tenant.id)
+
+        mock_exp_service_cls.return_value.create_experiment.assert_awaited_once()
+        kwargs = mock_exp_service_cls.return_value.create_experiment.await_args.kwargs
+        assert kwargs["tenant_id"] == tenant.id
+        assert kwargs["training_job_id"] == job.id
+        assert kwargs["mlflow_experiment_name"].startswith("kubeai-")
+        # 预创建的 run_id 应注入 build_vcjob (强绑定)
+        assert mock_build.call_args.kwargs["mlflow_run_id"] == "run-xyz"
+
+    @patch("app.services.training_job_service.create_vcjob", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.build_vcjob")
+    @patch("app.services.training_job_service.get_quota_used", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.ExperimentService")
+    async def test_execute_skips_mlflow_by_default(
+        self, mock_exp_service_cls, mock_quota, mock_build, mock_create, service, mock_db
+    ):
+        # 默认 mlflow_enabled=False → 不创建 Experiment 记录
+        tenant = _make_tenant()
+        image = _make_image()
+        user = _make_user()
+        job = _make_job()  # 不传 mlflow_enabled, 默认 False
+
+        mock_quota.return_value = {}
+        mock_build.return_value = {"metadata": {"name": "test"}}
+        mock_create.return_value = None
+
+        mock_db.execute.side_effect = [
+            _sync_result(job),
+            _sync_result(tenant),
+            _sync_result(user),
+            _sync_result(image),
+        ]
+
+        await service.execute_training_job_submission(job.id, tenant.id)
+
+        mock_exp_service_cls.return_value.create_experiment.assert_not_called()
+        # build_vcjob 收到的 mlflow_* 参数应全为 None
+        build_kwargs = mock_build.call_args.kwargs
+        assert build_kwargs["mlflow_tracking_uri"] is None
+        assert build_kwargs["mlflow_experiment_name"] is None
+
+    @patch("app.services.training_job_service.build_vcjob")
+    @patch("app.services.training_job_service.get_quota_used", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.ExperimentService")
+    async def test_execute_fails_fast_when_mlflow_unavailable(
+        self, mock_exp_service_cls, mock_quota, mock_build, service, mock_db
+    ):
+        tenant = _make_tenant()
+        image = _make_image()
+        user = _make_user()
+        job = _make_job(mlflow_enabled=True)
+
+        mock_quota.return_value = {}
+        # ExperimentService.create_experiment 抛 RuntimeError (MLflow 不可用)
+        mock_exp_service_cls.return_value.create_experiment = AsyncMock(
+            side_effect=RuntimeError("无法创建 MLflow experiment: kubeai-x")
+        )
+
+        mock_db.execute.side_effect = [
+            _sync_result(job),
+            _sync_result(tenant),
+            _sync_result(user),
+            _sync_result(image),
+        ]
+
+        with pytest.raises(RuntimeError, match="MLflow"):
+            await service.execute_training_job_submission(job.id, tenant.id)
+
+        # MLflow 不可用 → build_vcjob 都不会被调用 → VCJob 不提交
+        mock_build.assert_not_called()
+        assert job.status == TrainingJobStatus.PENDING  # 状态未变
+
+    async def test_create_training_job_record_default_mlflow_disabled(self, service, mock_db):
+        image = _make_image()
+        mock_db.execute.side_effect = [_sync_result(image)]
+
+        # 不传 mlflow_enabled, 默认值应为 False
+        job = await service.create_training_job_record(
+            tenant_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            name="test-default-no-mlflow",
+            image_id=image.id,
+            command="python train.py",
+        )
+        assert job.mlflow_enabled is False
+
+    async def test_create_training_job_record_explicit_true(self, service, mock_db):
+        image = _make_image()
+        mock_db.execute.side_effect = [_sync_result(image)]
+
+        job = await service.create_training_job_record(
+            tenant_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            name="test-with-mlflow",
+            image_id=image.id,
+            command="python train.py",
+            mlflow_enabled=True,
+        )
+        assert job.mlflow_enabled is True

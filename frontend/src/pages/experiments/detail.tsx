@@ -12,10 +12,11 @@ import {
   Typography,
 } from 'antd'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { RocketOutlined } from '@ant-design/icons'
+import { ExperimentOutlined, RocketOutlined } from '@ant-design/icons'
 import { Line } from '@ant-design/charts'
 import { useQuery } from '@tanstack/react-query'
 import { getExperiment } from '@/services/experiments'
+import { MLFLOW_UI_BASE_URL } from '@/config/mlflow'
 import { formatDate } from '@/utils/format'
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
@@ -134,7 +135,7 @@ export default function ExperimentDetailPage() {
           ))}
         </Descriptions>
       ) : (
-        <Empty description="暂无超参数数据" />
+        <Empty description="暂无超参数数据。请确认训练脚本通过环境变量 MLFLOW_RUN_ID 恢复了平台预创建的运行" />
       )}
     </Card>
   )
@@ -142,7 +143,7 @@ export default function ExperimentDetailPage() {
   const metricsTab = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {metricKeys.length === 0 ? (
-        <Empty description="暂无指标数据" />
+        <Empty description="暂无指标数据。请确认训练脚本通过环境变量 MLFLOW_RUN_ID 恢复了平台预创建的运行" />
       ) : (
         metricKeys.map((key) => {
           const series = experiment.metricHistories?.[key] ?? []
@@ -244,6 +245,20 @@ export default function ExperimentDetailPage() {
       >
         <h2 style={{ margin: 0 }}>{experiment.trainingJobName || '实验详情'}</h2>
         <Space>
+          {experiment.mlflowExperimentId && (
+            <Button
+              icon={<ExperimentOutlined />}
+              href={
+                experiment.mlflowRunId
+                  ? `${MLFLOW_UI_BASE_URL}/#/experiments/${experiment.mlflowExperimentId}/runs/${experiment.mlflowRunId}`
+                  : `${MLFLOW_UI_BASE_URL}/#/experiments/${experiment.mlflowExperimentId}`
+              }
+              target="_blank"
+              rel="noreferrer"
+            >
+              {experiment.mlflowRunId ? '在 MLflow UI 中查看本次运行' : '在 MLflow UI 中查看实验'}
+            </Button>
+          )}
           <Button
             icon={<RocketOutlined />}
             onClick={() => navigate(`/training-jobs/create?from_experiment=${id}`)}

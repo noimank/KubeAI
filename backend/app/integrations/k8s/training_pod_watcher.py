@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 from kubernetes_asyncio import client, watch
@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 from app.core.database import async_session_factory
 from app.core.ws_pubsub import publish_ws_event
 from app.integrations.k8s.client import get_k8s_clients
-from app.integrations.k8s.pod import _VCJOB_LABEL, get_pod_failure_info, list_vcjob_pods
+from app.integrations.k8s.pod import _VCJOB_LABEL, list_vcjob_pods, resolve_pod_failure_reason
 from app.models.enums import TrainingJobStatus
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
@@ -234,7 +234,7 @@ async def _handle_added_or_modified(
     if phase == "Failed" and current_status in _ACTIVE_STATUSES:
         job.status = TrainingJobStatus.FAILED
         _update_timestamps(job, TrainingJobStatus.FAILED)
-        job.error_message = await _resolve_failure_reason(namespace, job.vcjob_name)
+        job.error_message = await resolve_pod_failure_reason(namespace, job.vcjob_name)
         await db.commit()
         await _on_terminal_status(job, current_status, TrainingJobStatus.FAILED)
         logger.warning(
@@ -361,50 +361,6 @@ async def _all_pods_succeeded(namespace: str, vcjob_name: str | None) -> bool:
     return all(p["status"] == "succeeded" for p in pods)
 
 
-async def _resolve_failure_reason(namespace: str, vcjob_name: str | None) -> str:
-    """Extract a human-readable failure reason from failed pods."""
-    if not vcjob_name:
-        return "训练任务已失败"
-
-    try:
-        pods = await list_vcjob_pods(namespace, vcjob_name)
-    except Exception:
-        return "训练任务已失败，但失败详情不可用（无法查询 Pod 信息）。"  # noqa: RUF001
-
-    if not pods:
-        return "训练任务已失败，但失败详情不可用（任务资源已被清理）。"  # noqa: RUF001
-
-    for pod_info in pods:
-        try:
-            failure = await get_pod_failure_info(namespace, pod_info["pod_name"])
-        except Exception:
-            continue
-        if failure:
-            return _map_failure_message(failure)
-
-    return "训练任务已失败，但未能获取具体失败原因。"  # noqa: RUF001
-
-
-def _map_failure_message(failure: dict[str, Any]) -> str:
-    """Map a K8s container termination to a Chinese error message."""
-    reason = failure.get("reason", "")
-    exit_code = failure.get("exit_code", -1)
-
-    if reason == "OOMKilled":
-        return "内存不足 (OOM)：训练容器因超出内存限制被终止。建议增加内存配置或优化训练脚本。"  # noqa: RUF001
-    if reason in ("ImagePullBackOff", "ErrImagePull"):
-        return "镜像拉取失败：请检查镜像地址是否正确，以及是否具有拉取权限。"  # noqa: RUF001
-    if reason == "ContainerCannotRun":
-        return "容器启动失败：请检查镜像和启动命令是否正确。"  # noqa: RUF001
-    if exit_code == 137:
-        return "进程被终止 (SIGKILL)：可能是内存不足。建议增加内存或检查训练脚本。"  # noqa: RUF001
-    if exit_code == 1:
-        return "训练脚本执行错误：请查看日志获取详细错误信息。"  # noqa: RUF001
-    if exit_code != 0:
-        return f"训练异常退出 (退出码: {exit_code})：请查看日志获取详细信息。"  # noqa: RUF001
-    return f"训练任务失败 (原因: {reason})：请查看日志获取详细信息。"  # noqa: RUF001
-
-
 async def _on_terminal_status(
     job: TrainingJob,
     old_status: TrainingJobStatus,
@@ -412,10 +368,41 @@ async def _on_terminal_status(
 ) -> None:
     """Handle side effects when a job reaches a terminal status.
 
+    - Cleanup TensorBoard Service + APISIX route (if enabled)
     - Sync MLflow experiment status
     - Create user notification
     - Push WebSocket event
     """
+    # ── Cleanup TensorBoard resources ───────────────────────────────────
+    # TB Service + APISIX route 是手动创建的资源, 没有 TTL.
+    # VCJob 自带 ttlSecondsAfterFinished (24h), 但 TB Service 不会随之清理,
+    # 必须在此显式删除, 否则会留下指向已终结 Pod 的孤儿 Service.
+    if job.tensorboard_enabled and job.vcjob_name:
+        try:
+            from sqlalchemy import select
+
+            from app.integrations.k8s.tensorboard import get_tensorboard_manager
+
+            async with async_session_factory() as db:
+                tenant_row = (await db.execute(select(Tenant).where(Tenant.id == job.tenant_id))).scalar_one_or_none()
+                namespace = tenant_row.k8s_namespace_name if tenant_row else None
+
+            if namespace:
+                await get_tensorboard_manager().delete(job.id, namespace)
+                logger.info(
+                    "watcher_tensorboard_cleaned",
+                    job_id=str(job.id),
+                    namespace=namespace,
+                )
+            else:
+                logger.warning(
+                    "watcher_tensorboard_namespace_missing",
+                    job_id=str(job.id),
+                    tenant_id=str(job.tenant_id),
+                )
+        except Exception:
+            logger.exception("watcher_tensorboard_cleanup_error", job_id=str(job.id))
+
     # ── Sync MLflow experiment ─────────────────────────────────────────
     try:
         from app.services.experiment_service import ExperimentService
@@ -423,27 +410,21 @@ async def _on_terminal_status(
         async with async_session_factory() as db:
             experiment_service = ExperimentService(db)
             await experiment_service.sync_experiment_status(job.id, new_status)
+            # FAILED 时主动 KILL run: Pod 被 OOMKilled/强杀时脚本来不及 end_run, 不终止则
+            # run 永远停在 RUNNING (停止路径已在 execute_training_job_stop 处理, 此处补 FAILED).
+            if new_status == TrainingJobStatus.FAILED:
+                await experiment_service.terminate_experiments_for_job(job.id)
             await db.commit()
     except Exception:
         logger.exception("watcher_mlflow_sync_error", job_id=str(job.id))
 
     # ── Create notification ────────────────────────────────────────────
     try:
-        from app.models.enums import NotificationPriority, NotificationType
         from app.services.notification_service import NotificationService
 
         async with async_session_factory() as db:
-            notif_service = NotificationService(db)
-            is_success = new_status == TrainingJobStatus.SUCCEEDED
-            await notif_service.create_notification(
-                user_id=job.created_by,
-                tenant_id=job.tenant_id,
-                type=NotificationType.TRAINING_JOB,
-                title=f"训练任务{'完成' if is_success else '失败'}",
-                content=f"训练任务「{job.name}」已{'完成' if is_success else '失败'}.",
-                priority=NotificationPriority.HIGH if not is_success else NotificationPriority.MEDIUM,
-                resource_type="training_job",
-                resource_id=str(job.id),
+            await NotificationService(db).create_training_outcome_notification(
+                job, is_success=(new_status == TrainingJobStatus.SUCCEEDED)
             )
             await db.commit()
     except Exception:

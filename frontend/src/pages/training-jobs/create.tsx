@@ -41,7 +41,8 @@ interface FormValues {
   memory: string
   priority: string
   workerCount: number
-  metricsPort?: number
+  mlflowEnabled?: boolean
+  tensorboardEnabled?: boolean
   hyperparameters?: { key: string; value: string }[]
 }
 
@@ -127,7 +128,8 @@ export default function CreateTrainingJobPage() {
       memory: job?.memory ?? undefined,
       priority: job?.priority ?? undefined,
       workerCount: job?.workerCount ?? undefined,
-      metricsPort: job?.metricsPort ?? undefined,
+      mlflowEnabled: job?.mlflowEnabled ?? false,
+      tensorboardEnabled: job?.tensorboardEnabled ?? false,
       hyperparameters: hyperParams.length > 0 ? hyperParams : undefined,
     }
     form.setFieldsValue(values)
@@ -171,8 +173,9 @@ export default function CreateTrainingJobPage() {
         memory: values.memory,
         priority: values.priority,
         workerCount: values.workerCount,
-        metricsPort: values.metricsPort,
         sourceExperimentId,
+        mlflowEnabled: values.mlflowEnabled ?? false,
+        tensorboardEnabled: values.tensorboardEnabled ?? false,
       })
       getMessageInstance()?.success('训练任务创建成功')
       navigate(`/training-jobs/${res.id}`)
@@ -379,18 +382,46 @@ export default function CreateTrainingJobPage() {
                 key: 'advanced',
                 label: '高级配置',
                 children: (
-                  <Form.Item
-                    name="metricsPort"
-                    label="指标端口"
-                    extra="如训练脚本暴露 TensorBoard/MLflow 等指标面板，填写端口号"
-                  >
-                    <InputNumber
-                      min={1}
-                      max={65535}
-                      placeholder="如 6006"
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
+                  <>
+                    <Form.Item
+                      name="mlflowEnabled"
+                      label="实验追踪 (MLflow)"
+                      valuePropName="checked"
+                      initialValue={false}
+                      tooltip="开启后平台预创建 MLflow 实验与运行, 并把 run_id 注入环境变量 MLFLOW_RUN_ID; 训练脚本须 mlflow.start_run(run_id=...) 恢复它, 指标才能与任务绑定. 不需要指标追踪的简单任务无需开启 (默认关闭)."
+                    >
+                      <Switch checkedChildren="开" unCheckedChildren="关" />
+                    </Form.Item>
+                    <Form.Item
+                      shouldUpdate={(prev, cur) => prev.mlflowEnabled !== cur.mlflowEnabled}
+                      noStyle
+                    >
+                      {({ getFieldValue }: FormInstance) =>
+                        getFieldValue('mlflowEnabled') ? (
+                          <Alert
+                            type="info"
+                            showIcon
+                            style={{ marginBottom: 24 }}
+                            message="训练脚本须通过环境变量 MLFLOW_RUN_ID 恢复平台预创建的运行，否则指标无法与任务绑定"
+                            description={
+                              <code style={{ fontSize: 12 }}>
+                                mlflow.start_run(run_id=os.environ['MLFLOW_RUN_ID'])
+                              </code>
+                            }
+                          />
+                        ) : null
+                      }
+                    </Form.Item>
+                    <Form.Item
+                      name="tensorboardEnabled"
+                      label="TensorBoard 可视化"
+                      valuePropName="checked"
+                      initialValue={false}
+                      tooltip="开启后平台自动注入 TensorBoard sidecar 容器, 训练时可在详情页实时查看 tfevents 曲线. 训练脚本需将日志写入环境变量 TENSORBOARD_LOG_DIR 指向的目录 (默认 /kubeai/tensorboard). 与 MLflow 可同时开启."
+                    >
+                      <Switch checkedChildren="开" unCheckedChildren="关" />
+                    </Form.Item>
+                  </>
                 ),
               },
             ]}
@@ -538,11 +569,6 @@ function ConfirmStep({
               {h.key}={h.value}
             </Tag>
           ))}
-        </Descriptions.Item>
-      )}
-      {values.metricsPort && (
-        <Descriptions.Item label="指标端口" span={2}>
-          {values.metricsPort}
         </Descriptions.Item>
       )}
     </Descriptions>

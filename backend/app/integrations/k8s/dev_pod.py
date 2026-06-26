@@ -12,12 +12,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 import structlog
 from kubernetes_asyncio import client
 from kubernetes_asyncio.client.rest import ApiException
 
 from app.core.config import settings
+from app.integrations.k8s.apisix_admin import delete_route, host_from_frontend_url, put_route
 from app.integrations.k8s.client import get_k8s_clients
 
 logger = structlog.get_logger(__name__)
@@ -362,7 +362,7 @@ def _build_apisix_route_payload(
         "name": name,
         "status": 1,
         "uri": f"{path}/*",
-        "host": _dev_host(),
+        "host": host_from_frontend_url(),
         "priority": 100,
         "enable_websocket": True,  # Required by VS Code / Jupyter for terminal & workbench
         "plugins": plugins,
@@ -380,43 +380,14 @@ def _build_apisix_route_payload(
 
 
 async def _apisix_create_route(env_id: uuid.UUID, namespace: str, environment_type: str | None = None) -> None:
-    """Push a route directly to APISIX Admin API using a fresh connection."""
+    """Push a route to APISIX Admin API (transport shared with TensorBoard routing)."""
     payload = _build_apisix_route_payload(env_id=env_id, namespace=namespace, environment_type=environment_type)
-    route_id = _env_id_hex(env_id)
-
-    async with httpx.AsyncClient(
-        base_url=settings.KUBEAI_APISIX_ADMIN_URL.rstrip("/"),
-        headers={"X-API-KEY": settings.KUBEAI_APISIX_ADMIN_KEY},
-        timeout=httpx.Timeout(10.0),
-        http2=False,
-    ) as client:
-        resp = await client.put(f"/apisix/admin/routes/{route_id}", json=payload)
-        resp.raise_for_status()
-        if resp.status_code in (200, 201):
-            logger.info("apisix_route_created", route_id=route_id)
+    await put_route(route_id=_env_id_hex(env_id), payload=payload)
 
 
 async def _apisix_delete_route(env_id: uuid.UUID) -> None:
     """Delete a route from APISIX Admin API by ID."""
-    route_id = _env_id_hex(env_id)
-
-    async with httpx.AsyncClient(
-        base_url=settings.KUBEAI_APISIX_ADMIN_URL.rstrip("/"),
-        headers={"X-API-KEY": settings.KUBEAI_APISIX_ADMIN_KEY},
-        timeout=httpx.Timeout(10.0),
-        http2=False,
-    ) as client:
-        resp = await client.delete(f"/apisix/admin/routes/{route_id}")
-        logger.info("apisix_route_deleted", route_id=route_id, status=resp.status_code)
-
-
-def _dev_host() -> str:
-    """APISIX host filter — derived from FRONTEND_URL hostname."""
-    from urllib.parse import urlparse
-
-    if settings.FRONTEND_URL and "://" in settings.FRONTEND_URL:
-        return urlparse(settings.FRONTEND_URL).hostname or "localhost"
-    return "localhost"
+    await delete_route(route_id=_env_id_hex(env_id))
 
 
 # ---------------------------------------------------------------------------

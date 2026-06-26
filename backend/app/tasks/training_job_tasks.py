@@ -128,12 +128,24 @@ async def stop_training_job_task(job_id: str, tenant_id: str) -> dict[str, Any]:
 
 
 @broker.task(task_name="app.tasks.training_job.delete")
-async def delete_training_job_task(vcjob_name: str, namespace: str) -> dict[str, Any]:
-    """删除训练任务 K8s 资源 (由 Taskiq worker 执行, DB 记录已由 API 同步删除)."""
+async def delete_training_job_task(
+    job_id: str,
+    vcjob_name: str,
+    namespace: str,
+    tensorboard_enabled: bool = False,
+    mlflow_experiment_id: str = "",
+) -> dict[str, Any]:
+    """删除训练任务 K8s + MLflow 资源 (由 Taskiq worker 执行, DB 记录已由 API 同步删除)."""
     try:
         async with async_session_factory() as db:
             svc = TrainingJobService(db)
-            await svc.execute_training_job_delete(vcjob_name or None, namespace)
+            await svc.execute_training_job_delete(
+                uuid.UUID(job_id),
+                vcjob_name or None,
+                namespace,
+                tensorboard_enabled=tensorboard_enabled,
+                mlflow_experiment_id=mlflow_experiment_id or None,
+            )
     except Exception as exc:
         logger.error("delete_training_job_error", vcjob_name=vcjob_name, error=str(exc))
         # Best-effort: 资源清理器最终会处理孤儿 VCJob
@@ -172,6 +184,18 @@ async def enqueue_stop_training_job(job_id: uuid.UUID, tenant_id: uuid.UUID) -> 
     await stop_training_job_task.kiq(str(job_id), str(tenant_id))
 
 
-async def enqueue_delete_training_job(vcjob_name: str | None, namespace: str) -> None:
-    """将训练任务 K8s 资源删除入队 (从 API endpoint 调用)."""
-    await delete_training_job_task.kiq(vcjob_name or "", namespace)
+async def enqueue_delete_training_job(
+    job_id: uuid.UUID,
+    vcjob_name: str | None,
+    namespace: str,
+    tensorboard_enabled: bool = False,
+    mlflow_experiment_id: str | None = None,
+) -> None:
+    """将训练任务 K8s + MLflow 资源删除入队 (从 API endpoint 调用)."""
+    await delete_training_job_task.kiq(
+        str(job_id),
+        vcjob_name or "",
+        namespace,
+        tensorboard_enabled=tensorboard_enabled,
+        mlflow_experiment_id=mlflow_experiment_id or "",
+    )

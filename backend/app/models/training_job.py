@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime  # noqa: TC003
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -46,7 +46,6 @@ class TrainingJob(Base, TimestampMixin):
 
     command: Mapped[str] = mapped_column(Text, nullable=False, comment="启动命令")
     hyperparameters: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True, comment="超参数")
-    metrics_port: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="指标端口")
 
     gpu_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="GPU 数量")
     gpu_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="exclusive", comment="GPU 模式")
@@ -71,6 +70,21 @@ class TrainingJob(Base, TimestampMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, comment="开始时间")
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, comment="结束时间")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True, comment="错误信息")
+
+    mlflow_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="是否启用 MLflow 实验追踪 (默认关闭, 需要可视化时在创建表单中开启)",
+    )
+    tensorboard_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="是否启用 TensorBoard 可视化 (默认关闭, 平台注入 sidecar 自动读取 tfevents)",
+    )
 
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("id", uuid.uuid4())

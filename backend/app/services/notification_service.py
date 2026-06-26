@@ -7,11 +7,31 @@ from app.core.exceptions import ForbiddenException, NotFoundException
 from app.core.ws_pubsub import get_ws_pubsub
 from app.models.enums import NotificationPriority, NotificationType
 from app.models.notification import Notification
+from app.models.training_job import TrainingJob
 
 
 class NotificationService:
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    async def create_training_outcome_notification(self, job: TrainingJob, is_success: bool) -> Notification:
+        """Standard 「训练任务完成/失败」 notification for a terminal training job.
+
+        Shared by the status-sync path (service) and the pod watcher so the
+        wording stays consistent. Submission-time failures use a distinct
+        message and call ``create_notification`` directly.
+        """
+        verb = "完成" if is_success else "失败"
+        return await self.create_notification(
+            user_id=job.created_by,
+            tenant_id=job.tenant_id,
+            type=NotificationType.TRAINING_JOB,
+            title=f"训练任务{verb}",
+            content=f"训练任务「{job.name}」已{verb}.",
+            priority=NotificationPriority.MEDIUM if is_success else NotificationPriority.HIGH,
+            resource_type="training_job",
+            resource_id=str(job.id),
+        )
 
     async def create_notification(
         self,

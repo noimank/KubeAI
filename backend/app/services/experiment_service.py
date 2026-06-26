@@ -19,6 +19,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# TrainingJob 终态 → Experiment 状态的权威映射. 训练任务状态是平台事实源, experiment 状态
+# 跟随它而非跟随 MLflow run 状态 (run 生命周期是客户端驱动的, 被强杀时不会自行终结).
+# 注: stopped 暂映射为 failed; 引入独立 "stopped" 状态与前端/TrainingJob 对齐是后续优化.
+_JOB_TO_EXP_STATUS = {
+    "succeeded": "completed",
+    "failed": "failed",
+    "stopped": "failed",
+}
+
 
 class ExperimentService:
     def __init__(self, db: AsyncSession) -> None:
@@ -29,23 +38,42 @@ class ExperimentService:
         *,
         tenant_id: uuid.UUID,
         training_job_id: uuid.UUID,
-        mlflow_experiment_name: str | None = None,
+        mlflow_experiment_name: str,
     ) -> Experiment:
-        mlflow_client = get_mlflow_client()
-        mlflow_experiment_id: str | None = None
+        """预创建 MLflow experiment + run, 写入 Experiment 记录, 返回含 run_id 的记录.
 
-        if mlflow_client and mlflow_experiment_name:
-            try:
-                experiments = await mlflow_client.search_experiments(filter_expr=f"name = '{mlflow_experiment_name}'")
-                if experiments:
-                    mlflow_experiment_id = experiments[0].get("experiment_id")
-            except Exception as e:
-                logger.warning("Failed to lookup MLflow experiment: %s", e)
+        平台预创建 run 并把 run_id 落库, 同时由调用方将其注入容器 ``MLFLOW_RUN_ID``;
+        训练脚本 ``mlflow.start_run(run_id=...)`` 恢复该 run —— 形成 job↔run 1:1 强绑定.
+        Volcano 重试时 env 不变, 脚本 resume 同一 run, 不再产生多 run.
+
+        experiment 与 run 创建都幂等/可重入失败即抛错 (fail-fast): MLflow 不可达时不提交 VCJob,
+        避免留下半截状态.
+
+        Raises:
+            RuntimeError: MLflow experiment 或 run 创建失败
+        """
+        mlflow_client = get_mlflow_client()
+
+        experiment_id = await mlflow_client.get_or_create_experiment(
+            name=mlflow_experiment_name,
+            tags={"kubeai.job_id": str(training_job_id), "kubeai.tenant_id": str(tenant_id)},
+        )
+        if not experiment_id:
+            raise RuntimeError(f"无法创建 MLflow experiment: {mlflow_experiment_name}")
+
+        run_id = await mlflow_client.create_run(
+            experiment_id=experiment_id,
+            run_name=mlflow_experiment_name,
+            tags={"kubeai.job_id": str(training_job_id), "kubeai.tenant_id": str(tenant_id)},
+        )
+        if not run_id:
+            raise RuntimeError(f"无法创建 MLflow run: {mlflow_experiment_name}")
 
         experiment = Experiment(
             tenant_id=tenant_id,
             training_job_id=training_job_id,
-            mlflow_experiment_id=mlflow_experiment_id,
+            mlflow_experiment_id=experiment_id,
+            mlflow_run_id=run_id,
             status="active",
         )
         self.db.add(experiment)
@@ -102,8 +130,7 @@ class ExperimentService:
             result = await self.db.execute(query.order_by(Experiment.created_at.desc()).limit(capped_size))
             experiments = list(result.scalars().all())
 
-            mlflow_client = get_mlflow_client()
-            items = await self._enrich_experiments_batch(experiments, mlflow_client)
+            items = await self._enrich_experiments_batch(experiments)
 
             # Sort by metric latest value
             for item in items:
@@ -140,8 +167,7 @@ class ExperimentService:
         result = await self.db.execute(query.order_by(order_func).offset((page - 1) * page_size).limit(page_size))
         experiments = list(result.scalars().all())
 
-        mlflow_client = get_mlflow_client()
-        items = await self._enrich_experiments_batch(experiments, mlflow_client)
+        items = await self._enrich_experiments_batch(experiments)
 
         return items, total
 
@@ -153,8 +179,7 @@ class ExperimentService:
         if not exp:
             return None
 
-        mlflow_client = get_mlflow_client()
-        return await self._enrich_experiment(exp, mlflow_client, include_full_metrics=True)
+        return await self._enrich_experiment(exp, include_full_metrics=True)
 
     async def get_metric_history(
         self,
@@ -169,22 +194,14 @@ class ExperimentService:
         if not exp:
             return []
 
+        run = await self._latest_run(exp)
+        if not run:
+            return []
+        run_id = run.get("info", {}).get("run_id")
+        if not run_id:
+            return []
+
         mlflow_client = get_mlflow_client()
-        if not mlflow_client:
-            return []
-
-        run_data = None
-        if exp.mlflow_experiment_id:
-            runs = await mlflow_client.search_runs(experiment_ids=[exp.mlflow_experiment_id])
-            if runs:
-                run_data = runs[0]
-        if not run_data and exp.mlflow_run_id:
-            run_data = await mlflow_client.get_run(exp.mlflow_run_id)
-
-        if not run_data:
-            return []
-
-        run_id = run_data["info"]["run_id"]
         history = await mlflow_client.get_metric_history(run_id=run_id, metric_key=metric_key)
 
         return [
@@ -197,45 +214,74 @@ class ExperimentService:
         ]
 
     async def sync_experiment_status(self, training_job_id: uuid.UUID, job_status: str) -> None:
+        """训练任务到达终态时, 同步其 experiment 状态.
+
+        **权威源是 TrainingJob 状态, 不是 MLflow run 状态**. MLflow 的 run 生命周期是
+        客户端驱动的: 训练 Pod 被 SIGTERM 强杀时脚本来不及调 ``mlflow.end_run()``,
+        run 会永远停在 ``RUNNING``, 所以绝不能用 run 状态反推平台状态 (旧实现正是因此
+        把已停止任务的 experiment 锁死在 "active").
+
+        流程: 先按训练任务状态定终态, 再解析 latest run 用于
+          1. 回填 ``mlflow_run_id`` (后续读/直链/终止都受益)
+          2. 细化失败语义 —— run 侧 ``FAILED`` (如 OOM) 比任务状态更精确
+
+        非终态 job_status (running 等) 直接跳过, 不触碰 MLflow.
+        """
         result = await self.db.execute(select(Experiment).where(Experiment.training_job_id == training_job_id))
         experiments = list(result.scalars().all())
         if not experiments:
             return
 
-        status_map = {
-            "succeeded": "completed",
-            "failed": "failed",
-            "stopped": "failed",
-        }
-        new_status = status_map.get(job_status)
+        new_status = _JOB_TO_EXP_STATUS.get(job_status)
         if not new_status:
             return
 
         for exp in experiments:
+            # ① 训练任务状态为权威源: 直接定终态.
             exp.status = new_status
 
+            run = await self._latest_run(exp)
+            # ② MLflow 侧明确失败 → failed (比任务状态更精确, 如评估阶段 OOM 被 run 记录).
+            # 刻意没有 RUNNING→active 回滚: 任务既已终态, run 仍 RUNNING 必是被强杀的僵尸
+            # run, 不应复活状态. 强绑定下 run_id 创建时已落库, 无需在此回填.
+            if run and run.get("info", {}).get("status", "") == "FAILED":
+                exp.status = "failed"
+
+    async def terminate_experiments_for_job(self, training_job_id: uuid.UUID) -> None:
+        """训练任务被停止时, 主动把其 experiment 绑定的 run 在 MLflow 侧置为 ``KILLED``.
+
+        训练 Pod 收到 SIGTERM 被强杀, 脚本来不及执行 ``mlflow.end_run()``, run 会永远停在
+        ``RUNNING``. 本方法在删除 VCJob 之前调用, 通过 ``runs/update`` 主动终结 run, 避免:
+          1. MLflow 里堆积永远 ``RUNNING`` 的僵尸 run
+          2. 后续 ``sync_experiment_status`` 把刚设好的终态又覆盖回 active
+
+        强绑定下 run_id 在创建时已落库, 直接用它终止 (无需先 search/回填).
+        Best-effort: MLflow 不可达或 run 不存在仅 warning, 不影响停止流程.
+        """
+        result = await self.db.execute(select(Experiment).where(Experiment.training_job_id == training_job_id))
+        experiments = list(result.scalars().all())
+        if not experiments:
+            return
+
         mlflow_client = get_mlflow_client()
-        if mlflow_client:
-            for exp in experiments:
-                if exp.mlflow_run_id:
-                    try:
-                        run = await mlflow_client.get_run(exp.mlflow_run_id)
-                        if run:
-                            run_info = run.get("info", {})
-                            run_status = run_info.get("status", "")
-                            if run_status == "FINISHED":
-                                exp.status = "completed"
-                            elif run_status == "FAILED":
-                                exp.status = "failed"
-                            elif run_status == "RUNNING":
-                                exp.status = "active"
-                    except Exception as e:
-                        logger.warning("Failed to sync MLflow run status for %s: %s", exp.mlflow_run_id, e)
+        for exp in experiments:
+            if not exp.mlflow_run_id:
+                continue
+            await mlflow_client.terminate_run(run_id=exp.mlflow_run_id, status="KILLED")
+
+    async def delete_experiment(self, mlflow_experiment_id: str) -> None:
+        """删除 MLflow experiment (软删除, 连带其下所有 run).
+
+        训练任务删除时调用, 清理 MLflow 侧数据避免孤儿 experiment/run. 强绑定保证
+        一个 job 对应一个独立 experiment, 删除安全. Best-effort: 失败仅 warning.
+        """
+        if not mlflow_experiment_id:
+            return
+        await get_mlflow_client().delete_experiment(mlflow_experiment_id)
 
     async def _enrich_experiment(
         self,
         exp: Experiment,
-        mlflow_client: Any | None,
         include_full_metrics: bool = False,
     ) -> dict[str, Any]:
         job_result = await self.db.execute(select(TrainingJob).where(TrainingJob.id == exp.training_job_id))
@@ -257,14 +303,7 @@ class ExperimentService:
                 img_result = await self.db.execute(select(Image.name).where(Image.id == job.image_id))
                 image_name = img_result.scalar_one_or_none()
 
-        hyperparameters: dict[str, str] | None = None
-        metrics: list[dict[str, Any]] | None = None
-        metric_histories: dict[str, list[dict[str, Any]]] | None = None
-
-        if mlflow_client:
-            hyperparameters, metrics, metric_histories = await self._fetch_mlflow_data(
-                mlflow_client, exp, include_full_metrics
-            )
+        hyperparameters, metrics, metric_histories = await self._fetch_mlflow_data(exp, include_full_metrics)
 
         duration_seconds = None
         if job and job.started_at:
@@ -288,7 +327,8 @@ class ExperimentService:
                 "gpu_mode": job.gpu_mode,
                 "worker_count": job.worker_count,
                 "priority": job.priority,
-                "metrics_port": job.metrics_port,
+                "mlflow_enabled": job.mlflow_enabled,
+                "tensorboard_enabled": job.tensorboard_enabled,
             }
 
         return {
@@ -310,23 +350,34 @@ class ExperimentService:
             "training_job": training_job_info,
         }
 
+    async def _latest_run(self, exp: Experiment) -> dict[str, Any] | None:
+        """Resolve the MLflow run bound to this experiment by its stored ``mlflow_run_id``.
+
+        Strong binding: ``mlflow_run_id`` is set at experiment-creation time (the platform
+        pre-creates the run and injects it as ``MLFLOW_RUN_ID``). There is no search fallback
+        — a missing/None run_id means no binding (e.g. rows created before this contract, or
+        the run was deleted server-side).
+
+        Returns ``None`` when there is no bound run.
+        """
+        if not exp.mlflow_run_id:
+            return None
+        return await get_mlflow_client().get_run(exp.mlflow_run_id)
+
     async def _fetch_mlflow_data(
         self,
-        mlflow_client: Any,
         exp: Experiment,
         include_full_metrics: bool = False,
     ) -> tuple[dict[str, str] | None, list[dict[str, Any]] | None, dict[str, list[dict[str, Any]]] | None]:
-        run_data = None
-        if exp.mlflow_experiment_id:
-            runs = await mlflow_client.search_runs(experiment_ids=[exp.mlflow_experiment_id])
-            if runs:
-                run_data = runs[0]
-        if not run_data and exp.mlflow_run_id:
-            run_data = await mlflow_client.get_run(exp.mlflow_run_id)
+        """Fetch params + latest metrics (+ full histories) for an Experiment's latest run."""
+        if not exp.mlflow_run_id and not exp.mlflow_experiment_id:
+            return None, None, None
 
+        run_data = await self._latest_run(exp)
         if not run_data:
             return None, None, None
 
+        mlflow_client = get_mlflow_client()
         data = run_data.get("data", {})
         params = {p["key"]: p["value"] for p in data.get("params", [])}
         raw_metrics = data.get("metrics", [])
@@ -355,10 +406,34 @@ class ExperimentService:
 
         return params if params else None, metrics_list if metrics_list else None, metric_histories
 
+    async def _batch_fetch_mlflow_data(
+        self, experiments: list[Experiment]
+    ) -> dict[uuid.UUID, tuple[dict[str, str] | None, list[dict[str, Any]] | None]]:
+        """一次 search_runs 批量获取所有 experiment 的 run (超参 + 最新指标), 替代 N 次串行 get_run.
+
+        列表页性能关键路径: 强绑定下每个 experiment 恰好一个 run, search_runs(experiment_ids=[...])
+        一次拿回全部, 按 experiment_id 映射. MLflow 不可达时 search_runs 返回 [], 列表降级为只显示
+        DB 字段.
+        """
+        exp_ids = [exp.mlflow_experiment_id for exp in experiments if exp.mlflow_experiment_id]
+        if not exp_ids:
+            return {exp.id: (None, None) for exp in experiments}
+
+        runs = await get_mlflow_client().search_runs(experiment_ids=exp_ids, max_results=len(exp_ids))
+        run_by_exp: dict[str, dict[str, Any]] = {run["info"]["experiment_id"]: run for run in runs}
+
+        result: dict[uuid.UUID, tuple[dict[str, str] | None, list[dict[str, Any]] | None]] = {}
+        for exp in experiments:
+            run = run_by_exp.get(exp.mlflow_experiment_id) if exp.mlflow_experiment_id else None
+            data = run.get("data", {}) if run else {}
+            params = {p["key"]: p["value"] for p in data.get("params", [])} or None
+            metrics = [{"key": m["key"], "value": m["value"]} for m in data.get("metrics", [])][:5] or None
+            result[exp.id] = (params, metrics)
+        return result
+
     async def _enrich_experiments_batch(
         self,
         experiments: list[Experiment],
-        mlflow_client: Any | None,
     ) -> list[dict[str, Any]]:
         """Batch enrich experiments with a single DB query for related entities."""
         if not experiments:
@@ -385,6 +460,8 @@ class ExperimentService:
             for img_row in img_result.all():
                 img_map[img_row[0]] = img_row[1]
 
+        mlflow_data = await self._batch_fetch_mlflow_data(experiments)
+
         items: list[dict[str, Any]] = []
         for exp in experiments:
             job = jobs_by_id.get(exp.training_job_id)
@@ -398,10 +475,7 @@ class ExperimentService:
                 if job.image_id and job.image_id in img_map:
                     image_name = img_map[job.image_id]
 
-            hyperparameters: dict[str, str] | None = None
-            metrics: list[dict[str, Any]] | None = None
-            if mlflow_client:
-                hyperparameters, metrics, _ = await self._fetch_mlflow_data(mlflow_client, exp)
+            hyperparameters, metrics = mlflow_data.get(exp.id, (None, None))
 
             items.append(
                 {
@@ -439,10 +513,7 @@ class ExperimentService:
         if len(experiments) < 2:
             return None
 
-        mlflow_client = get_mlflow_client()
-
-        # Batch enrich for basic info
-        items = await self._enrich_experiments_batch(experiments, mlflow_client)
+        items = await self._enrich_experiments_batch(experiments)
 
         # Collect hyperparameters from TrainingJob (primary) and MLflow params (fallback)
         job_ids = [exp.training_job_id for exp in experiments]
@@ -479,63 +550,57 @@ class ExperimentService:
 
         # Build metric comparison
         metrics_comparison: list[dict[str, Any]] = []
-        if mlflow_client:
-            metric_keys_per_exp: dict[str, set[str]] = {}
-            run_data_cache: dict[str, dict[str, Any] | None] = {}
+        mlflow_client = get_mlflow_client()
+        metric_keys_per_exp: dict[str, set[str]] = {}
+        run_data_cache: dict[str, dict[str, Any] | None] = {}
+
+        for exp in experiments:
+            exp_id_str = str(exp.id)
+            run_data = await self._latest_run(exp)
+
+            run_data_cache[exp_id_str] = run_data
+            if run_data:
+                raw_metrics = run_data.get("data", {}).get("metrics", [])
+                metric_keys_per_exp[exp_id_str] = {m["key"] for m in raw_metrics}
+            else:
+                metric_keys_per_exp[exp_id_str] = set()
+
+        all_metric_keys: set[str] = set()
+        for keys in metric_keys_per_exp.values():
+            all_metric_keys.update(keys)
+
+        # Fetch metric histories concurrently
+        for mkey in sorted(all_metric_keys):
+            series: dict[str, list[dict[str, Any]]] = {}
+            fetch_tasks = []
+            exp_ids_for_key = []
 
             for exp in experiments:
                 exp_id_str = str(exp.id)
-                run_data = None
-                if exp.mlflow_experiment_id:
-                    runs = await mlflow_client.search_runs(experiment_ids=[exp.mlflow_experiment_id])
-                    if runs:
-                        run_data = runs[0]
-                if not run_data and exp.mlflow_run_id:
-                    run_data = await mlflow_client.get_run(exp.mlflow_run_id)
+                if mkey not in metric_keys_per_exp.get(exp_id_str, set()):
+                    continue
+                run_data = run_data_cache.get(exp_id_str)
+                if not run_data:
+                    continue
+                run_id = run_data["info"]["run_id"]
+                fetch_tasks.append(mlflow_client.get_metric_history(run_id=run_id, metric_key=mkey))
+                exp_ids_for_key.append(exp_id_str)
 
-                run_data_cache[exp_id_str] = run_data
-                if run_data:
-                    raw_metrics = run_data.get("data", {}).get("metrics", [])
-                    metric_keys_per_exp[exp_id_str] = {m["key"] for m in raw_metrics}
-                else:
-                    metric_keys_per_exp[exp_id_str] = set()
-
-            all_metric_keys: set[str] = set()
-            for keys in metric_keys_per_exp.values():
-                all_metric_keys.update(keys)
-
-            # Fetch metric histories concurrently
-            for mkey in sorted(all_metric_keys):
-                series: dict[str, list[dict[str, Any]]] = {}
-                fetch_tasks = []
-                exp_ids_for_key = []
-
-                for exp in experiments:
-                    exp_id_str = str(exp.id)
-                    if mkey not in metric_keys_per_exp.get(exp_id_str, set()):
+            if fetch_tasks:
+                gather_results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+                for eid, res in zip(exp_ids_for_key, gather_results, strict=True):
+                    if isinstance(res, Exception):
+                        logger.warning("Failed to fetch metric history for %s: %s", mkey, res)
                         continue
-                    run_data = run_data_cache.get(exp_id_str)
-                    if not run_data:
-                        continue
-                    run_id = run_data["info"]["run_id"]
-                    fetch_tasks.append(mlflow_client.get_metric_history(run_id=run_id, metric_key=mkey))
-                    exp_ids_for_key.append(exp_id_str)
+                    series[eid] = res  # type: ignore[assignment]
 
-                if fetch_tasks:
-                    gather_results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
-                    for eid, res in zip(exp_ids_for_key, gather_results, strict=True):
-                        if isinstance(res, Exception):
-                            logger.warning("Failed to fetch metric history for %s: %s", mkey, res)
-                            continue
-                        series[eid] = res  # type: ignore[assignment]
-
-                if series:
-                    metrics_comparison.append(
-                        {
-                            "metric_key": mkey,
-                            "series": series,
-                        }
-                    )
+            if series:
+                metrics_comparison.append(
+                    {
+                        "metric_key": mkey,
+                        "series": series,
+                    }
+                )
 
         return {
             "experiments": items,

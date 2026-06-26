@@ -23,8 +23,9 @@ class TrainingJobCreateRequest(BaseModel):
     memory: str = Field(default="8Gi")
     priority: str = Field(default="normal", pattern="^(low|normal|high)$")
     worker_count: int = Field(default=1, ge=1, le=16)
-    metrics_port: int | None = None
     source_experiment_id: uuid.UUID | None = None
+    mlflow_enabled: bool = Field(default=False, description="是否启用 MLflow 实验追踪 (默认关闭)")
+    tensorboard_enabled: bool = Field(default=False, description="是否启用 TensorBoard 可视化 (默认关闭)")
 
 
 class TrainingJobResponse(BaseModel):
@@ -53,9 +54,10 @@ class TrainingJobResponse(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     error_message: str | None
-    metrics_port: int | None
     workspace_path: str | None = None
     home_path: str | None = None
+    mlflow_enabled: bool = False
+    tensorboard_enabled: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -117,4 +119,5 @@ class TrainingJobFromEnvironmentRequest(BaseModel):
     priority: str = Field(default="normal", pattern="^(low|normal|high)$")
     worker_count: int = Field(default=1, ge=1, le=16)
     hyperparameters: list[HyperparameterItem] | None = None
-    metrics_port: int | None = None
+    mlflow_enabled: bool = Field(default=False, description="是否启用 MLflow 实验追踪 (默认关闭)")
+    tensorboard_enabled: bool = Field(default=False, description="是否启用 TensorBoard 可视化 (默认关闭)")

@@ -34,11 +34,12 @@ export interface TrainingJob {
   startedAt?: string
   finishedAt?: string
   errorMessage?: string
-  metricsPort?: number
   source?: string
   sourceEnvId?: string
   workspacePath?: string
   homePath?: string
+  mlflowEnabled: boolean
+  tensorboardEnabled: boolean
   createdAt: string
   updatedAt: string
 }
@@ -57,8 +58,9 @@ export interface TrainingJobCreate {
   memory?: string
   priority?: string
   workerCount?: number
-  metricsPort?: number
   sourceExperimentId?: string
+  mlflowEnabled?: boolean
+  tensorboardEnabled?: boolean
 }
 
 export interface PodInfo {

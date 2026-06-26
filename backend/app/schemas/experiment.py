@@ -43,7 +43,8 @@ class TrainingJobInfo(BaseModel):
     gpu_mode: str | None = None
     worker_count: int | None = None
     priority: str | None = None
-    metrics_port: int | None = None
+    mlflow_enabled: bool | None = None
+    tensorboard_enabled: bool | None = None
 
 
 class ExperimentDetailResponse(ExperimentResponse):

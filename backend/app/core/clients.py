@@ -75,13 +75,40 @@ def get_labelstudio_client() -> LabelStudioClient:
     return _labelstudio_client
 
 
-def get_mlflow_client() -> MLflowClient | None:
+def get_mlflow_client() -> MLflowClient:
     global _mlflow_client
-    if _mlflow_client is None and settings.MLFLOW_ENABLED:
+    if _mlflow_client is None:
         from app.integrations.mlflow.client import MLflowClient
 
         _mlflow_client = MLflowClient()
     return _mlflow_client
+
+
+async def _check_mlflow_health() -> bool:
+    """Verify MLflow tracking server is reachable at startup.
+
+    Returns False (and warns) when unreachable rather than raising — MLflow is a
+    per-job opt-in integration, so a transient MLflow outage must not block the
+    whole backend from starting (e.g. during a rollout). Jobs that opt into MLflow
+    will fail individually at experiment-creation time instead.
+    """
+    import httpx
+
+    from app.core.config import settings
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{settings.MLFLOW_TRACKING_URI.rstrip('/')}/health")
+            resp.raise_for_status()
+        return True
+    except Exception as exc:
+        logger.warning(
+            "MLflow tracking server unreachable at %s: %s. MLflow-dependent training jobs "
+            "will fail until it recovers; other platform functionality is unaffected.",
+            settings.MLFLOW_TRACKING_URI,
+            exc,
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -100,8 +127,8 @@ async def init_clients() -> None:
 
     if settings.LABEL_STUDIO_API_TOKEN:
         get_labelstudio_client()
-    if settings.MLFLOW_ENABLED:
-        get_mlflow_client()
+    get_mlflow_client()
+    await _check_mlflow_health()
 
     logger.info("clients_initialized")
 

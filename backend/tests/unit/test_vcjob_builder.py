@@ -19,7 +19,9 @@ class TestBuildVcjobSingle:
         assert result["metadata"]["namespace"] == "kubeai-default"
         assert result["spec"]["minAvailable"] == 1
         assert len(result["spec"]["tasks"]) == 1
-        assert result["spec"]["tasks"][0]["name"] == "trainer"
+        # 单 master 训练 task 命名为 "master" (P0-1 修复: 与分布式场景一致,
+        # 让 TensorBoard Service selector 始终能命中)
+        assert result["spec"]["tasks"][0]["name"] == "master"
         assert result["spec"]["tasks"][0]["replicas"] == 1
         assert "plugins" not in result["spec"]
 
@@ -112,6 +114,28 @@ class TestBuildVcjobSingle:
         assert "MASTER_ADDR" not in env_names
         assert "RANK" not in env_names
         assert "WORLD_SIZE" not in env_names
+
+    def test_python_unbuffered_always_set(self):
+        """PYTHONUNBUFFERED=1 保证训练日志实时可见, 避免 stdout 全缓冲.
+
+        单 master 与分布式所有 task (master + workers) 都必须注入.
+        """
+        for worker_count in (1, 3):
+            result = build_vcjob(
+                vcjob_name="test-job",
+                namespace="kubeai-default",
+                image_ref="pytorch:2.1",
+                command="python train.py",
+                cpu="4",
+                memory="8Gi",
+                gpu_count=1,
+                gpu_mode="exclusive",
+                job_id="ub-123",
+                worker_count=worker_count,
+            )
+            for task in result["spec"]["tasks"]:
+                env = {e["name"]: e["value"] for e in task["template"]["spec"]["containers"][0]["env"]}
+                assert env["PYTHONUNBUFFERED"] == "1"
 
 
 class TestBuildVcjobDistributed:

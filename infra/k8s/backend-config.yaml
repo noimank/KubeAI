@@ -83,8 +83,7 @@ data:
   PROMETHEUS_URL: "http://keda-kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
   API_BASE_URL: "http://backend.kubeai.svc.cluster.local:8000"
 
-  # -- MLflow 实验追踪 (部署 mlflow/ 后启用)
-  MLFLOW_ENABLED: "false"
+  # -- MLflow 实验追踪 (必选基础依赖; 训练任务可选择是否启用, 通过创建任务表单的 "实验追踪" 开关)
   MLFLOW_TRACKING_URI: "http://mlflow.kubeai.svc.cluster.local:5000"
 
   # -- Label Studio 数据标注 (部署 labelstudio/ 后启用)
@@ -101,6 +100,11 @@ data:
 
   # APISIX forward-auth 回源地址 (K8s 集群内可达的后端)
   KUBEAI_BACKEND_INTERNAL_URL: "http://backend.kubeai.svc.cluster.local:8000"
+
+  # -- TensorBoard sidecar 镜像与端口 (由 build_vcjob 注入到 trainer Pod)
+  # 训练任务创建时勾选 "TensorBoard 可视化" 即注入该 sidecar
+  TENSORBOARD_IMAGE: "hub.uimpcloud.com/kubeai/kubeai-tensorboard:latest"
+  TENSORBOARD_PORT: "6006"
 ---
 apiVersion: v1
 kind: Secret

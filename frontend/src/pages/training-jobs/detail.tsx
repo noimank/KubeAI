@@ -326,8 +326,8 @@ export default function TrainingJobDetailPage() {
         />
       )}
 
-      {/* Metrics URL entry point */}
-      {metricsData?.metricsUrl ? (
+      {/* TensorBoard 可视化入口: 仅作业启用了 TensorBoard 时显示 */}
+      {job.tensorboardEnabled && metricsData?.metricsUrl ? (
         <Card
           size="small"
           hoverable
@@ -335,9 +335,9 @@ export default function TrainingJobDetailPage() {
           onClick={() => window.open(metricsData.metricsUrl!, '_blank')}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <DesktopOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+            <DesktopOutlined style={{ fontSize: 24, color: '#722ed1' }} />
             <div>
-              <Typography.Text strong>打开训练指标面板</Typography.Text>
+              <Typography.Text strong>打开 TensorBoard</Typography.Text>
               <br />
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 {metricsData.metricsUrl}
@@ -349,7 +349,7 @@ export default function TrainingJobDetailPage() {
         !metricsLoading && (
           <Card size="small">
             <Typography.Text type="secondary">
-              如需查看 TensorBoard/MLflow，请在创建训练任务时配置指标端口
+              如需 TensorBoard 可视化请在创建训练任务时勾选「TensorBoard 可视化」开关
             </Typography.Text>
           </Card>
         )
@@ -430,6 +430,9 @@ export default function TrainingJobDetailPage() {
           <Descriptions.Item label="内存">{job.memory}</Descriptions.Item>
           <Descriptions.Item label="优先级">
             {job.priority === 'high' ? '高' : job.priority === 'low' ? '低' : '普通'}
+          </Descriptions.Item>
+          <Descriptions.Item label="MLflow 追踪">
+            {job.mlflowEnabled ? <Tag color="green">已启用</Tag> : <Tag>未启用</Tag>}
           </Descriptions.Item>
         </Descriptions>
       </Card>
