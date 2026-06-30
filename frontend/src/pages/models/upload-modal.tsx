@@ -80,7 +80,7 @@ export default function UploadModal({
       confirmLoading={uploadMutation.isPending}
       okText="上传"
       cancelText="取消"
-      destroyOnClose
+      destroyOnHidden
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
         {isVersionMode ? (

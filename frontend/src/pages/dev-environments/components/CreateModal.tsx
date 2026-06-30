@@ -255,7 +255,7 @@ export function CreateModal({
                     </Button>
                   </Space>
                 ))}
-                <Button type="dashed" onClick={() => add()} block>
+                <Button type="dashed" onClick={() => add({ key: '', value: '' })} block>
                   + 添加环境变量
                 </Button>
               </>

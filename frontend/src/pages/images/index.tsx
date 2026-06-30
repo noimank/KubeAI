@@ -504,7 +504,7 @@ function BusinessImagesTab({
         confirmLoading={createMutation.isPending || updateMutation.isPending}
         okText={editingImage ? '保存' : '添加'}
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
         afterOpenChange={(open) => {
           if (!open) {
             form.resetFields()
@@ -589,7 +589,7 @@ function BusinessImagesTab({
         okText="提交构建"
         cancelText="取消"
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={buildForm}
@@ -938,7 +938,7 @@ function DevEnvImagesTab({
         okText={editingImage ? '保存' : '添加'}
         cancelText="取消"
         width={600}
-        destroyOnClose
+        destroyOnHidden
         afterOpenChange={(open) => {
           if (!open) {
             form.resetFields()
