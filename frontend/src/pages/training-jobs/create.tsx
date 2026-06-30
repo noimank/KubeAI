@@ -100,7 +100,7 @@ export default function CreateTrainingJobPage() {
 
   const { data: imagesData } = useQuery({
     queryKey: ['selectableImages'],
-    queryFn: getSelectableImages,
+    queryFn: () => getSelectableImages(),
   })
 
   const datasets = datasetsData?.items ?? []
