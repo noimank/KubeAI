@@ -81,11 +81,13 @@ class MLflowClient:
             logger.warning("MLflow get_run failed for %s: %s", run_id, e)
             return None
 
-    async def get_metric_history(self, *, run_id: str, metric_key: str) -> list[dict[str, Any]]:
+    async def get_metric_history(
+        self, *, run_id: str, metric_key: str, max_results: int = 10_000
+    ) -> list[dict[str, Any]]:
         try:
             resp = await self._client.get(
                 "/api/2.0/mlflow/metrics/get-history",
-                params={"run_id": run_id, "metric_key": metric_key},
+                params={"run_id": run_id, "metric_key": metric_key, "max_results": max_results},
             )
             resp.raise_for_status()
             data: dict[str, Any] = resp.json()
