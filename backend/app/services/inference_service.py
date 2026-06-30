@@ -29,7 +29,7 @@ from app.integrations.k8s.deployment import (
     get_deployment,
     patch_deployment,
 )
-from app.integrations.k8s.inference_route import inference_access_url, put_inference_route
+from app.integrations.k8s.inference_route import inference_access_url, inference_path, put_inference_route
 from app.integrations.k8s.kubeai_volumes import (
     build_chown_init_container,
     build_kubeai_env_vars,
@@ -345,6 +345,11 @@ class InferenceServiceService:
 
         init_containers.append(build_chown_init_container(name="inference-init", volume_mounts=volume_mounts))
         final_env_vars = build_kubeai_env_vars(extra=env_vars)
+        # 注入 ROOT_PATH (= /inference/<hex>) —— 告知应用平台对外访问前缀.
+        # 前端代码 / OpenAPI docs / 跳转等如需生成正确的外部 URL 可读此变量拼接;
+        # 不消费它的存量应用行为不变 (proxy-rewrite 仍剥前缀, 上游见原生路径).
+        # 注意: ROOT_PATH(URL 前缀) 与 KUBEAI_ROOT_PATH(容器文件系统根 /kubeai) 无关.
+        final_env_vars["ROOT_PATH"] = inference_path(svc.id)
 
         dep_body = build_deployment(
             name=k8s_name,

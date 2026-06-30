@@ -62,13 +62,14 @@ def test_is_route_ready(kwargs: dict[str, object], expected: bool) -> None:
 # ── payload 构建 ──────────────────────────────────────────────────────────────
 
 
-def test_payload_targets_service_clusterip_and_has_auth_and_rewrite() -> None:
+def test_payload_targets_service_clusterip_has_auth_and_rewrite() -> None:
     svc = _make_svc(k8s_service_name="m1", container_port=8000, status="running")
     payload = _build_apisix_route_payload(svc=svc, namespace=_NAMESPACE)
 
     hex_id = svc.id.hex
     assert payload["id"] == hex_id
-    assert payload["uri"] == f"/inference/{hex_id}/*"
+    # 同时匹配裸路径与带子路径 —— 无尾斜杠的访问也能命中, 不会落到平台 SPA 兜底路由.
+    assert payload["uris"] == [f"/inference/{hex_id}", f"/inference/{hex_id}/*"]
     assert payload["enable_websocket"] is True
     assert payload["priority"] == 100
 
@@ -79,8 +80,11 @@ def test_payload_targets_service_clusterip_and_has_auth_and_rewrite() -> None:
     assert fa["upstream_headers"] == ["X-KubeAI-User"]
     assert f"/api/inference-services/auth-check?service_id={svc.id}" in fa["uri"]
 
-    # proxy-rewrite 剥 /inference/<hex>/ 前缀
-    assert payload["plugins"]["proxy-rewrite"]["regex_uri"] == [f"^/inference/{hex_id}/(.*)", "/$1"]
+    # proxy-rewrite 剥 /inference/<hex> 前缀, /?(.*) 覆盖裸路径与带子路径.
+    assert payload["plugins"]["proxy-rewrite"]["regex_uri"] == [
+        f"^/inference/{hex_id}/?(.*)",
+        "/$1",
+    ]
 
     # upstream 直连推理 Service 的集群内 ClusterIP (model/custom 统一).
     assert payload["upstream"]["nodes"] == {f"m1.{_NAMESPACE}.svc.cluster.local:8000": 1}

@@ -4,10 +4,14 @@
 由 forward-auth 回 backend 校验, upstream 直连推理 Service 的 ClusterIP,
 不再经 backend Python 反代.
 
-  * 浏览器 Cookie (kubeai_access_token JWT) 鉴权, 与 dev_env / tensorboard 统一,
-    forward-auth 转发 ``Cookie`` / ``Authorization`` 头, 回 ``/api/inference-services/auth-check``.
-  * upstream 路径剥前缀 (``/inference/<hex>/``), 透传运行时原生路径给上游
-    (如 vLLM 的 /v1/completions), 用 proxy-rewrite 实现.
+  * proxy-rewrite 剥 /inference/<hex>/ 前缀, 上游收到原生路径 (如 /v1/completions).
+    存量应用不受影响 — 从上游看来请求仍在根路径上, 无需改造.
+  * 部署时注入 ``ROOT_PATH=/inference/<hex>`` 环境变量, 应用可读它生成正确的外部 URL
+    (redirects / OpenAPI docs / 前端 fetch 等). 这只是告知"平台的访问前缀是什么",
+    不影响 proxy 侧的前缀剥离; 不消费此变量的存量应用行为不变.
+  * ``uris`` 同时匹配裸路径 (``/inference/<hex>``) 与带子路径 (``/inference/<hex>/*``),
+    避免无尾斜杠的 URL 落到平台 SPA 兜底路由.
+    注意: ``ROOT_PATH``(URL 前缀契约) 与 ``KUBEAI_ROOT_PATH``(容器文件系统根 /kubeai) 无关.
 
 推理服务统一为自定义运行时 Deployment + ClusterIP Service (KServe 已移除).
 """
@@ -89,8 +93,12 @@ def _stable_upstream_node(svc: InferenceService, namespace: str) -> str:
 def _build_apisix_route_payload(*, svc: InferenceService, namespace: str) -> dict[str, Any]:
     """Build an APISIX Admin API route payload for an inference service.
 
-    Path ``/inference/<hex>/*`` 经 proxy-rewrite 剥前缀后透传给上游推理 Service
-    (运行时原生路径, 如 vLLM 的 /v1/completions).
+    路由通过 ``uris`` 同时匹配裸路径与带子路径, proxy-rewrite 剥掉
+    ``/inference/<hex>`` 前缀后透传原生路径给上游; 存量应用行为不变.
+
+    部署时注入的 ``ROOT_PATH`` 环境变量告知应用平台访问前缀 —— 应用
+    可据此生成正确的外部 URL (OpenAPI docs / 前端 fetch / 跳转等),
+    但不消费它的存量应用完全不受影响.
     """
     hex_id = _service_id_hex(svc.id)
     path = inference_path(svc.id)
@@ -106,9 +114,13 @@ def _build_apisix_route_payload(*, svc: InferenceService, namespace: str) -> dic
             "request_headers": ["Cookie", "Authorization"],
             "upstream_headers": ["X-KubeAI-User"],
         },
-        # 剥 /inference/<hex>/ 前缀, 透传运行时原生路径给上游.
+        # 剥 /inference/<hex> 前缀, 上游收到原生路径.
+        # ^(path)/?(.*) 同时覆盖裸路径与带子路径:
+        #   /inference/<hex>       → $2=""  → /
+        #   /inference/<hex>/foo   → $2="foo" → /foo
+        #   /inference/<hex>/a/b   → $2="a/b" → /a/b
         "proxy-rewrite": {
-            "regex_uri": [f"^{path}/(.*)", "/$1"],
+            "regex_uri": [f"^{path}/?(.*)", "/$1"],
         },
     }
 
@@ -116,7 +128,8 @@ def _build_apisix_route_payload(*, svc: InferenceService, namespace: str) -> dic
         "id": hex_id,
         "name": _resource_name(svc.id),
         "status": 1,
-        "uri": f"{path}/*",
+        # 同时匹配裸路径与带子路径 —— 裸路径匹配修复 Bug 1 (无尾斜杠 URL 落 SPA).
+        "uris": [path, f"{path}/*"],
         "host": host_from_frontend_url(),
         "priority": 100,
         "enable_websocket": True,  # 支持流式 / WebSocket 推理
