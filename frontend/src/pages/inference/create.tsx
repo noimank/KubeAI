@@ -37,6 +37,7 @@ interface FormValues {
   containerPort?: number
   command?: string
   args?: string
+  envVars?: { key?: string; value?: string }[]
   description?: string
   scalingMode?: 'fixed' | 'auto'
   minReplicas?: number
@@ -107,6 +108,12 @@ export default function CreateInferenceServicePage() {
       const values = await form.validateFields()
       const isAuto = values.scalingMode === 'auto'
 
+      const envVars = values.envVars?.reduce((acc: Record<string, string>, item) => {
+        const key = item.key?.trim()
+        if (key) acc[key] = item.value ?? ''
+        return acc
+      }, {})
+
       const res: InferenceServiceCreateResult = await createInferenceService({
         name: values.name,
         gpuCount: values.gpuCount,
@@ -118,6 +125,7 @@ export default function CreateInferenceServicePage() {
         containerPort: values.containerPort,
         command: values.command ? values.command.split(/\s+/).filter(Boolean) : undefined,
         args: values.args ? values.args.split(/\s+/).filter(Boolean) : undefined,
+        envVars: envVars && Object.keys(envVars).length > 0 ? envVars : undefined,
         description: values.description || undefined,
         autoScaling: isAuto
           ? {
@@ -188,6 +196,35 @@ export default function CreateInferenceServicePage() {
           </Form.Item>
           <Form.Item name="args" label="启动参数" extra="空格分隔，追加到命令之后">
             <Input placeholder="如 --host 0.0.0.0 --port 8080" />
+          </Form.Item>
+
+          <Form.Item label="环境变量">
+            <Form.List name="envVars">
+              {(fields, { add, remove }) => (
+                <>
+                  {fields.map(({ key, name, ...restField }) => (
+                    <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'key']}
+                        rules={[{ required: true, message: '请输入变量名' }]}
+                      >
+                        <Input placeholder="变量名" style={{ width: 200 }} />
+                      </Form.Item>
+                      <Form.Item {...restField} name={[name, 'value']}>
+                        <Input placeholder="变量值" style={{ width: 280 }} />
+                      </Form.Item>
+                      <Button type="link" danger onClick={() => remove(name)}>
+                        删除
+                      </Button>
+                    </Space>
+                  ))}
+                  <Button type="dashed" onClick={() => add({ key: '', value: '' })} block>
+                    + 添加环境变量
+                  </Button>
+                </>
+              )}
+            </Form.List>
           </Form.Item>
 
           {/* 可选: 从模型注册仓库选择模型版本 (通过 MinIO initContainer 拉取到 /kubeai/models). */}
@@ -410,7 +447,9 @@ function ConfirmStep({ form }: { form: FormInstance<FormValues> }) {
 
   return (
     <Descriptions column={2} bordered size="small">
-      <Descriptions.Item label="服务名称">{values.name}</Descriptions.Item>
+      <Descriptions.Item label="服务名称" span={2}>
+        {values.name}
+      </Descriptions.Item>
       <Descriptions.Item label="描述" span={2}>
         {values.description || '—'}
       </Descriptions.Item>
@@ -423,6 +462,20 @@ function ConfirmStep({ form }: { form: FormInstance<FormValues> }) {
       </Descriptions.Item>
       <Descriptions.Item label="容器端口">{values.containerPort ?? '—'}</Descriptions.Item>
       <Descriptions.Item label="启动命令">{values.command || <Tag>默认</Tag>}</Descriptions.Item>
+      <Descriptions.Item label="启动参数" span={2}>
+        {values.args || <Tag>默认</Tag>}
+      </Descriptions.Item>
+      {values.envVars && values.envVars.filter((e) => e?.key?.trim()).length > 0 ? (
+        <Descriptions.Item label="环境变量" span={2}>
+          {values.envVars
+            .filter((e) => e?.key?.trim())
+            .map((e, idx) => (
+              <Tag key={idx} style={{ marginBottom: 4 }}>
+                {e?.key?.trim()}={e?.value || ''}
+              </Tag>
+            ))}
+        </Descriptions.Item>
+      ) : null}
       <Descriptions.Item label="GPU">{values.gpuCount ?? 0} 张</Descriptions.Item>
       <Descriptions.Item label="CPU">{values.cpu} 核</Descriptions.Item>
       <Descriptions.Item label="内存">{values.memory}</Descriptions.Item>

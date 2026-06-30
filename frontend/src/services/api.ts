@@ -15,18 +15,33 @@ function toCamelCase(str: string): string {
   return str.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
 }
 
+// 不递归转换其内部键名的白名单字段 —— 例如 env_vars 的值是以用户自定义
+// 环境变量名为 key 的 dict，不应被驼峰/下划线风格转换。
+const SKIP_RECURSE_KEYS = new Set(['env_vars', 'envVars'])
+
 function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
 }
 
-function transformKeys<T>(obj: T, transformer: (key: string) => string): T {
+function transformKeys<T>(
+  obj: T,
+  transformer: (key: string) => string,
+  skipRecurseKeys?: Set<string>,
+): T {
   if (obj === null || obj === undefined) return obj
   if (obj instanceof FormData || obj instanceof File || obj instanceof Blob) return obj
-  if (Array.isArray(obj)) return obj.map((item) => transformKeys(item, transformer)) as T
+  if (Array.isArray(obj))
+    return obj.map((item) => transformKeys(item, transformer, skipRecurseKeys)) as T
   if (typeof obj === 'object' && obj.constructor === Object) {
     const result: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(obj)) {
-      result[transformer(key)] = transformKeys(value, transformer)
+      const newKey = transformer(key)
+      // 白名单字段的值原样透传，不递归转换其内部键名
+      // 例如 env_vars 的 key 是用户自定义环境变量名，不应被驼峰/下划线转换
+      result[newKey] =
+        skipRecurseKeys?.has(key) || skipRecurseKeys?.has(newKey)
+          ? value
+          : transformKeys(value, transformer, skipRecurseKeys)
     }
     return result as T
   }
@@ -45,20 +60,20 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`
   }
   if (config.data && !(config.data instanceof FormData)) {
-    config.data = transformKeys(config.data, toSnakeCase)
+    config.data = transformKeys(config.data, toSnakeCase, SKIP_RECURSE_KEYS)
   }
   if (config.data instanceof FormData) {
     delete config.headers['Content-Type']
   }
   if (config.params) {
-    config.params = transformKeys(config.params, toSnakeCase)
+    config.params = transformKeys(config.params, toSnakeCase, SKIP_RECURSE_KEYS)
   }
   return config
 })
 
 api.interceptors.response.use(
   (response) => {
-    response.data = transformKeys(response.data, toCamelCase)
+    response.data = transformKeys(response.data, toCamelCase, SKIP_RECURSE_KEYS)
     return response
   },
   (error) => {
