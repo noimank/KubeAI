@@ -61,7 +61,7 @@ async def _init_admin_user() -> None:
                 User(
                     username="admin",
                     email="admin@163.com",
-                    hashed_password=await hash_password("Admin123456"),
+                    hashed_password=await hash_password("Admin@123456"),
                     role=UserRole.ADMIN,
                     is_active=True,
                     tenant_id=tenant.id,

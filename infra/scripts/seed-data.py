@@ -48,13 +48,13 @@ async def seed() -> None:
             admin = User(
                 username="admin",
                 email="admin@163.com",
-                hashed_password=hash_password("Admin123456"),
+                hashed_password=hash_password("Admin@123456"),
                 role=UserRole.ADMIN,
                 is_active=True,
                 tenant_id=tenant.id,
             )
             session.add(admin)
-            print("Created admin user: admin / Admin123456")
+            print("Created admin user: admin / Admin@123456")
         else:
             print(f"Admin user already exists: {admin.username}")
 

@@ -54,7 +54,7 @@ pnpm dev                      # 启动 http://localhost:3000，自动代理 /api
 
 ### 默认账号
 
-启动后自动创建管理员：`admin` / `Admin123456`
+启动后自动创建管理员：`admin` / `Admin@123456`
 
 ## 基础设施组件说明
 

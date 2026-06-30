@@ -89,7 +89,7 @@ async def test_login_api(async_client: AsyncClient):
         "/api/auth/login",
         json={
             "username": "admin",
-            "password": "Admin123456",
+            "password": "Admin@123456",
         },
     )
     assert response.status_code == 200
