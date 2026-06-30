@@ -31,6 +31,15 @@ class ImageCreateRequest(BaseModel):
             raise ValueError("镜像标签只能包含字母,数字,点,下划线和连字符, 且以字母或数字开头")
         return v
 
+    @field_validator("image_ref")
+    @classmethod
+    def validate_image_ref(cls, v: str) -> str:
+        # 去除首尾空白: K8s 拒绝含首尾空格的 image (用户粘贴时常带入换行/空格).
+        v = v.strip()
+        if not v:
+            raise ValueError("镜像引用不能为空")
+        return v
+
 
 class ImageUpdateRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=200)
@@ -51,6 +60,17 @@ class ImageUpdateRequest(BaseModel):
     def validate_tag(cls, v: str | None) -> str | None:
         if v is not None and not _IMAGE_TAG_RE.match(v):
             raise ValueError("镜像标签只能包含字母,数字,点,下划线和连字符, 且以字母或数字开头")
+        return v
+
+    @field_validator("image_ref")
+    @classmethod
+    def validate_image_ref(cls, v: str | None) -> str | None:
+        # 去除首尾空白: K8s 拒绝含首尾空格的 image (用户粘贴时常带入换行/空格).
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("镜像引用不能为空")
         return v
 
 
