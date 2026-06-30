@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.models.enums import BuildStatus
+from app.models.enums import BuildStatus, ImageCategory
 
 _IMAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _IMAGE_TAG_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
@@ -15,6 +15,7 @@ class ImageCreateRequest(BaseModel):
     tag: str = Field(..., min_length=1, max_length=100)
     image_ref: str = Field(..., min_length=1, max_length=500)
     description: str | None = None
+    category: ImageCategory = Field(default=ImageCategory.TRAINING)
 
     @field_validator("name")
     @classmethod
@@ -36,6 +37,7 @@ class ImageUpdateRequest(BaseModel):
     tag: str | None = Field(None, min_length=1, max_length=100)
     image_ref: str | None = Field(None, min_length=1, max_length=500)
     description: str | None = None
+    category: ImageCategory | None = None
 
     @field_validator("name")
     @classmethod
@@ -59,6 +61,7 @@ class ImageResponse(BaseModel):
     image_ref: str
     description: str | None = None
     source: str
+    category: ImageCategory
     is_enabled: bool
     tenant_id: uuid.UUID | None = None
     build_status: BuildStatus | None = None
@@ -73,6 +76,7 @@ class ImageSelectableResponse(BaseModel):
     tag: str
     image_ref: str
     source: str
+    category: ImageCategory
 
 
 class ImageBuildRequest(BaseModel):
@@ -80,6 +84,7 @@ class ImageBuildRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200, description="目标镜像名称")
     tag: str = Field(..., min_length=1, max_length=100, description="目标镜像标签")
     description: str | None = Field(None, description="镜像描述")
+    category: ImageCategory = Field(default=ImageCategory.TRAINING, description="镜像分类")
 
     @field_validator("name")
     @classmethod
@@ -104,5 +109,6 @@ class ImageBuildLogResponse(BaseModel):
 class ImageListQuery(BaseModel):
     keyword: str | None = None
     source: str | None = None
+    category: str | None = None
     page: int = Field(1, ge=1)
     page_size: int = Field(20, ge=1, le=100)

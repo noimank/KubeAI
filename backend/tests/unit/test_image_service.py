@@ -26,6 +26,7 @@ def _make_image(**overrides):
         "image_ref": "pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime",
         "source": "preset",
         "is_enabled": True,
+        "category": "training",
     }
     defaults.update(overrides)
     img = Image(**defaults)
@@ -44,6 +45,7 @@ def _make_custom_image(**overrides):
         "image_ref": "harbor.local/kubeai-test/my-custom:v1.0",
         "source": "custom",
         "is_enabled": True,
+        "category": "training",
         "tenant_id": tenant_id,
         "build_status": BuildStatus.SUCCEEDED,
         "dockerfile": "FROM python:3.12\nRUN pip install numpy",

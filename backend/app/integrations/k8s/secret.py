@@ -73,7 +73,11 @@ async def get_secret(namespace: str, name: str) -> dict[str, str] | None:
 
 
 async def create_s3_credentials_secret(namespace: str) -> client.V1Secret:
-    """Create S3 credentials secret for tenant namespace (MinIO access)."""
+    """Create S3 credentials secret for tenant namespace (MinIO access).
+
+    ``AWS_ENDPOINT_URL`` is required by the model-pull initContainer (minio/mc) —
+    without it mc/boto3 resolve to AWS S3 instead of the in-cluster MinIO.
+    """
     return await create_secret(
         namespace=namespace,
         name=S3_SECRET_NAME,
@@ -81,6 +85,7 @@ async def create_s3_credentials_secret(namespace: str) -> client.V1Secret:
             "AWS_ACCESS_KEY_ID": settings.MINIO_ACCESS_KEY,
             "AWS_SECRET_ACCESS_KEY": settings.MINIO_SECRET_KEY,
             "AWS_DEFAULT_REGION": "us-east-1",
+            "AWS_ENDPOINT_URL": settings.MINIO_INTERNAL_ENDPOINT,
         },
     )
 

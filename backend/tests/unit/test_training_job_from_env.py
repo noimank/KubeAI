@@ -42,6 +42,7 @@ def _make_image(**overrides):
         "image_ref": "pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime",
         "source": "preset",
         "is_enabled": True,
+        "category": "training",
     }
     defaults.update(overrides)
     img = Image(**defaults)

@@ -1,4 +1,5 @@
 export type BuildStatus = 'pending' | 'building' | 'pushing' | 'succeeded' | 'failed'
+export type ImageCategory = 'training' | 'inference' | 'other'
 
 export interface Image {
   id: string
@@ -7,6 +8,7 @@ export interface Image {
   imageRef: string
   description?: string
   source: string
+  category: ImageCategory
   isEnabled: boolean
   tenantId?: string
   buildStatus?: BuildStatus
@@ -20,6 +22,7 @@ export interface ImageCreateParams {
   tag: string
   imageRef: string
   description?: string
+  category?: ImageCategory
 }
 
 export interface ImageUpdateParams {
@@ -27,6 +30,7 @@ export interface ImageUpdateParams {
   tag?: string
   imageRef?: string
   description?: string
+  category?: ImageCategory
 }
 
 export interface ImageBuildParams {
@@ -34,6 +38,7 @@ export interface ImageBuildParams {
   name: string
   tag: string
   description?: string
+  category?: ImageCategory
 }
 
 export interface ImageBuildLog {
@@ -47,4 +52,5 @@ export interface ImageSelectable {
   tag: string
   imageRef: string
   source: string
+  category: ImageCategory
 }

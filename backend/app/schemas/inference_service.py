@@ -9,7 +9,7 @@ class AutoScalingConfig(BaseModel):
     scaling_mode: Literal["fixed", "auto"] = "fixed"
     min_replicas: int = Field(default=0, ge=0, le=100)
     max_replicas: int = Field(default=1, ge=1, le=100)
-    target_metric_type: Literal["concurrency", "cpu"] | None = None
+    target_metric_type: Literal["gpu", "cpu"] | None = None
     target_metric_value: int | None = Field(default=None, ge=1)
     cooldown_period: int = Field(default=300, ge=0, le=3600)
     polling_interval: int = Field(default=30, ge=5, le=300)
@@ -28,14 +28,13 @@ class AutoScalingConfig(BaseModel):
 
 class InferenceServiceCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    service_type: Literal["model", "custom"] = "model"
-    model_version_id: uuid.UUID | None = None
     gpu_count: int = Field(default=0, ge=0)
     cpu: str = Field(default="2")
     memory: str = Field(default="4Gi")
     replicas: int = Field(default=1, ge=1)
     image: str | None = None
     image_id: uuid.UUID | None = None
+    model_version_id: uuid.UUID | None = None
     container_port: int | None = Field(default=None, ge=1, le=65535)
     command: list[str] | None = None
     args: list[str] | None = None
@@ -44,15 +43,11 @@ class InferenceServiceCreateRequest(BaseModel):
     auto_scaling: AutoScalingConfig | None = None
 
     @model_validator(mode="after")
-    def _validate_service_type(self) -> "InferenceServiceCreateRequest":
-        if self.service_type == "model":
-            if self.model_version_id is None:
-                raise ValueError("模型推理服务必须指定模型版本")
-        elif self.service_type == "custom":
-            if self.image_id is None and not self.image:
-                raise ValueError("自定义容器服务必须选择镜像")
-            if self.container_port is None:
-                raise ValueError("自定义容器服务必须指定容器端口")
+    def _validate_required(self) -> "InferenceServiceCreateRequest":
+        if self.image_id is None and not self.image:
+            raise ValueError("必须选择推理运行时镜像")
+        if self.container_port is None:
+            raise ValueError("必须指定容器端口")
         return self
 
 
@@ -60,8 +55,8 @@ class ModelVersionSummary(BaseModel):
     id: uuid.UUID
     version_number: int
     registered_model_id: uuid.UUID
+    model_name: str = ""
     status: str
-    storage_path: str | None = None
 
 
 class InferenceServiceResponse(BaseModel):
@@ -71,7 +66,6 @@ class InferenceServiceResponse(BaseModel):
     tenant_id: uuid.UUID
     created_by: uuid.UUID
     name: str
-    service_type: str = "model"
     model_version_id: uuid.UUID | None = None
     image: str | None
     container_port: int | None = None
@@ -84,7 +78,6 @@ class InferenceServiceResponse(BaseModel):
     min_replicas: int
     max_replicas: int
     status: str
-    kserve_name: str | None
     endpoint_url: str | None
     proxy_endpoint: str | None
     has_token: bool = False
@@ -96,10 +89,6 @@ class InferenceServiceResponse(BaseModel):
     target_metric_value: int | None = None
     cooldown_period: int = 300
     polling_interval: int = 30
-    canary_status: str = "none"
-    canary_model_version_id: uuid.UUID | None = None
-    canary_traffic_percent: int | None = None
-    canary_kserve_name: str | None = None
     created_at: datetime
     updated_at: datetime
     model_version: ModelVersionSummary | None = None
@@ -133,7 +122,7 @@ class AutoScalingUpdateRequest(BaseModel):
     scaling_mode: Literal["fixed", "auto"] = "auto"
     min_replicas: int = Field(default=0, ge=0, le=100)
     max_replicas: int = Field(default=1, ge=1, le=100)
-    target_metric_type: Literal["concurrency", "cpu"] | None = None
+    target_metric_type: Literal["gpu", "cpu"] | None = None
     target_metric_value: int | None = Field(default=None, ge=1)
     cooldown_period: int = Field(default=300, ge=0, le=3600)
     polling_interval: int = Field(default=30, ge=5, le=300)
@@ -159,24 +148,6 @@ class InferenceServiceEventResponse(BaseModel):
     count: int
     first_timestamp: datetime | None
     last_timestamp: datetime | None
-
-
-class CanaryStartRequest(BaseModel):
-    canary_model_version_id: uuid.UUID
-    canary_traffic_percent: int = Field(default=10, ge=1, le=99)
-
-
-class CanaryTrafficUpdateRequest(BaseModel):
-    canary_traffic_percent: int = Field(..., ge=0, le=100)
-
-
-class CanaryStatusResponse(BaseModel):
-    canary_status: str
-    canary_model_version: ModelVersionSummary | None = None
-    canary_traffic_percent: int | None = None
-    stable_traffic_percent: int | None = None
-    canary_endpoint_url: str | None = None
-    canary_events: list[InferenceServiceEventResponse] = []
 
 
 class GpuMetricPoint(BaseModel):

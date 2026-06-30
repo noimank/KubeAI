@@ -12,7 +12,6 @@ import structlog
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.core.config import settings
 from app.core.exceptions import (
     AppException,
     ConflictException,
@@ -23,12 +22,16 @@ from app.core.exceptions import (
 from app.core.ws_pubsub import publish_status_changed
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.dev_pod import dev_access_url, get_dev_pod_manager
+from app.integrations.k8s.kubeai_volumes import (
+    build_kubeai_env_vars,
+    build_kubeai_volumes,
+    dataset_mount_path,
+)
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.network_policy import create_tenant_network_policy
 from app.integrations.k8s.pvc import (
     make_dataset_host_path,
     make_user_home_host_path,
-    make_workspace_host_path,
 )
 from app.integrations.k8s.resource_quota import get_quota_used
 from app.integrations.k8s.secret import ensure_registry_pull_secret
@@ -47,8 +50,6 @@ if TYPE_CHECKING:
     from app.schemas.dev_environment import DatasetMountRequest
 
 logger = structlog.get_logger(__name__)
-
-KUBEAI_CONTAINER_ROOT = "/kubeai"
 
 
 class DevEnvironmentService:
@@ -290,15 +291,9 @@ class DevEnvironmentService:
         if env.gpu_count > 0:
             await self._check_gpu_quota(namespace, tenant.gpu_limit, env.gpu_count)
 
-        workspace_host_path = make_workspace_host_path(tenant.name)
-        user_home_host_path = make_user_home_host_path(username)
-        home_path = self._home_path()
-        workspace_path = self._workspace_path()
-
         volumes, volume_mounts = self._rebuild_volumes_from_mounted(
+            username=username,
             tenant_name=tenant.name,
-            workspace_host_path=workspace_host_path,
-            user_home_host_path=user_home_host_path,
             mounted_datasets=env.mounted_datasets,
         )
 
@@ -306,7 +301,7 @@ class DevEnvironmentService:
         try:
             await create_tenant_network_policy(namespace)
             pull_secret_name = await ensure_registry_pull_secret(namespace)
-            final_env_vars = self._build_env_vars(env, home_path=home_path, workspace_path=workspace_path)
+            final_env_vars = self._build_env_vars(env)
 
             await pod_mgr.create(
                 env_id=env.id,
@@ -355,15 +350,6 @@ class DevEnvironmentService:
     # Internal: paths & volumes
     # ------------------------------------------------------------------
 
-    def _home_path(self) -> str:
-        return f"{KUBEAI_CONTAINER_ROOT}/home"
-
-    def _workspace_path(self) -> str:
-        return f"{KUBEAI_CONTAINER_ROOT}/workspace"
-
-    def _dataset_mount_path(self, dataset_name: str, version_number: int) -> str:
-        return f"{KUBEAI_CONTAINER_ROOT}/datasets/{sanitize_k8s_name(dataset_name)}/v{version_number}"
-
     async def _resolve_mounted_datasets(
         self,
         *,
@@ -385,7 +371,7 @@ class DevEnvironmentService:
                     "version_id": str(version.id),
                     "version_number": version.version_number,
                     "host_path": make_dataset_host_path(tenant_name, dataset.name, version.version_number),
-                    "mount_path": self._dataset_mount_path(dataset.name, version.version_number),
+                    "mount_path": dataset_mount_path(dataset.name, version.version_number),
                 }
             )
         return info or None
@@ -393,20 +379,13 @@ class DevEnvironmentService:
     def _rebuild_volumes_from_mounted(
         self,
         *,
+        username: str,
         tenant_name: str,
-        workspace_host_path: str,
-        user_home_host_path: str,
         mounted_datasets: list[dict[str, Any]] | None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Rebuild K8s volumes/mounts from persisted mounted_datasets metadata."""
-        volumes: list[dict[str, Any]] = [
-            {"name": "home-volume", "hostPath": {"path": user_home_host_path, "type": "DirectoryOrCreate"}},
-            {"name": "workspace-volume", "hostPath": {"path": workspace_host_path, "type": "DirectoryOrCreate"}},
-        ]
-        mounts: list[dict[str, Any]] = [
-            {"name": "home-volume", "mountPath": self._home_path()},
-            {"name": "workspace-volume", "mountPath": self._workspace_path()},
-        ]
+        # home/workspace 卷走共享函数 (与推理服务同源); 数据集卷为 dev 独有, 自行 append.
+        volumes, mounts = build_kubeai_volumes(username=username, tenant_name=tenant_name)
 
         for md in mounted_datasets or []:
             version_number = int(md["version_number"])
@@ -417,7 +396,7 @@ class DevEnvironmentService:
             mounts.append(
                 {
                     "name": vol_name,
-                    "mountPath": self._dataset_mount_path(dataset_name, version_number),
+                    "mountPath": dataset_mount_path(dataset_name, version_number),
                     "readOnly": True,
                 }
             )
@@ -431,22 +410,9 @@ class DevEnvironmentService:
     def _build_env_vars(
         self,
         env: DevEnvironment,
-        *,
-        workspace_path: str,
-        home_path: str,
     ) -> dict[str, str]:
-        merged: dict[str, str] = {}
-        if env.env_vars:
-            merged.update(env.env_vars)
-        if settings.BACKEND_API_URL:
-            merged["KUBEAI_API_URL"] = settings.BACKEND_API_URL
-        merged["KUBEAI_ENV_ID"] = str(env.id)
-        merged["KUBEAI_ROOT_PATH"] = KUBEAI_CONTAINER_ROOT
-        merged["KUBEAI_WORKSPACE_PATH"] = workspace_path
-        merged["KUBEAI_HOME_PATH"] = home_path
-        merged["HOME"] = home_path  # Ensure shell/tools use persistent home
-        merged["SHELL"] = "/bin/bash"  # Explicit shell for terminal integration
-        return merged
+        # 共享 env 构建器; KUBEAI_* / HOME / SHELL 框架键优先于 env.env_vars.
+        return build_kubeai_env_vars(env_id=str(env.id), extra=env.env_vars)
 
     # ------------------------------------------------------------------
     # Internal: algorithm extraction

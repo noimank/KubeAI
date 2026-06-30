@@ -53,6 +53,7 @@ async def _create_image(client: AsyncClient, headers: dict, **overrides) -> dict
         "name": _unique("pytorch"),
         "tag": "2.1.0-cuda12.1",
         "image_ref": f"{_unique('img')}/pytorch:2.1.0-cuda12.1",
+        "category": "training",
     }
     defaults.update(overrides)
     resp = await client.post("/api/images", json=defaults, headers=headers)

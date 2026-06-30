@@ -4,6 +4,7 @@ import type {
   Image,
   ImageBuildLog,
   ImageBuildParams,
+  ImageCategory,
   ImageCreateParams,
   ImageSelectable,
   ImageUpdateParams,
@@ -14,6 +15,7 @@ export async function getImages(params: {
   pageSize: number
   keyword?: string
   source?: string
+  category?: ImageCategory
 }): Promise<PageData<Image>> {
   const { current, pageSize, ...rest } = params
   const res = await api.get<BaseResponse<PageData<Image>>>('/images', {
@@ -62,7 +64,9 @@ export async function rebuildImage(id: string): Promise<Image> {
   return res.data.data!
 }
 
-export async function getSelectableImages(): Promise<ImageSelectable[]> {
-  const res = await api.get<BaseResponse<ImageSelectable[]>>('/images/selectable')
+export async function getSelectableImages(category?: ImageCategory): Promise<ImageSelectable[]> {
+  const res = await api.get<BaseResponse<ImageSelectable[]>>('/images/selectable', {
+    params: category ? { category } : undefined,
+  })
   return res.data.data!
 }

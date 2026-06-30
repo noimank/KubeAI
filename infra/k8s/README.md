@@ -41,18 +41,6 @@ infra/k8s/
 │   ├── volcano.yaml             #   helm template 渲染，可直接 kubectl apply
 │   ├── 99-default-queue.yaml    #   KubeAI VCJob 默认 Queue
 │   └── README.md
-├── kserve/                      # KServe 模型推理服务
-│   ├── 00-namespace.yaml        #   kserve 命名空间
-│   ├── kserve-crd.yaml          #   CRDs (helm template 渲染，必须先安装)
-│   ├── kserve.yaml              #   Controller + Webhooks
-│   ├── kserve-cluster-resources.yaml # ClusterServingRuntime 后置资源
-│   ├── README.md
-│   └── istio/                   #   Istio 入站链路 (KServe 依赖)
-│       ├── istio-operator.yaml  #     IstioOperator 最小化配置
-│       ├── istio-manifest.yaml   #     IstioManifest 生成配置 (generate.sh 渲染)
-│       ├── kserve-gateway.yaml  #     Gateway + IngressClass
-│       ├── install.sh           #     一键安装脚本
-│       └── generate.sh           #     Manifest 生成脚本 (helm template + yq)
 ├── keda/                        # KEDA 自动扩缩容
 │   ├── 00-namespace.yaml        #   keda 命名空间
 │   ├── keda.yaml                #   helm template 渲染
@@ -183,14 +171,7 @@ kubectl apply -f infra/k8s/volcano/volcano.yaml
 kubectl wait --for=condition=Established --timeout=60s crd/jobs.batch.volcano.sh crd/queues.scheduling.volcano.sh
 kubectl apply -f infra/k8s/volcano/99-default-queue.yaml
 
-# KServe 推理链路 (需要 Istio + cert-manager，详见 kserve/README.md)
-bash infra/k8s/kserve/istio/install.sh
-kubectl apply -f infra/k8s/kserve/00-namespace.yaml
-kubectl apply --server-side -f infra/k8s/kserve/kserve-crd.yaml
-kubectl wait --for=condition=Established --timeout=60s crd/inferenceservices.serving.kserve.io crd/servingruntimes.serving.kserve.io crd/clusterservingruntimes.serving.kserve.io
-kubectl apply -f infra/k8s/kserve/kserve.yaml
-kubectl apply --server-side -f infra/k8s/kserve/kserve-cluster-resources.yaml
-
+# 推理服务为原生 Deployment + ClusterIP Service，由后端动态创建；弹性伸缩需要 KEDA
 kubectl apply -f infra/k8s/keda/00-namespace.yaml
 kubectl apply --server-side -f infra/k8s/keda/keda.yaml
 kubectl apply -f infra/k8s/harbor/harbor.yaml          # 镜像仓库
@@ -236,10 +217,6 @@ namespace.yaml
   │
   └── 平台组件
       ├── volcano/           ← backend 训练任务调度 (需要 RBAC 权限)
-      ├── kserve/            ← backend 推理服务管理 (需要 RBAC 权限)
-      │   ├── kserve-crd.yaml   (CRDs，必须先安装)
-      │   ├── kserve.yaml       (Controller + Webhooks)
-      │   └── istio/            (Istio + Gateway，KServe 入站依赖)
       ├── keda/              ← 推理服务自动扩缩容 (需要 RBAC 权限)
       ├── harbor/            ← 自定义镜像构建
       ├── monitoring/        ← 监控命名空间 (prometheus/dcgm-exporter 依赖)
@@ -262,7 +239,6 @@ namespace.yaml
 | `rbac.authorization.k8s.io` | roles, rolebindings | get, list, create, update, delete | 租户 RBAC |
 | `batch.volcano.sh` | jobs | get, list, create, delete, watch | 训练任务 |
 | `scheduling.volcano.sh` | queues, podgroups | get, list | Volcano 调度 |
-| `serving.kserve.io` | inferenceservices | get, list, create, delete, patch, watch | 推理服务 |
 | `keda.sh` | scaledobjects | get, list, create, delete, patch | 自动扩缩容 |
 
 ## 端口映射 (本地访问)
@@ -327,11 +303,6 @@ kubectl delete -f infra/k8s/frontend/
 kubectl delete -f infra/k8s/backend/
 kubectl delete -f infra/k8s/keda/keda.yaml --ignore-not-found
 kubectl delete -f infra/k8s/keda/00-namespace.yaml --ignore-not-found
-
-kubectl delete -f infra/k8s/kserve/kserve-cluster-resources.yaml --ignore-not-found
-kubectl delete -f infra/k8s/kserve/kserve.yaml --ignore-not-found
-kubectl delete -f infra/k8s/kserve/kserve-crd.yaml --ignore-not-found
-kubectl delete -f infra/k8s/kserve/00-namespace.yaml --ignore-not-found
 
 kubectl delete -f infra/k8s/volcano/99-default-queue.yaml --ignore-not-found
 kubectl delete -f infra/k8s/volcano/volcano.yaml --ignore-not-found

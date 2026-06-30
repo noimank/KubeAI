@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.taskiq_app import broker, interval_to_cron
 from app.core.ws_pubsub import publish_ws_event
+from app.integrations.k8s.inference_route import delete_inference_route
 from app.models.enums import InferenceServiceStatus
 from app.models.inference_service import InferenceService
 from app.services.inference_service import InferenceServiceService
@@ -146,84 +147,27 @@ async def scale_inference_service_task(service_id: str, tenant_id: str, replicas
     max_retries=1,
 )
 async def delete_inference_service_task(
-    service_type: str,
     namespace: str,
     scaling_mode: str,
-    kserve_name: str = "",
     k8s_deployment_name: str = "",
     k8s_service_name: str = "",
-    canary_kserve_name: str = "",
+    service_id: str = "",
 ) -> dict[str, Any]:
     """删除推理服务 K8s 资源 (由 Taskiq worker 执行, DB 记录已由 API 删除)."""
     from app.services.inference_service import InferenceServiceService
 
+    # 先断 APISIX 入口, 再清 K8s (参照 tensorboard 先删路由后删资源的顺序).
+    if service_id:
+        await delete_inference_route(uuid.UUID(service_id))
+
     await InferenceServiceService.cleanup_k8s_resources(
-        service_type=service_type,
         namespace=namespace,
         scaling_mode=scaling_mode,
-        kserve_name=kserve_name or None,
         k8s_deployment_name=k8s_deployment_name or None,
         k8s_service_name=k8s_service_name or None,
-        canary_kserve_name=canary_kserve_name or None,
     )
 
     return {"status": "deleted"}
-
-
-# ── Canary tasks ──────────────────────────────────────────────────────────────
-
-
-@broker.task(
-    task_name="app.tasks.inference_service.canary_start",
-    retry_on_error=True,
-    max_retries=settings.TASK_MAX_RETRIES,
-)
-async def start_canary_task(service_id: str, tenant_id: str) -> dict[str, Any]:
-    """部署金丝雀版本 K8s InferenceService (由 Taskiq worker 执行)."""
-    try:
-        async with async_session_factory() as db:
-            svc = InferenceServiceService(db)
-            await svc.execute_canary_start(uuid.UUID(service_id), uuid.UUID(tenant_id))
-    except Exception as exc:
-        logger.warning("start_canary_error", service_id=service_id, error=str(exc))
-        async with async_session_factory() as db:
-            result = await db.execute(select(InferenceService).where(InferenceService.id == uuid.UUID(service_id)))
-            svc_obj = result.scalar_one_or_none()
-            if svc_obj and svc_obj.canary_status != "none":
-                svc_obj.canary_status = "failed"
-                svc_obj.error_message = f"金丝雀部署失败: {exc}"
-                await db.commit()
-        raise
-
-    return {"service_id": service_id, "status": "canary_started"}
-
-
-@broker.task(
-    task_name="app.tasks.inference_service.canary_promote",
-    retry_on_error=True,
-    max_retries=1,
-)
-async def promote_canary_task(service_id: str, tenant_id: str) -> dict[str, Any]:
-    """提升金丝雀为稳定版本 — K8s 操作 (由 Taskiq worker 执行)."""
-    async with async_session_factory() as db:
-        svc = InferenceServiceService(db)
-        await svc.execute_canary_promote(uuid.UUID(service_id), uuid.UUID(tenant_id))
-
-    return {"service_id": service_id, "status": "canary_promoted"}
-
-
-@broker.task(
-    task_name="app.tasks.inference_service.canary_rollback",
-    retry_on_error=True,
-    max_retries=1,
-)
-async def rollback_canary_task(service_id: str, tenant_id: str) -> dict[str, Any]:
-    """回滚金丝雀版本 — K8s 清理 (由 Taskiq worker 执行)."""
-    async with async_session_factory() as db:
-        svc = InferenceServiceService(db)
-        await svc.execute_canary_rollback(uuid.UUID(service_id), uuid.UUID(tenant_id))
-
-    return {"service_id": service_id, "status": "canary_rolled_back"}
 
 
 # ── Scheduled sync task ───────────────────────────────────────────────────────
@@ -262,32 +206,16 @@ async def enqueue_inference_service_scale(service_id: uuid.UUID, tenant_id: uuid
 
 
 async def enqueue_inference_service_delete(
-    service_type: str,
     namespace: str,
     scaling_mode: str,
-    kserve_name: str | None,
     k8s_deployment_name: str | None,
     k8s_service_name: str | None,
-    canary_kserve_name: str | None,
+    service_id: uuid.UUID | None = None,
 ) -> None:
     await delete_inference_service_task.kiq(
-        service_type,
         namespace,
         scaling_mode,
-        kserve_name or "",
         k8s_deployment_name or "",
         k8s_service_name or "",
-        canary_kserve_name or "",
+        str(service_id) if service_id else "",
     )
-
-
-async def enqueue_canary_start(service_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-    await start_canary_task.kiq(str(service_id), str(tenant_id))
-
-
-async def enqueue_canary_promote(service_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-    await promote_canary_task.kiq(str(service_id), str(tenant_id))
-
-
-async def enqueue_canary_rollback(service_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-    await rollback_canary_task.kiq(str(service_id), str(tenant_id))

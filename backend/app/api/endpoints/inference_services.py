@@ -2,25 +2,23 @@ import uuid
 from datetime import datetime
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+import redis.asyncio as aioredis
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
+from app.core.auth_helpers import resolve_identity_from_request
 from app.core.clients import get_prometheus_client
-from app.core.exceptions import ForbiddenException
+from app.core.exceptions import ForbiddenException, UnauthorizedException
+from app.core.redis import get_redis
 from app.integrations.k8s.deployment import list_deployment_events
 from app.integrations.k8s.namespace import make_namespace_name
-from app.integrations.kserve.client import list_inference_service_events
+from app.models.enums import InferenceServiceStatus, UserRole
 from app.models.inference_service import InferenceService
-from app.models.registered_model import ModelVersion
 from app.models.tenant import Tenant
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.inference_service import (
     AutoScalingUpdateRequest,
-    CanaryStartRequest,
-    CanaryStatusResponse,
-    CanaryTrafficUpdateRequest,
     InferenceServiceCreateRequest,
     InferenceServiceCreateResponse,
     InferenceServiceEventResponse,
@@ -33,9 +31,6 @@ from app.schemas.inference_service import (
 )
 from app.services.inference_service import InferenceServiceService
 from app.tasks.inference_service_tasks import (
-    enqueue_canary_promote,
-    enqueue_canary_rollback,
-    enqueue_canary_start,
     enqueue_inference_service_delete,
     enqueue_inference_service_deploy,
     enqueue_inference_service_scale,
@@ -57,27 +52,28 @@ def _require_tenant_id(user: object) -> uuid.UUID:
     return cast("uuid.UUID", tenant_id)
 
 
+def _extract_bearer_token(request: Request) -> str | None:
+    """从 Authorization: Bearer 头提取推理服务级 sk-token (APISIX forward-auth 转发)."""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+    return None
+
+
 def _to_response(svc: InferenceService) -> InferenceServiceResponse:
     resp = InferenceServiceResponse.model_validate(svc)
     resp.has_token = svc.auth_token_hash is not None
     resp.error_message = svc.error_message
-    return resp
-
-
-async def _enrich_with_model_version(db: AsyncSession, svc: InferenceServiceResponse) -> InferenceServiceResponse:
-    if svc.model_version_id is None:
-        return svc
-    result = await db.execute(select(ModelVersion).where(ModelVersion.id == svc.model_version_id))
-    version = result.scalar_one_or_none()
-    if version:
-        svc.model_version = ModelVersionSummary(
-            id=version.id,
-            version_number=version.version_number,
-            registered_model_id=version.registered_model_id,
-            status=version.status,
-            storage_path=version.storage_path,
+    if svc.model_version is not None:
+        mv = svc.model_version
+        resp.model_version = ModelVersionSummary(
+            id=mv.id,
+            version_number=mv.version_number,
+            registered_model_id=mv.registered_model_id,
+            model_name=mv.model.name if mv.model else "",
+            status=mv.status,
         )
-    return svc
+    return resp
 
 
 @router.post("", response_model=BaseResponse[InferenceServiceCreateResponse])
@@ -92,8 +88,6 @@ async def create_inference_service(
         tenant_id=tenant_id,
         user_id=user.id,
         name=req.name,
-        service_type=req.service_type,
-        model_version_id=req.model_version_id,
         gpu_count=req.gpu_count,
         cpu=req.cpu,
         memory=req.memory,
@@ -106,12 +100,12 @@ async def create_inference_service(
         env_vars=req.env_vars,
         description=req.description,
         auto_scaling=req.auto_scaling,
+        model_version_id=req.model_version_id,
     )
     await enqueue_inference_service_deploy(svc.id, tenant_id)
     resp = InferenceServiceCreateResponse.model_validate(
         {**{k: v for k, v in svc.__dict__.items() if not k.startswith("_")}, "auth_token": api_token, "has_token": True}
     )
-    await _enrich_with_model_version(db, resp)
     return BaseResponse(data=resp, message="推理服务创建任务已提交")
 
 
@@ -136,10 +130,53 @@ async def list_inference_services(
     resp_list = []
     for svc in items:
         r = _to_response(svc)
-        r = await _enrich_with_model_version(db, r)
         resp_list.append(r)
     page_data = PageData(items=resp_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
+
+
+@router.get("/auth-check", include_in_schema=False)
+async def auth_check_inference_service(
+    request: Request,
+    service_id: Annotated[uuid.UUID, Query()],
+    db: DbDep,
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
+) -> Response:
+    """APISIX forward-auth 回调: 双通道鉴权.
+
+    1. 浏览器访问 (前后端小项目类服务): Cookie 里的 kubeai_access_token (JWT),
+       走 IdentityResolver + 服务归属校验.
+    2. 程序化访问 (纯后端 API 对外服务): Authorization: Bearer sk-xxx (服务级
+       token), 反查 auth_token_hash + service_id 匹配.
+
+    必须注册在 ``/{service_id}`` 之前, 否则被 catch-all path 参数抢路由.
+    2xx 放行, 401/403 由 APISIX 直接拦截 (请求到不了推理 upstream).
+    """
+    # 通道 1 — 平台登录 Cookie (浏览器).
+    identity = await resolve_identity_from_request(request, db, redis)
+    if identity:
+        if not identity.tenant_id:
+            raise ForbiddenException("需要租户上下文")
+        service = InferenceServiceService(db)
+        try:
+            svc = await service.get_inference_service(service_id, identity.tenant_id)
+        except Exception:
+            raise ForbiddenException("推理服务不存在或无权访问") from None
+        if svc.status != InferenceServiceStatus.RUNNING:
+            raise ForbiddenException("推理服务未运行")
+        if svc.created_by != identity.id and identity.role not in (UserRole.ADMIN, UserRole.MLOPS):
+            raise ForbiddenException("无权访问此推理服务")
+        return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
+
+    # 通道 2 — 服务级 sk-token (程序化对外调用).
+    token = _extract_bearer_token(request)
+    if token:
+        svc_token = await InferenceServiceService.get_service_by_token(db, token)
+        if svc_token and svc_token.id == service_id and svc_token.status == InferenceServiceStatus.RUNNING:
+            return Response(status_code=200)
+        raise UnauthorizedException("无效的 API Token")
+
+    raise UnauthorizedException("未登录或未提供认证 Token")
 
 
 @router.get("/{service_id}", response_model=BaseResponse[InferenceServiceResponse])
@@ -152,7 +189,6 @@ async def get_inference_service(
     tenant_id = _require_tenant_id(user)
     svc = await service.get_inference_service(service_id, tenant_id)
     resp = _to_response(svc)
-    resp = await _enrich_with_model_version(db, resp)
     return BaseResponse(data=resp, message="获取成功")
 
 
@@ -216,13 +252,11 @@ async def delete_inference_service(
 
     svc = await service.delete_inference_service(service_id, tenant_id)
     await enqueue_inference_service_delete(
-        service_type=svc.service_type,
         namespace=namespace,
         scaling_mode=svc.scaling_mode,
-        kserve_name=svc.kserve_name,
         k8s_deployment_name=svc.k8s_deployment_name,
         k8s_service_name=svc.k8s_service_name,
-        canary_kserve_name=svc.canary_kserve_name,
+        service_id=svc.id,
     )
     resp = _to_response(svc)
     return BaseResponse(data=resp, message="推理服务已删除")
@@ -272,10 +306,8 @@ async def get_inference_service_events(
     tenant = await db.get(Tenant, tenant_id)
     namespace = (tenant.k8s_namespace_name or make_namespace_name(tenant.name)) if tenant else ""
 
-    if svc.service_type == "custom" and svc.k8s_deployment_name:
+    if svc.k8s_deployment_name:
         raw_events = await list_deployment_events(namespace, svc.k8s_deployment_name)
-    elif svc.kserve_name:
-        raw_events = await list_inference_service_events(namespace, svc.kserve_name)
     else:
         return BaseResponse(data=[], message="获取成功")
     events = [
@@ -313,127 +345,3 @@ async def get_inference_service_metrics(
         step=step,
     )
     return BaseResponse(data=InferenceServiceMetricsResponse(**data), message="获取成功")
-
-
-# ── Canary endpoints ────────────────────────────────────────────────────────
-
-
-@router.post("/{service_id}/canary/start", response_model=BaseResponse[InferenceServiceResponse])
-async def start_canary(
-    service_id: uuid.UUID,
-    req: CanaryStartRequest,
-    db: DbDep,
-    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "write"))],
-) -> BaseResponse[InferenceServiceResponse]:
-    service = InferenceServiceService(db)
-    tenant_id = _require_tenant_id(user)
-    svc = await service.start_canary(service_id, tenant_id, req)
-    await enqueue_canary_start(svc.id, tenant_id)
-    resp = _to_response(svc)
-    await _enrich_with_model_version(db, resp)
-    return BaseResponse(data=resp, message="金丝雀版本部署中")
-
-
-@router.patch("/{service_id}/canary/traffic", response_model=BaseResponse[InferenceServiceResponse])
-async def update_canary_traffic(
-    service_id: uuid.UUID,
-    req: CanaryTrafficUpdateRequest,
-    db: DbDep,
-    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "write"))],
-) -> BaseResponse[InferenceServiceResponse]:
-    service = InferenceServiceService(db)
-    tenant_id = _require_tenant_id(user)
-    svc = await service.update_canary_traffic(service_id, tenant_id, req)
-    # 100% → 触发异步 promote, 0% → 触发异步 rollback
-    if req.canary_traffic_percent == 100:
-        await enqueue_canary_promote(svc.id, tenant_id)
-    elif req.canary_traffic_percent == 0:
-        await enqueue_canary_rollback(svc.id, tenant_id)
-    resp = _to_response(svc)
-    await _enrich_with_model_version(db, resp)
-    return BaseResponse(data=resp, message="金丝雀流量已调整")
-
-
-@router.post("/{service_id}/canary/promote", response_model=BaseResponse[InferenceServiceResponse])
-async def promote_canary(
-    service_id: uuid.UUID,
-    db: DbDep,
-    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "manage"))],
-) -> BaseResponse[InferenceServiceResponse]:
-    service = InferenceServiceService(db)
-    tenant_id = _require_tenant_id(user)
-    svc = await service.promote_canary(service_id, tenant_id)
-    await enqueue_canary_promote(svc.id, tenant_id)
-    resp = _to_response(svc)
-    await _enrich_with_model_version(db, resp)
-    return BaseResponse(data=resp, message="金丝雀版本已提升为稳定版本")
-
-
-@router.post("/{service_id}/canary/rollback", response_model=BaseResponse[InferenceServiceResponse])
-async def rollback_canary(
-    service_id: uuid.UUID,
-    db: DbDep,
-    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "write"))],
-) -> BaseResponse[InferenceServiceResponse]:
-    service = InferenceServiceService(db)
-    tenant_id = _require_tenant_id(user)
-    svc = await service.rollback_canary(service_id, tenant_id)
-    await enqueue_canary_rollback(svc.id, tenant_id)
-    resp = _to_response(svc)
-    await _enrich_with_model_version(db, resp)
-    return BaseResponse(data=resp, message="金丝雀版本已回滚")
-
-
-@router.get("/{service_id}/canary/status", response_model=BaseResponse[CanaryStatusResponse])
-async def get_canary_status(
-    service_id: uuid.UUID,
-    db: DbDep,
-    user: Annotated[CurrentUser, Depends(require_permission("inference_services", "read"))],
-) -> BaseResponse[CanaryStatusResponse]:
-    tenant_id = _require_tenant_id(user)
-    service = InferenceServiceService(db)
-    svc = await service.get_inference_service(service_id, tenant_id)
-
-    canary_model_version: ModelVersionSummary | None = None
-    if svc.canary_model_version_id:
-        result = await db.execute(select(ModelVersion).where(ModelVersion.id == svc.canary_model_version_id))
-        version = result.scalar_one_or_none()
-        if version:
-            canary_model_version = ModelVersionSummary(
-                id=version.id,
-                version_number=version.version_number,
-                registered_model_id=version.registered_model_id,
-                status=version.status,
-                storage_path=version.storage_path,
-            )
-
-    canary_endpoint_url = await service.get_canary_endpoint_url(svc, tenant_id)
-
-    canary_events: list[InferenceServiceEventResponse] = []
-    if svc.canary_kserve_name and svc.canary_status != "none":
-        tenant = await db.get(Tenant, tenant_id)
-        namespace = (tenant.k8s_namespace_name or make_namespace_name(tenant.name)) if tenant else ""
-        raw_events = await list_inference_service_events(namespace, svc.canary_kserve_name)
-        canary_events = [
-            InferenceServiceEventResponse(
-                type=e["type"],
-                reason=e["reason"],
-                message=e["message"],
-                involved_object_kind=e["involved_object_kind"],
-                involved_object_name=e["involved_object_name"],
-                count=e["count"],
-                first_timestamp=datetime.fromisoformat(e["first_timestamp"]) if e.get("first_timestamp") else None,
-                last_timestamp=datetime.fromisoformat(e["last_timestamp"]) if e.get("last_timestamp") else None,
-            )
-            for e in raw_events
-        ]
-
-    data = CanaryStatusResponse(
-        canary_status=svc.canary_status,
-        canary_model_version=canary_model_version,
-        canary_traffic_percent=svc.canary_traffic_percent,
-        stable_traffic_percent=100 - svc.canary_traffic_percent if svc.canary_traffic_percent is not None else None,
-        canary_endpoint_url=canary_endpoint_url,
-        canary_events=canary_events,
-    )
-    return BaseResponse(data=data, message="获取成功")

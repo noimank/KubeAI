@@ -23,12 +23,6 @@ const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   stopped: { color: 'default', text: '已停止' },
 }
 
-const CANARY_STATUS_CONFIG: Record<string, { color: string; text: string }> = {
-  deploying: { color: 'processing', text: '金丝雀部署中' },
-  running: { color: 'success', text: '金丝雀运行' },
-  failed: { color: 'error', text: '金丝雀失败' },
-}
-
 export default function InferencePage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -102,29 +96,6 @@ export default function InferencePage() {
       ),
     },
     {
-      title: '类型',
-      dataIndex: 'serviceType',
-      width: 100,
-      render: (val: string) =>
-        val === 'custom' ? <Tag color="purple">自定义</Tag> : <Tag color="blue">模型</Tag>,
-    },
-    {
-      title: '模型版本',
-      width: 150,
-      render: (_: unknown, record: InferenceService) => {
-        if (record.serviceType === 'custom')
-          return <Typography.Text type="secondary">—</Typography.Text>
-        if (!record.modelVersion) return <Typography.Text type="secondary">—</Typography.Text>
-        return (
-          <Typography.Text>
-            {record.modelVersion.versionNumber
-              ? `v${record.modelVersion.versionNumber}`
-              : record.modelVersion.id.slice(0, 8)}
-          </Typography.Text>
-        )
-      },
-    },
-    {
       title: '状态',
       dataIndex: 'status',
       width: 100,
@@ -143,28 +114,6 @@ export default function InferencePage() {
       title: '副本数',
       dataIndex: 'replicas',
       width: 80,
-    },
-    {
-      title: '金丝雀',
-      width: 120,
-      render: (_: unknown, record: InferenceService) => {
-        if (record.canaryStatus === 'none' || !record.canaryStatus)
-          return <Typography.Text type="secondary">—</Typography.Text>
-        const cfg = CANARY_STATUS_CONFIG[record.canaryStatus] || {
-          color: 'default',
-          text: record.canaryStatus,
-        }
-        return (
-          <Space size={4}>
-            <Tag color={cfg.color} style={{ fontSize: 11 }}>
-              {cfg.text}
-            </Tag>
-            {record.canaryTrafficPercent != null && (
-              <span style={{ fontSize: 11, color: '#666' }}>{record.canaryTrafficPercent}%</span>
-            )}
-          </Space>
-        )
-      },
     },
     {
       title: '推理端点',

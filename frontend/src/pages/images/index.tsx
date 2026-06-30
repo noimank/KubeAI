@@ -31,7 +31,13 @@ import {
   updateImage,
   buildImage,
 } from '@/services/images'
-import type { Image, ImageCreateParams, ImageUpdateParams, BuildStatus } from '@/types/image'
+import type {
+  Image,
+  ImageCategory,
+  ImageCreateParams,
+  ImageUpdateParams,
+  BuildStatus,
+} from '@/types/image'
 import {
   getDevEnvironmentImages,
   createDevEnvironmentImage,
@@ -58,6 +64,13 @@ const SOURCE_TABS = [
   { label: '全部', value: 'all' },
   { label: '预置', value: 'preset' },
   { label: '自定义', value: 'custom' },
+]
+
+const CATEGORY_TABS = [
+  { label: '全部', value: 'all' },
+  { label: '训练', value: 'training' },
+  { label: '推理', value: 'inference' },
+  { label: '其他', value: 'other' },
 ]
 
 const ENV_TYPE_TABS = [
@@ -161,6 +174,7 @@ function BusinessImagesTab({
 }) {
   const queryClient = useQueryClient()
   const [sourceFilter, setSourceFilter] = useState<string>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingImage, setEditingImage] = useState<Image | null>(null)
@@ -177,13 +191,14 @@ function BusinessImagesTab({
   const canBuild = hasPermission('images:build')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['images', page, pageSize, keyword, sourceFilter],
+    queryKey: ['images', page, pageSize, keyword, sourceFilter, categoryFilter],
     queryFn: () =>
       getImages({
         current: page,
         pageSize,
         keyword,
         source: sourceFilter === 'all' ? undefined : sourceFilter,
+        category: categoryFilter === 'all' ? undefined : (categoryFilter as ImageCategory),
       }),
     refetchInterval: (query) =>
       query.state.data?.items?.some(
@@ -315,6 +330,20 @@ function BusinessImagesTab({
       ),
     },
     {
+      title: '分类',
+      dataIndex: 'category',
+      width: 90,
+      render: (val: ImageCategory) => {
+        const cfg =
+          val === 'inference'
+            ? { color: 'geekblue', text: '推理' }
+            : val === 'training'
+              ? { color: 'green', text: '训练' }
+              : { color: 'default', text: '其他' }
+        return <Tag color={cfg.color}>{cfg.text}</Tag>
+      },
+    },
+    {
       title: '构建状态',
       dataIndex: 'buildStatus',
       width: 100,
@@ -409,6 +438,14 @@ function BusinessImagesTab({
               onResetPage()
             }}
           />
+          <Segmented
+            options={CATEGORY_TABS}
+            value={categoryFilter}
+            onChange={(val) => {
+              setCategoryFilter(val as string)
+              onResetPage()
+            }}
+          />
           <Input.Search
             placeholder="搜索镜像名称"
             allowClear
@@ -479,6 +516,7 @@ function BusinessImagesTab({
               tag: editingImage.tag,
               imageRef: editingImage.imageRef,
               description: editingImage.description,
+              category: editingImage.category,
             })
           }
         }}
@@ -500,7 +538,7 @@ function BusinessImagesTab({
           </Form.Item>
           <Form.Item
             name="tag"
-            label="镜像标签"
+            label="标签"
             rules={[
               { required: true, message: '请输入镜像标签' },
               { max: 100 },
@@ -517,7 +555,24 @@ function BusinessImagesTab({
             label="完整镜像地址"
             rules={[{ required: true, message: '请输入镜像地址' }, { max: 500 }]}
           >
-            <Input placeholder="如 pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime" maxLength={500} />
+            <Input
+              placeholder="如 pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime 或 mysql:latest"
+              maxLength={500}
+            />
+          </Form.Item>
+          <Form.Item
+            name="category"
+            label="分类"
+            initialValue="training"
+            rules={[{ required: true, message: '请选择分类' }]}
+          >
+            <Select
+              options={[
+                { label: '训练', value: 'training' },
+                { label: '推理', value: 'inference' },
+                { label: '其他', value: 'other' },
+              ]}
+            />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea placeholder="镜像描述（可选）" rows={3} />
@@ -540,7 +595,7 @@ function BusinessImagesTab({
           form={buildForm}
           layout="vertical"
           style={{ marginTop: 16 }}
-          initialValues={{ tag: 'latest' }}
+          initialValues={{ tag: 'latest', category: 'training' }}
         >
           <Form.Item
             name="dockerfile"
@@ -569,7 +624,7 @@ function BusinessImagesTab({
           </Form.Item>
           <Form.Item
             name="tag"
-            label="目标标签"
+            label="标签"
             rules={[
               { required: true, message: '请输入目标标签' },
               { max: 100 },
@@ -580,6 +635,19 @@ function BusinessImagesTab({
             ]}
           >
             <Input placeholder="如 v1.0" maxLength={100} showCount />
+          </Form.Item>
+          <Form.Item
+            name="category"
+            label="分类"
+            rules={[{ required: true, message: '请选择分类' }]}
+          >
+            <Select
+              options={[
+                { label: '训练', value: 'training' },
+                { label: '推理', value: 'inference' },
+                { label: '其他', value: 'other' },
+              ]}
+            />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea placeholder="镜像描述（可选）" rows={2} />

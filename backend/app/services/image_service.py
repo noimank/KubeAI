@@ -40,6 +40,7 @@ class ImageService:
         self,
         keyword: str | None = None,
         source: str | None = None,
+        category: str | None = None,
         tenant_id: uuid.UUID | None = None,
         page: int = 1,
         page_size: int = 20,
@@ -52,6 +53,8 @@ class ImageService:
             query = query.where(Image.name.ilike(f"%{keyword}%"))
         if source:
             query = query.where(Image.source == source)
+        if category:
+            query = query.where(Image.category == category)
 
         total_q = select(func.count()).select_from(query.subquery())
         total = (await self.db.execute(total_q)).scalar_one()
@@ -64,25 +67,24 @@ class ImageService:
     async def get_image(self, image_id: uuid.UUID) -> Image:
         return await self._get_image_or_fail(image_id)
 
-    async def list_selectable_images(self, tenant_id: uuid.UUID) -> list[Image]:
-        stmt = (
-            select(Image)
-            .where(
-                Image.deleted_at.is_(None),
-                Image.is_enabled.is_(True),
-                or_(
-                    and_(Image.source == "preset", Image.tenant_id.is_(None)),
-                    and_(
-                        Image.source == "custom",
-                        Image.tenant_id == tenant_id,
-                        Image.build_status == BuildStatus.SUCCEEDED,
-                    ),
+    async def list_selectable_images(self, tenant_id: uuid.UUID, *, category: str | None = None) -> list[Image]:
+        stmt = select(Image).where(
+            Image.deleted_at.is_(None),
+            Image.is_enabled.is_(True),
+            or_(
+                and_(Image.source == "preset", Image.tenant_id.is_(None)),
+                and_(
+                    Image.source == "custom",
+                    Image.tenant_id == tenant_id,
+                    Image.build_status == BuildStatus.SUCCEEDED,
                 ),
-            )
-            .order_by(
-                case((Image.source == "preset", 0), else_=1),
-                Image.created_at.desc(),
-            )
+            ),
+        )
+        if category:
+            stmt = stmt.where(Image.category == category)
+        stmt = stmt.order_by(
+            case((Image.source == "preset", 0), else_=1),
+            Image.created_at.desc(),
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
@@ -94,6 +96,7 @@ class ImageService:
         image_ref: str,
         description: str | None = None,
         source: str = "preset",
+        category: str = "training",
         audit_context: dict[str, Any] | None = None,
     ) -> Image:
         existing = await self.db.execute(select(Image).where(Image.image_ref == image_ref, Image.deleted_at.is_(None)))
@@ -106,6 +109,7 @@ class ImageService:
             image_ref=image_ref,
             description=description,
             source=source,
+            category=category,
             is_enabled=True,
         )
         self.db.add(image)
@@ -209,6 +213,7 @@ class ImageService:
         tag: str,
         description: str | None,
         tenant_id: uuid.UUID,
+        category: str = "training",
         audit_context: dict[str, Any] | None = None,
     ) -> Image:
         """创建镜像构建记录 (仅 DB 操作, 构建由 Taskiq worker 异步执行)."""
@@ -221,6 +226,7 @@ class ImageService:
             image_ref=f"pending-{name}:{tag}",
             description=description,
             source="custom",
+            category=category,
             tenant_id=tenant_id,
             build_status=BuildStatus.PENDING,
             dockerfile=dockerfile,

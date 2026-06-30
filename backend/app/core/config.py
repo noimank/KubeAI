@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_SECURE: bool = False
     MINIO_BUCKET_PREFIX: str = "kubeai-models-"
+    # 集群内 Pod (如 model-pull initContainer) 访问 MinIO 的地址, 带 scheme.
+    #   standalone 拓扑: http://minio.kubeai.svc.cluster.local:9000
+    #   Helm 拓扑:       http://kubeai-minio.kubeai.svc.cluster.local:9000
+    # 与 MINIO_ENDPOINT (backend 进程主机侧地址) 区分.
+    MINIO_INTERNAL_ENDPOINT: str = "http://minio.kubeai.svc.cluster.local:9000"
 
     DATASET_BASE_PATH: str = "/data/kubeai/datasets"
     ALGORITHM_BASE_PATH: str = "/data/kubeai/algorithms"

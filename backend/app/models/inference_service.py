@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import JSON, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 
@@ -25,13 +25,11 @@ class InferenceService(Base, TimestampMixin):
         comment="创建者 ID",
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="服务名称")
-    service_type: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="model", comment="服务类型: model/custom"
-    )
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("model_versions.id", ondelete="RESTRICT"),
+        ForeignKey("model_versions.id", ondelete="SET NULL"),
         nullable=True,
-        comment="模型版本 ID",
+        index=True,
+        comment="模型版本 ID (可选)",
     )
     container_port: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="容器端口")
     command: Mapped[str | None] = mapped_column(Text, nullable=True, comment="容器启动命令 (JSON)")
@@ -46,7 +44,6 @@ class InferenceService(Base, TimestampMixin):
     min_replicas: Mapped[int] = mapped_column(Integer, nullable=False, default=1, comment="最小副本数")
     max_replicas: Mapped[int] = mapped_column(Integer, nullable=False, default=1, comment="最大副本数")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", comment="服务状态")
-    kserve_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="KServe 资源名")
     endpoint_url: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="推理端点 URL")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="描述")
     env_vars: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True, comment="环境变量")
@@ -55,26 +52,10 @@ class InferenceService(Base, TimestampMixin):
         String(255), nullable=True, index=True, comment="API Token 哈希"
     )
     proxy_endpoint: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="代理端点 URL")
-    canary_model_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("model_versions.id", ondelete="SET NULL"),
-        nullable=True,
-        comment="金丝雀模型版本 ID",
-    )
-    canary_traffic_percent: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="金丝雀流量百分比 (0-100)"
-    )
-    canary_kserve_name: Mapped[str | None] = mapped_column(
-        String(128), nullable=True, comment="金丝雀 InferenceService K8s 名称"
-    )
-    canary_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="none", comment="金丝雀状态: none/deploying/running/failed"
-    )
     scaling_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, default="fixed", comment="伸缩模式: fixed/auto"
     )
-    target_metric_type: Mapped[str | None] = mapped_column(
-        String(20), nullable=True, comment="目标指标类型: concurrency/cpu"
-    )
+    target_metric_type: Mapped[str | None] = mapped_column(String(20), nullable=True, comment="目标指标类型: gpu/cpu")
     target_metric_value: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="目标指标阈值")
     cooldown_period: Mapped[int] = mapped_column(Integer, nullable=False, default=300, comment="冷却时间(秒)")
     polling_interval: Mapped[int] = mapped_column(Integer, nullable=False, default=30, comment="轮询间隔(秒)")
@@ -82,3 +63,7 @@ class InferenceService(Base, TimestampMixin):
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("id", uuid.uuid4())
         super().__init__(**kwargs)
+
+    from app.models.registered_model import ModelVersion
+
+    model_version: Mapped[ModelVersion | None] = relationship(lazy="joined")

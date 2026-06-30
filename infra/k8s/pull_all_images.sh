@@ -138,26 +138,6 @@ REQUIRED+=("docker.io/goharbor/redis-photon:v2.15.1")
 REQUIRED+=("docker.io/goharbor/trivy-adapter-photon:v2.15.1")
 
 # ============================================
-# KServe 推理服务
-# ============================================
-section "[7/13] KServe"
-
-REQUIRED+=("kserve/kserve-controller:v0.17.0")
-REQUIRED+=("quay.io/brancz/kube-rbac-proxy:v0.18.0")
-REQUIRED+=("kserve/storage-initializer:v0.17.0")
-REQUIRED+=("kserve/agent:v0.17.0")
-REQUIRED+=("kserve/router:v0.17.0")
-REQUIRED+=("kserve/art-explainer:v0.17.0")
-
-# ============================================
-# Istio (KServe 入站网关依赖)
-# ============================================
-section "[8/14] Istio (KServe 依赖)"
-
-REQUIRED+=("docker.io/istio/pilot:1.24.3")
-REQUIRED+=("docker.io/istio/proxyv2:1.24.3")
-
-# ============================================
 # KEDA 自动扩缩容
 # ============================================
 section "[9/14] KEDA"

@@ -23,7 +23,7 @@ import { useResourceQuota } from '@/hooks/useResourceQuota'
 import type { AutoScalingUpdateRequest, InferenceService, MetricType } from '@/types/inference'
 
 const METRIC_TYPE_OPTIONS = [
-  { label: '并发请求数', value: 'concurrency' },
+  { label: 'GPU 利用率', value: 'gpu' },
   { label: 'CPU 利用率', value: 'cpu' },
 ]
 
@@ -157,9 +157,8 @@ export function ConfigTab({ service: svc, canWrite }: ConfigTabProps) {
                   </Descriptions.Item>
                   <Descriptions.Item label="当前副本">{svc.replicas}</Descriptions.Item>
                   <Descriptions.Item label="目标指标">
-                    {svc.targetMetricType === 'cpu' ? 'CPU 利用率' : '并发请求数'}{' '}
-                    {svc.targetMetricValue &&
-                      `> ${svc.targetMetricValue}${svc.targetMetricType === 'cpu' ? '%' : ''}`}
+                    {svc.targetMetricType === 'cpu' ? 'CPU 利用率' : 'GPU 利用率'}{' '}
+                    {svc.targetMetricValue && `> ${svc.targetMetricValue}%`}
                   </Descriptions.Item>
                   <Descriptions.Item label="冷却时间">{svc.cooldownPeriod} 秒</Descriptions.Item>
                 </Descriptions>

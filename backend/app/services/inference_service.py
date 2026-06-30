@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -20,6 +20,7 @@ from app.core.ws_pubsub import publish_ws_event
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.deployment import (
     build_deployment,
+    build_resource_spec,
     build_service,
     create_deployment,
     create_k8s_service,
@@ -28,27 +29,29 @@ from app.integrations.k8s.deployment import (
     get_deployment,
     patch_deployment,
 )
+from app.integrations.k8s.inference_route import inference_access_url, put_inference_route
+from app.integrations.k8s.kubeai_volumes import (
+    build_chown_init_container,
+    build_kubeai_env_vars,
+    build_kubeai_volumes,
+    build_model_pull_init_container,
+    build_models_volume,
+)
 from app.integrations.k8s.namespace import make_namespace_name
 from app.integrations.k8s.resource_quota import get_quota_used
+from app.integrations.k8s.secret import ensure_registry_pull_secret
 from app.integrations.keda.builder import build_scaled_object
 from app.integrations.keda.client import (
     create_scaled_object,
     delete_scaled_object,
     patch_scaled_object,
 )
-from app.integrations.kserve.builder import build_inferenceservice, build_resource_spec
-from app.integrations.kserve.canary import build_canary_inferenceservice
-from app.integrations.kserve.client import (
-    create_inferenceservice,
-    delete_inferenceservice,
-    get_inferenceservice,
-    patch_inferenceservice,
-)
-from app.models.enums import InferenceServiceStatus
+from app.models.enums import ImageCategory, InferenceServiceStatus
 from app.models.image import Image
 from app.models.inference_service import InferenceService
-from app.models.registered_model import ModelVersion, RegisteredModel
+from app.models.registered_model import ModelVersion
 from app.models.tenant import Tenant
+from app.models.user import User
 from app.schemas.inference_service import AutoScalingConfig
 
 if TYPE_CHECKING:
@@ -57,11 +60,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.integrations.prometheus.client import PrometheusClient
-    from app.schemas.inference_service import (
-        AutoScalingUpdateRequest,
-        CanaryStartRequest,
-        CanaryTrafficUpdateRequest,
-    )
+    from app.schemas.inference_service import AutoScalingUpdateRequest
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +84,6 @@ class InferenceServiceService:
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str,
-        service_type: str = "model",
-        model_version_id: uuid.UUID | None = None,
         gpu_count: int = 0,
         cpu: str = "2",
         memory: str = "4Gi",
@@ -99,13 +96,12 @@ class InferenceServiceService:
         env_vars: dict[str, str] | None = None,
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
+        model_version_id: uuid.UUID | None = None,
     ) -> tuple[InferenceService, str]:
         svc, tenant, api_token = await self._create_inference_service_record(
             tenant_id=tenant_id,
             user_id=user_id,
             name=name,
-            service_type=service_type,
-            model_version_id=model_version_id,
             gpu_count=gpu_count,
             cpu=cpu,
             memory=memory,
@@ -118,6 +114,7 @@ class InferenceServiceService:
             env_vars=env_vars,
             description=description,
             auto_scaling=auto_scaling,
+            model_version_id=model_version_id,
         )
         await self._deploy_inference_service_resources(svc=svc, tenant=tenant)
         await self.db.refresh(svc)
@@ -129,8 +126,6 @@ class InferenceServiceService:
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str,
-        service_type: str = "model",
-        model_version_id: uuid.UUID | None = None,
         gpu_count: int = 0,
         cpu: str = "2",
         memory: str = "4Gi",
@@ -143,13 +138,12 @@ class InferenceServiceService:
         env_vars: dict[str, str] | None = None,
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
+        model_version_id: uuid.UUID | None = None,
     ) -> tuple[InferenceService, str]:
         svc, _, api_token = await self._create_inference_service_record(
             tenant_id=tenant_id,
             user_id=user_id,
             name=name,
-            service_type=service_type,
-            model_version_id=model_version_id,
             gpu_count=gpu_count,
             cpu=cpu,
             memory=memory,
@@ -162,6 +156,7 @@ class InferenceServiceService:
             env_vars=env_vars,
             description=description,
             auto_scaling=auto_scaling,
+            model_version_id=model_version_id,
         )
         return svc, api_token
 
@@ -171,8 +166,6 @@ class InferenceServiceService:
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str,
-        service_type: str = "model",
-        model_version_id: uuid.UUID | None = None,
         gpu_count: int = 0,
         cpu: str = "2",
         memory: str = "4Gi",
@@ -185,6 +178,7 @@ class InferenceServiceService:
         env_vars: dict[str, str] | None = None,
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
+        model_version_id: uuid.UUID | None = None,
     ) -> tuple[InferenceService, Tenant, str]:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
@@ -201,8 +195,6 @@ class InferenceServiceService:
             tenant_id=tenant_id,
             created_by=user_id,
             name=name,
-            service_type=service_type,
-            model_version_id=model_version_id,
             image=image,
             gpu_count=gpu_count,
             cpu=cpu,
@@ -215,15 +207,16 @@ class InferenceServiceService:
             description=description,
             env_vars=env_vars,
             auth_token_hash=hash_api_token(api_token),
-            proxy_endpoint=f"{settings.API_BASE_URL}/api/inference-proxy/",
         )
-        if service_type == "custom":
-            if image_id is not None:
-                resolved_image = await self._resolve_image_ref(image_id, tenant_id)
-                svc_kwargs["image"] = resolved_image
-            svc_kwargs["container_port"] = container_port
-            svc_kwargs["command"] = json.dumps(command) if command else None
-            svc_kwargs["args"] = json.dumps(args) if args else None
+        if model_version_id is not None:
+            await self._get_model_version_or_fail(model_version_id)
+            svc_kwargs["model_version_id"] = model_version_id
+        # 运行时镜像 (从 inference 类镜像解析) / 端口 / 命令. 模型/代码可打进镜像或放挂载卷.
+        if image_id is not None:
+            svc_kwargs["image"] = await self._resolve_image_ref(image_id, tenant_id)
+        svc_kwargs["container_port"] = container_port
+        svc_kwargs["command"] = json.dumps(command) if command else None
+        svc_kwargs["args"] = json.dumps(args) if args else None
         if is_auto and auto_scaling is not None:
             svc_kwargs["target_metric_type"] = auto_scaling.target_metric_type
             svc_kwargs["target_metric_value"] = auto_scaling.target_metric_value
@@ -233,7 +226,7 @@ class InferenceServiceService:
         svc = InferenceService(**svc_kwargs)
         self.db.add(svc)
         await self.db.flush()
-        svc.proxy_endpoint = f"{settings.API_BASE_URL}/api/inference-proxy/{svc.id}/"
+        svc.proxy_endpoint = inference_access_url(svc.id)
         await self.db.commit()
         await self.db.refresh(svc)
         return svc, tenant, api_token
@@ -270,129 +263,46 @@ class InferenceServiceService:
             if is_auto
             else None
         )
-        k8s_name = svc.kserve_name or svc.k8s_deployment_name or f"inference-{sanitize_k8s_name(svc.name)}"
+        k8s_name = svc.k8s_deployment_name or f"inference-{sanitize_k8s_name(svc.name)}"
         resources = build_resource_spec(svc.cpu, svc.memory, svc.gpu_count)
+        command = json.loads(svc.command) if svc.command else None
+        args = json.loads(svc.args) if svc.args else None
+        # 推理 Pod 对齐开发环境: 挂 per-user home + 租户 workspace (hostPath), 需创建者 username.
+        user = await self._get_user_or_fail(svc.created_by)
 
-        if svc.service_type == "model":
-            await self._create_model_k8s_resources(
-                svc=svc,
-                namespace=namespace,
-                k8s_name=k8s_name,
-                model_version_id=svc.model_version_id,  # type: ignore[arg-type]
-                resources=resources,
-                replicas=svc.replicas,
-                min_rep=svc.min_replicas,
-                max_rep=svc.max_replicas,
-                env_vars=svc.env_vars,
-                is_auto=is_auto,
-                auto_scaling=auto_scaling,
-            )
-        else:
-            command = json.loads(svc.command) if svc.command else None
-            args = json.loads(svc.args) if svc.args else None
-            await self._create_custom_k8s_resources(
-                svc=svc,
-                namespace=namespace,
-                k8s_name=k8s_name,
-                image=svc.image,  # type: ignore[arg-type]
-                container_port=svc.container_port,  # type: ignore[arg-type]
-                command=command,
-                args=args,
-                resources=resources,
-                replicas=svc.replicas,
-                min_rep=svc.min_replicas,
-                max_rep=svc.max_replicas,
-                env_vars=svc.env_vars,
-                is_auto=is_auto,
-                auto_scaling=auto_scaling,
-            )
+        await self._create_k8s_resources(
+            svc=svc,
+            namespace=namespace,
+            k8s_name=k8s_name,
+            tenant_name=tenant.name,
+            username=user.username,
+            image=svc.image,  # type: ignore[arg-type]
+            container_port=svc.container_port,  # type: ignore[arg-type]
+            command=command,
+            args=args,
+            resources=resources,
+            replicas=svc.replicas,
+            min_rep=svc.min_replicas,
+            max_rep=svc.max_replicas,
+            env_vars=svc.env_vars,
+            is_auto=is_auto,
+            auto_scaling=auto_scaling,
+            model_version_id=svc.model_version_id,
+        )
 
         svc.status = InferenceServiceStatus.DEPLOYING
         await self.db.commit()
         await self.db.refresh(svc)
         return svc
 
-    async def _create_model_k8s_resources(
+    async def _create_k8s_resources(
         self,
         *,
         svc: InferenceService,
         namespace: str,
         k8s_name: str,
-        model_version_id: uuid.UUID,
-        resources: dict[str, Any],
-        replicas: int,
-        min_rep: int,
-        max_rep: int,
-        env_vars: dict[str, str] | None,
-        is_auto: bool,
-        auto_scaling: AutoScalingConfig | None,
-    ) -> None:
-        model_version = await self._get_model_version_or_fail(model_version_id)
-        storage_uri = f"s3://{settings.MINIO_BUCKET_PREFIX.rstrip('-')}-models/{model_version.storage_path}"
-
-        body = build_inferenceservice(
-            name=k8s_name,
-            namespace=namespace,
-            storage_uri=storage_uri,
-            resources=resources,
-            replicas=replicas,
-            min_replicas=min_rep,
-            max_replicas=max_rep,
-            env_vars=env_vars,
-        )
-
-        try:
-            await create_inferenceservice(namespace, body)
-        except Exception as e:
-            error_msg = str(e)
-            if (
-                "404" in error_msg
-                or "NotFound" in error_msg
-                or "the server could not find the requested resource" in error_msg
-            ):
-                svc.status = InferenceServiceStatus.FAILED
-                svc.error_message = "推理服务组件未安装"
-                await self.db.commit()
-                raise ExternalServiceException("推理服务组件未安装") from e
-            logger.error("Failed to create InferenceService %s: %s", k8s_name, e)
-            svc.status = InferenceServiceStatus.FAILED
-            await self.db.commit()
-            raise
-
-        if is_auto and auto_scaling is not None:
-            try:
-                deploy_name = f"{k8s_name}-predictor"
-                scaled_obj = build_scaled_object(
-                    name=f"{k8s_name}{KEDA_SCALER_SUFFIX}",
-                    namespace=namespace,
-                    deploy_name=deploy_name,
-                    min_replicas=min_rep,
-                    max_replicas=max_rep,
-                    metric_type=auto_scaling.target_metric_type,  # type: ignore[arg-type]
-                    metric_value=auto_scaling.target_metric_value,  # type: ignore[arg-type]
-                    cooldown_period=auto_scaling.cooldown_period,
-                    polling_interval=auto_scaling.polling_interval,
-                )
-                await create_scaled_object(namespace, scaled_obj)
-            except Exception as e:
-                logger.error("Failed to create ScaledObject for %s: %s", k8s_name, e)
-                try:
-                    await delete_inferenceservice(namespace, k8s_name)
-                except Exception:
-                    logger.debug("Cleanup: InferenceService %s deletion failed after ScaledObject error", k8s_name)
-                svc.status = InferenceServiceStatus.FAILED
-                svc.error_message = f"自动伸缩配置失败: {e}"
-                await self.db.commit()
-                raise ExternalServiceException(f"KEDA 自动伸缩配置失败, 请确认集群已安装 KEDA: {e}") from e
-
-        svc.kserve_name = k8s_name
-
-    async def _create_custom_k8s_resources(
-        self,
-        *,
-        svc: InferenceService,
-        namespace: str,
-        k8s_name: str,
+        tenant_name: str,
+        username: str,
         image: str,
         container_port: int,
         command: list[str] | None,
@@ -404,7 +314,38 @@ class InferenceServiceService:
         env_vars: dict[str, str] | None,
         is_auto: bool,
         auto_scaling: AutoScalingConfig | None,
+        model_version_id: uuid.UUID | None = None,
     ) -> None:
+        # 可选镜像拉取 secret (Harbor). 未配置 Harbor 时回退到无 pull secret (不阻塞).
+        image_pull_secrets: list[str] | None = None
+        try:
+            image_pull_secrets = [await ensure_registry_pull_secret(namespace)]
+        except Exception as e:
+            logger.debug("registry pull secret not ensured for %s: %s", namespace, e)
+
+        # 挂 per-user home + 租户 workspace (对齐开发环境); chown initContainer 修归属供非根主容器写.
+        volumes, volume_mounts = build_kubeai_volumes(username=username, tenant_name=tenant_name)
+        init_containers: list[dict[str, Any]] = []
+
+        # 可选模型版本: 添加 models-volume + model-pull initContainer (MinIO → /kubeai/models).
+        if model_version_id is not None:
+            model_version = await self._get_model_version_db(model_version_id)
+            minio_bucket = f"{settings.MINIO_BUCKET_PREFIX.rstrip('-')}-{sanitize_k8s_name(tenant_name)}"
+            model_vol, model_mnt = build_models_volume(tenant_name)
+            volumes.append(model_vol)
+            volume_mounts.append(model_mnt)
+            init_containers.append(
+                build_model_pull_init_container(
+                    name="model-pull",
+                    minio_bucket=minio_bucket,
+                    storage_path=model_version.storage_path,
+                    volume_mounts=[model_mnt],
+                )
+            )
+
+        init_containers.append(build_chown_init_container(name="inference-init", volume_mounts=volume_mounts))
+        final_env_vars = build_kubeai_env_vars(extra=env_vars)
+
         dep_body = build_deployment(
             name=k8s_name,
             namespace=namespace,
@@ -414,7 +355,12 @@ class InferenceServiceService:
             args=args,
             replicas=replicas,
             resources=resources,
-            env_vars=env_vars,
+            env_vars=final_env_vars,
+            security_context={"runAsUser": 1000, "runAsGroup": 100, "runAsNonRoot": True},
+            init_containers=init_containers,
+            volumes=volumes,
+            volume_mounts=volume_mounts,
+            image_pull_secrets=image_pull_secrets,
         )
 
         try:
@@ -435,10 +381,8 @@ class InferenceServiceService:
             await create_k8s_service(namespace, svc_body)
         except Exception as e:
             logger.error("Failed to create Service %s: %s", k8s_name, e)
-            try:
+            with contextlib.suppress(Exception):
                 await delete_deployment(namespace, k8s_name)
-            except Exception:
-                logger.debug("Cleanup: Deployment %s deletion failed after Service error", k8s_name)
             svc.status = InferenceServiceStatus.FAILED
             await self.db.commit()
             raise
@@ -459,11 +403,9 @@ class InferenceServiceService:
                 await create_scaled_object(namespace, scaled_obj)
             except Exception as e:
                 logger.error("Failed to create ScaledObject for %s: %s", k8s_name, e)
-                try:
+                with contextlib.suppress(Exception):
                     await delete_deployment(namespace, k8s_name)
                     await delete_k8s_service(namespace, k8s_name)
-                except Exception:
-                    pass
                 svc.status = InferenceServiceStatus.FAILED
                 svc.error_message = f"自动伸缩配置失败: {e}"
                 await self.db.commit()
@@ -487,7 +429,6 @@ class InferenceServiceService:
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
         old_mode = svc.scaling_mode
         new_mode = config.scaling_mode
-        is_custom = svc.service_type == "custom"
 
         if new_mode == "auto":
             gpu_needed = svc.gpu_count * config.max_replicas
@@ -501,15 +442,8 @@ class InferenceServiceService:
                 logger.warning("Failed to delete ScaledObject for %s: %s", keda_name, e)
 
             target_rep = svc.replicas if svc.replicas > 0 else 1
-            if is_custom:
-                if svc.k8s_deployment_name:
-                    await patch_deployment(namespace, svc.k8s_deployment_name, {"spec": {"replicas": target_rep}})
-            elif svc.kserve_name:
-                await patch_inferenceservice(
-                    namespace,
-                    svc.kserve_name,
-                    {"spec": {"predictor": {"minReplicas": target_rep, "maxReplicas": target_rep}}},
-                )
+            if svc.k8s_deployment_name:
+                await patch_deployment(namespace, svc.k8s_deployment_name, {"spec": {"replicas": target_rep}})
             svc.min_replicas = target_rep
             svc.max_replicas = target_rep
             svc.scaling_mode = "fixed"
@@ -535,17 +469,8 @@ class InferenceServiceService:
             except Exception as e:
                 raise ExternalServiceException(f"KEDA 自动伸缩配置失败: {e}") from e
 
-            if is_custom:
-                if svc.k8s_deployment_name:
-                    await patch_deployment(
-                        namespace, svc.k8s_deployment_name, {"spec": {"replicas": config.min_replicas}}
-                    )
-            elif svc.kserve_name:
-                await patch_inferenceservice(
-                    namespace,
-                    svc.kserve_name,
-                    {"spec": {"predictor": {"minReplicas": config.min_replicas, "maxReplicas": config.max_replicas}}},
-                )
+            if svc.k8s_deployment_name:
+                await patch_deployment(namespace, svc.k8s_deployment_name, {"spec": {"replicas": config.min_replicas}})
             svc.scaling_mode = "auto"
             svc.min_replicas = config.min_replicas
             svc.max_replicas = config.max_replicas
@@ -563,9 +488,9 @@ class InferenceServiceService:
                     "cooldownPeriod": config.cooldown_period,
                     "pollingInterval": config.polling_interval,
                     "triggers": build_scaled_object(
-                        name="",
-                        namespace="",
-                        deploy_name="",
+                        name=keda_name,
+                        namespace=namespace,
+                        deploy_name=self._get_deploy_name(svc),
                         min_replicas=config.min_replicas,
                         max_replicas=config.max_replicas,
                         metric_type=config.target_metric_type,  # type: ignore[arg-type]
@@ -580,26 +505,14 @@ class InferenceServiceService:
             except Exception as e:
                 raise ExternalServiceException(f"KEDA 伸缩配置更新失败: {e}") from e
 
-            if is_custom:
-                if svc.k8s_deployment_name:
-                    await patch_deployment(
-                        namespace, svc.k8s_deployment_name, {"spec": {"replicas": config.min_replicas}}
-                    )
-            elif svc.kserve_name:
-                await patch_inferenceservice(
-                    namespace,
-                    svc.kserve_name,
-                    {"spec": {"predictor": {"minReplicas": config.min_replicas, "maxReplicas": config.max_replicas}}},
-                )
+            if svc.k8s_deployment_name:
+                await patch_deployment(namespace, svc.k8s_deployment_name, {"spec": {"replicas": config.min_replicas}})
             svc.min_replicas = config.min_replicas
             svc.max_replicas = config.max_replicas
             svc.target_metric_type = config.target_metric_type
             svc.target_metric_value = config.target_metric_value
             svc.cooldown_period = config.cooldown_period
             svc.polling_interval = config.polling_interval
-
-        # Sync canary scaling if active
-        await self._sync_canary_scaling(svc, namespace, config)
 
         await self.db.commit()
         await self.db.refresh(svc)
@@ -611,257 +524,6 @@ class InferenceServiceService:
         svc.auth_token_hash = hash_api_token(new_token)
         await self.db.commit()
         return new_token
-
-    # ── Canary methods ──────────────────────────────────────────────────────
-
-    async def start_canary(
-        self,
-        service_id: uuid.UUID,
-        tenant_id: uuid.UUID,
-        request: CanaryStartRequest,
-    ) -> InferenceService:
-        """标记金丝雀为部署中 (仅 DB 操作, K8s 由 Taskiq worker 异步执行)."""
-        svc = await self._get_service_or_fail(service_id, tenant_id)
-
-        if svc.service_type == "custom":
-            raise ConflictException("自定义容器服务不支持金丝雀发布")
-        if svc.status != InferenceServiceStatus.RUNNING:
-            raise ConflictException("服务必须处于运行状态才能启动金丝雀")
-        if svc.canary_status != "none":
-            raise ConflictException("该服务已有活跃的金丝雀版本")
-
-        canary_mv = await self._get_model_version_or_fail(request.canary_model_version_id)
-        rm = await self.db.get(RegisteredModel, canary_mv.registered_model_id)
-        if not rm or rm.tenant_id != tenant_id:
-            raise NotFoundException("金丝雀模型版本不存在")
-        if canary_mv.status != "available":
-            raise ConflictException("金丝雀模型版本未就绪")
-
-        canary_kserve_name = f"{svc.kserve_name}-canary"
-        svc.canary_status = "deploying"
-        svc.canary_model_version_id = request.canary_model_version_id
-        svc.canary_traffic_percent = request.canary_traffic_percent
-        svc.canary_kserve_name = canary_kserve_name
-
-        await self.db.commit()
-        await self.db.refresh(svc)
-        return svc
-
-    async def execute_canary_start(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """由 Taskiq worker 调用: 创建金丝雀 K8s InferenceService."""
-        svc = await self._get_service_or_fail(service_id, tenant_id)
-        tenant = await self._get_tenant_or_fail(tenant_id)
-        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-
-        canary_gpu = svc.gpu_count * svc.replicas
-        await self._check_gpu_quota(namespace, tenant.gpu_limit, canary_gpu)
-
-        assert svc.kserve_name is not None
-        stable_kserve = await get_inferenceservice(namespace, svc.kserve_name)
-        if not stable_kserve:
-            raise ExternalServiceException("稳定版本 InferenceService 不存在")
-
-        assert svc.canary_model_version_id is not None
-        canary_mv = await self._get_model_version_or_fail(svc.canary_model_version_id)
-        canary_storage_uri = f"s3://{settings.MINIO_BUCKET_PREFIX.rstrip('-')}-models/{canary_mv.storage_path}"
-        resources = build_resource_spec(svc.cpu, svc.memory, svc.gpu_count)
-
-        canary_body = build_canary_inferenceservice(
-            stable_service=stable_kserve,
-            canary_storage_uri=canary_storage_uri,
-            resources=resources,
-            replicas=svc.replicas,
-            env_vars=svc.env_vars,
-        )
-        await create_inferenceservice(namespace, canary_body)
-
-    async def update_canary_traffic(
-        self,
-        service_id: uuid.UUID,
-        tenant_id: uuid.UUID,
-        request: CanaryTrafficUpdateRequest,
-    ) -> InferenceService:
-        """更新金丝雀流量比例 (仅 DB 操作, 100% / 0% 走 promote/rollback 路径)."""
-        svc = await self._get_service_or_fail(service_id, tenant_id)
-        if svc.canary_status != "running":
-            raise ConflictException("金丝雀必须处于运行状态才能调整流量")
-
-        if request.canary_traffic_percent == 100:
-            return await self._promote_canary_record(svc, tenant_id)
-        if request.canary_traffic_percent == 0:
-            return await self._rollback_canary_record(svc)
-
-        svc.canary_traffic_percent = request.canary_traffic_percent
-        await self.db.commit()
-        await self.db.refresh(svc)
-        return svc
-
-    async def promote_canary(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> InferenceService:
-        """标记金丝雀提升 (仅 DB 操作, K8s 由 Taskiq worker 异步执行)."""
-        svc = await self._get_service_or_fail(service_id, tenant_id)
-        if svc.canary_status != "running":
-            raise ConflictException("金丝雀必须处于运行状态才能提升")
-        return await self._promote_canary_record(svc, tenant_id)
-
-    async def rollback_canary(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> InferenceService:
-        """标记金丝雀回滚 (仅 DB 操作, K8s 清理由 Taskiq worker 异步执行)."""
-        svc = await self._get_service_or_fail(service_id, tenant_id)
-        if svc.canary_status not in ("running", "failed"):
-            raise ConflictException("金丝雀必须处于运行或失败状态才能回滚")
-        return await self._rollback_canary_record(svc)
-
-    async def execute_canary_promote(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """由 Taskiq worker 调用: K8s patch stable ISVC + 删除 canary ISVC + KEDA 重建."""
-        svc = await self._get_service_or_fail(service_id, tenant_id)
-        tenant = await self._get_tenant_or_fail(tenant_id)
-        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-
-        assert svc.canary_model_version_id is not None
-        canary_mv = await self._get_model_version_or_fail(svc.canary_model_version_id)
-        canary_storage_uri = f"s3://{settings.MINIO_BUCKET_PREFIX.rstrip('-')}-models/{canary_mv.storage_path}"
-
-        assert svc.kserve_name is not None
-        await patch_inferenceservice(
-            namespace,
-            svc.kserve_name,
-            {"spec": {"predictor": {"model": {"storageUri": canary_storage_uri}}}},
-        )
-
-        if svc.canary_kserve_name:
-            try:
-                await delete_inferenceservice(namespace, svc.canary_kserve_name)
-            except Exception as e:
-                logger.warning("Failed to delete canary InferenceService %s: %s", svc.canary_kserve_name, e)
-
-        if svc.scaling_mode == "auto" and svc.kserve_name:
-            try:
-                deploy_name = f"{svc.kserve_name}-predictor"
-                scaled_obj = build_scaled_object(
-                    name=f"{svc.kserve_name}{KEDA_SCALER_SUFFIX}",
-                    namespace=namespace,
-                    deploy_name=deploy_name,
-                    min_replicas=svc.min_replicas,
-                    max_replicas=svc.max_replicas,
-                    metric_type=svc.target_metric_type,  # type: ignore[arg-type]
-                    metric_value=svc.target_metric_value,  # type: ignore[arg-type]
-                    cooldown_period=svc.cooldown_period,
-                    polling_interval=svc.polling_interval,
-                )
-                await patch_scaled_object(
-                    namespace,
-                    f"{svc.kserve_name}{KEDA_SCALER_SUFFIX}",
-                    {"spec": scaled_obj["spec"]},
-                )
-            except Exception as e:
-                logger.warning("Failed to rebuild ScaledObject after promote: %s", e)
-
-    async def execute_canary_rollback(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """由 Taskiq worker 调用: K8s 删除 canary ISVC + KEDA 清理."""
-        svc = await self._get_service_or_fail(service_id, tenant_id)
-        tenant = await self._get_tenant_or_fail(tenant_id)
-        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-        await self._cleanup_canary_k8s_resources(svc, namespace)
-
-    @staticmethod
-    def _clear_canary_fields(svc: InferenceService) -> None:
-        """清空金丝雀相关字段."""
-        svc.canary_status = "none"
-        svc.canary_model_version_id = None
-        svc.canary_traffic_percent = None
-        svc.canary_kserve_name = None
-
-    async def _promote_canary_record(self, svc: InferenceService, tenant_id: uuid.UUID) -> InferenceService:
-        """标记金丝雀提升 (仅 DB 操作, K8s 由 execute_canary_promote 异步执行)."""
-        assert svc.canary_model_version_id is not None
-        svc.model_version_id = svc.canary_model_version_id
-        self._clear_canary_fields(svc)
-        svc.status = InferenceServiceStatus.DEPLOYING
-        await self.db.commit()
-        await self.db.refresh(svc)
-        return svc
-
-    async def _rollback_canary_record(self, svc: InferenceService) -> InferenceService:
-        """标记金丝雀回滚 (仅 DB 操作, K8s 清理由 execute_canary_rollback 异步执行)."""
-        self._clear_canary_fields(svc)
-        await self.db.commit()
-        await self.db.refresh(svc)
-        return svc
-
-    async def _cleanup_canary_k8s_resources(self, svc: InferenceService, namespace: str) -> None:
-        if not svc.canary_kserve_name:
-            return
-        try:
-            await delete_inferenceservice(namespace, svc.canary_kserve_name)
-        except Exception as e:
-            logger.warning("Failed to delete canary InferenceService %s: %s", svc.canary_kserve_name, e)
-        if svc.scaling_mode == "auto":
-            try:
-                await delete_scaled_object(namespace, f"{svc.canary_kserve_name}{KEDA_SCALER_SUFFIX}")
-            except Exception as e:
-                logger.debug("Cleanup: ScaledObject %s deletion skipped: %s", svc.canary_kserve_name, e)
-
-    async def _sync_canary_scaling(
-        self, svc: InferenceService, namespace: str, config: AutoScalingUpdateRequest
-    ) -> None:
-        if not svc.canary_kserve_name or svc.canary_status == "none":
-            return
-
-        if config.scaling_mode == "fixed":
-            try:
-                await patch_inferenceservice(
-                    namespace,
-                    svc.canary_kserve_name,
-                    {
-                        "spec": {
-                            "predictor": {
-                                "minReplicas": config.min_replicas,
-                                "maxReplicas": config.max_replicas,
-                            }
-                        }
-                    },
-                )
-            except Exception as e:
-                logger.warning("Failed to sync canary fixed scaling for %s: %s", svc.canary_kserve_name, e)
-        elif config.scaling_mode == "auto":
-            try:
-                deploy_name = f"{svc.canary_kserve_name}-predictor"
-                scaled_obj = build_scaled_object(
-                    name=f"{svc.canary_kserve_name}{KEDA_SCALER_SUFFIX}",
-                    namespace=namespace,
-                    deploy_name=deploy_name,
-                    min_replicas=config.min_replicas,
-                    max_replicas=config.max_replicas,
-                    metric_type=config.target_metric_type,  # type: ignore[arg-type]
-                    metric_value=config.target_metric_value,  # type: ignore[arg-type]
-                    cooldown_period=config.cooldown_period,
-                    polling_interval=config.polling_interval,
-                )
-                await create_scaled_object(namespace, scaled_obj)
-                await patch_inferenceservice(
-                    namespace,
-                    svc.canary_kserve_name,
-                    {
-                        "spec": {
-                            "predictor": {
-                                "minReplicas": config.min_replicas,
-                                "maxReplicas": config.max_replicas,
-                            }
-                        }
-                    },
-                )
-            except Exception as e:
-                logger.warning("Failed to sync canary auto scaling for %s: %s", svc.canary_kserve_name, e)
-
-    async def get_canary_endpoint_url(self, svc: InferenceService, tenant_id: uuid.UUID) -> str | None:
-        if not svc.canary_kserve_name or svc.canary_status != "running":
-            return None
-        tenant = await self._get_tenant_or_fail(tenant_id)
-        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-        canary_obj = await get_inferenceservice(namespace, svc.canary_kserve_name)
-        if not canary_obj:
-            return None
-        url: str | None = canary_obj.get("status", {}).get("url")
-        return url
 
     async def list_inference_services(
         self,
@@ -887,9 +549,7 @@ class InferenceServiceService:
         )
         services = list(result.scalars().all())
 
-        non_terminal = [
-            s for s in services if (s.kserve_name or s.k8s_deployment_name) and s.status not in TERMINAL_STATUSES
-        ]
+        non_terminal = [s for s in services if s.k8s_deployment_name and s.status not in TERMINAL_STATUSES]
         if non_terminal:
             tenant = await self._get_tenant_or_fail(tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
@@ -897,8 +557,7 @@ class InferenceServiceService:
                 try:
                     await self._sync_service_status(svc, namespace)
                 except Exception as e:
-                    res_name = svc.kserve_name or svc.k8s_deployment_name
-                    logger.warning("Failed to sync status for %s: %s", res_name, e)
+                    logger.warning("Failed to sync status for %s: %s", svc.k8s_deployment_name, e)
             await self.db.commit()
             for svc in non_terminal:
                 await self.db.refresh(svc)
@@ -907,14 +566,13 @@ class InferenceServiceService:
 
     async def get_inference_service(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> InferenceService:
         svc = await self._get_service_or_fail(service_id, tenant_id)
-        if (svc.kserve_name or svc.k8s_deployment_name) and svc.status not in TERMINAL_STATUSES:
+        if svc.k8s_deployment_name and svc.status not in TERMINAL_STATUSES:
             tenant = await self._get_tenant_or_fail(tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
             try:
                 await self._sync_service_status(svc, namespace)
             except Exception as e:
-                res_name = svc.kserve_name or svc.k8s_deployment_name
-                logger.warning("Failed to sync status for %s: %s", res_name, e)
+                logger.warning("Failed to sync status for %s: %s", svc.k8s_deployment_name, e)
             await self.db.commit()
             await self.db.refresh(svc)
         return svc
@@ -924,10 +582,7 @@ class InferenceServiceService:
             select(InferenceService)
             .where(
                 InferenceService.status.in_([status.value for status in NON_TERMINAL_STATUSES]),
-                or_(
-                    InferenceService.kserve_name.is_not(None),
-                    InferenceService.k8s_deployment_name.is_not(None),
-                ),
+                InferenceService.k8s_deployment_name.is_not(None),
             )
             .order_by(InferenceService.updated_at.asc())
             .limit(limit)
@@ -944,8 +599,7 @@ class InferenceServiceService:
                 await self._sync_service_status(svc, namespace)
                 synced_count += 1
             except Exception as e:
-                res_name = svc.kserve_name or svc.k8s_deployment_name
-                logger.warning("Failed to sync status for inference service %s: %s", res_name, e)
+                logger.warning("Failed to sync status for inference service %s: %s", svc.k8s_deployment_name, e)
 
         await self.db.commit()
         return synced_count
@@ -979,21 +633,14 @@ class InferenceServiceService:
             gpu_needed = svc.gpu_count * max_rep if is_auto else svc.gpu_count * target_replicas
             await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_needed)
 
-        if svc.service_type == "custom" and svc.k8s_deployment_name:
+        if svc.k8s_deployment_name:
             await patch_deployment(namespace, svc.k8s_deployment_name, {"spec": {"replicas": target_replicas}})
-        elif svc.kserve_name:
-            await patch_inferenceservice(
-                namespace,
-                svc.kserve_name,
-                {"spec": {"predictor": {"minReplicas": target_replicas, "maxReplicas": max_rep}}},
-            )
 
-        if is_auto:
-            deploy_name = svc.k8s_deployment_name or f"{svc.kserve_name}-predictor"
+        if is_auto and svc.k8s_deployment_name:
             scaled_obj = build_scaled_object(
                 name=self._get_keda_name(svc),
                 namespace=namespace,
-                deploy_name=deploy_name,
+                deploy_name=svc.k8s_deployment_name,
                 min_replicas=target_replicas,
                 max_replicas=max_rep,
                 metric_type=svc.target_metric_type,  # type: ignore[arg-type]
@@ -1019,19 +666,15 @@ class InferenceServiceService:
 
         svc.status = InferenceServiceStatus.STOPPED
         svc.replicas = 0
-        self._clear_canary_fields(svc)
         await self.db.commit()
         await self.db.refresh(svc)
         return svc
 
     async def execute_inference_service_stop(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """由 Taskiq worker 调用: 执行 K8s 停止清理 (canary + KEDA + scale-to-zero)."""
+        """由 Taskiq worker 调用: 执行 K8s 停止清理 (KEDA + scale-to-zero)."""
         svc = await self._get_service_or_fail(service_id, tenant_id)
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-
-        if svc.canary_status != "none":
-            await self._cleanup_canary_k8s_resources(svc, namespace)
 
         if svc.scaling_mode == "auto":
             keda_name = self._get_keda_name(svc)
@@ -1040,16 +683,11 @@ class InferenceServiceService:
             except Exception as e:
                 logger.warning("Failed to delete ScaledObject: %s", e)
 
-        if svc.service_type == "custom" and svc.k8s_deployment_name:
+        if svc.k8s_deployment_name:
             try:
                 await patch_deployment(namespace, svc.k8s_deployment_name, {"spec": {"replicas": 0}})
             except Exception as e:
                 logger.warning("Failed to patch Deployment %s: %s", svc.k8s_deployment_name, e)
-        elif svc.kserve_name:
-            try:
-                await patch_inferenceservice(namespace, svc.kserve_name, {"spec": {"predictor": {"minReplicas": 0}}})
-            except Exception as e:
-                logger.warning("Failed to patch InferenceService %s: %s", svc.kserve_name, e)
 
     async def scale_inference_service(
         self, service_id: uuid.UUID, tenant_id: uuid.UUID, replicas: int
@@ -1092,29 +730,13 @@ class InferenceServiceService:
         return svc
 
     async def execute_inference_service_scale(self, service_id: uuid.UUID, tenant_id: uuid.UUID, replicas: int) -> None:
-        """由 Taskiq worker 调用: 执行 K8s 扩缩容 patch + canary 同步."""
+        """由 Taskiq worker 调用: 执行 K8s 扩缩容 patch."""
         svc = await self._get_service_or_fail(service_id, tenant_id)
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
-        if svc.service_type == "custom" and svc.k8s_deployment_name:
+        if svc.k8s_deployment_name:
             await patch_deployment(namespace, svc.k8s_deployment_name, {"spec": {"replicas": replicas}})
-        elif svc.kserve_name:
-            await patch_inferenceservice(
-                namespace,
-                svc.kserve_name,
-                {"spec": {"predictor": {"minReplicas": replicas, "maxReplicas": replicas}}},
-            )
-
-        if svc.canary_kserve_name and svc.canary_status in ("running", "deploying"):
-            try:
-                await patch_inferenceservice(
-                    namespace,
-                    svc.canary_kserve_name,
-                    {"spec": {"predictor": {"minReplicas": replicas, "maxReplicas": replicas}}},
-                )
-            except Exception as e:
-                logger.warning("Failed to sync canary replicas for %s: %s", svc.canary_kserve_name, e)
 
     async def delete_inference_service(self, service_id: uuid.UUID, tenant_id: uuid.UUID) -> InferenceService:
         """删除推理服务 DB 记录 (K8s 清理由 Taskiq worker 异步执行)."""
@@ -1126,56 +748,30 @@ class InferenceServiceService:
     @staticmethod
     async def cleanup_k8s_resources(
         *,
-        service_type: str,
         namespace: str,
         scaling_mode: str,
-        kserve_name: str | None = None,
         k8s_deployment_name: str | None = None,
         k8s_service_name: str | None = None,
-        canary_kserve_name: str | None = None,
     ) -> None:
         """清理 K8s 资源 (无 DB 依赖, 用于 Taskiq delete 任务)."""
-        if canary_kserve_name:
+        if scaling_mode == "auto" and k8s_deployment_name:
             try:
-                await delete_inferenceservice(namespace, canary_kserve_name)
+                await delete_scaled_object(namespace, f"{k8s_deployment_name}{KEDA_SCALER_SUFFIX}")
             except Exception as e:
-                logger.warning("Failed to delete canary InferenceService %s: %s", canary_kserve_name, e)
-            if scaling_mode == "auto":
-                with contextlib.suppress(Exception):
-                    await delete_scaled_object(namespace, f"{canary_kserve_name}{KEDA_SCALER_SUFFIX}")
+                logger.warning("Failed to delete ScaledObject: %s", e)
 
-        if scaling_mode == "auto":
-            keda_base = k8s_deployment_name if service_type == "custom" else kserve_name
-            if keda_base:
-                try:
-                    await delete_scaled_object(namespace, f"{keda_base}{KEDA_SCALER_SUFFIX}")
-                except Exception as e:
-                    logger.warning("Failed to delete ScaledObject: %s", e)
-
-        if service_type == "custom":
-            if k8s_deployment_name:
-                try:
-                    await delete_deployment(namespace, k8s_deployment_name)
-                except Exception as e:
-                    logger.warning("Failed to delete Deployment %s: %s", k8s_deployment_name, e)
-            if k8s_service_name:
-                try:
-                    await delete_k8s_service(namespace, k8s_service_name)
-                except Exception as e:
-                    logger.warning("Failed to delete Service %s: %s", k8s_service_name, e)
-        elif kserve_name:
+        if k8s_deployment_name:
             try:
-                await delete_inferenceservice(namespace, kserve_name)
+                await delete_deployment(namespace, k8s_deployment_name)
             except Exception as e:
-                logger.warning("Failed to delete InferenceService %s: %s", kserve_name, e)
+                logger.warning("Failed to delete Deployment %s: %s", k8s_deployment_name, e)
+        if k8s_service_name:
+            try:
+                await delete_k8s_service(namespace, k8s_service_name)
+            except Exception as e:
+                logger.warning("Failed to delete Service %s: %s", k8s_service_name, e)
 
     async def _sync_service_status(self, svc: InferenceService, namespace: str) -> None:
-        if svc.service_type == "custom":
-            await self._sync_custom_service_status(svc, namespace)
-        else:
-            await self._sync_model_service_status(svc, namespace)
-
-    async def _sync_custom_service_status(self, svc: InferenceService, namespace: str) -> None:
         if not svc.k8s_deployment_name:
             return
         dep = await get_deployment(namespace, svc.k8s_deployment_name)
@@ -1192,6 +788,7 @@ class InferenceServiceService:
             new_status = InferenceServiceStatus.RUNNING
             if svc.k8s_service_name and svc.container_port:
                 svc.endpoint_url = f"http://{svc.k8s_service_name}.{namespace}.svc.cluster.local:{svc.container_port}"
+                svc.proxy_endpoint = inference_access_url(svc.id)
         elif replicas > 0 and (unavailable > 0 or ready_replicas < replicas):
             progressing = next(
                 (c for c in conditions if c.get("type") == "Progressing" and c.get("status") == "False"),
@@ -1223,91 +820,14 @@ class InferenceServiceService:
                 await self._send_failure_notification(svc)
             await self._publish_status_change(svc.tenant_id, svc.id, old_status, new_status.value)
 
-    async def _sync_model_service_status(self, svc: InferenceService, namespace: str) -> None:
-        if not svc.kserve_name:
-            return
-        kserve_obj = await get_inferenceservice(namespace, svc.kserve_name)
-        if kserve_obj is None:
-            return
-
-        status_data: dict[str, Any] = kserve_obj.get("status", {})
-        conditions: list[dict[str, str]] = status_data.get("conditions", [])
-
-        if not conditions:
-            return
-
-        ready_condition = next(
-            (c for c in conditions if c.get("type") == "Ready"),
-            None,
-        )
-
-        if ready_condition is None:
-            return
-
-        if ready_condition.get("status") == "True":
-            new_status = InferenceServiceStatus.RUNNING
-            url = status_data.get("url")
-            if url:
-                svc.endpoint_url = url
-            if not svc.proxy_endpoint:
-                mv_id = svc.model_version_id
-                if mv_id:
-                    mv = await self.db.get(ModelVersion, mv_id)
-                    if mv:
-                        rm = await self.db.get(RegisteredModel, mv.registered_model_id)
-                        if rm:
-                            svc.proxy_endpoint = (
-                                f"{settings.API_BASE_URL}/api/inference-proxy/{svc.id}/v1/models/{rm.name}:predict"
-                            )
-        else:
-            reason = ready_condition.get("reason", "")
-            message = ready_condition.get("message", "")
-            if "Progressing" in reason or "InProgress" in reason:
-                new_status = InferenceServiceStatus.DEPLOYING
-            else:
-                new_status = InferenceServiceStatus.FAILED
-                if message:
-                    svc.error_message = message
-
-        if new_status != svc.status:
-            old_status = svc.status
-            logger.info(
-                "inference_service_status_changed",
-                extra={
-                    "service_id": str(svc.id),
-                    "old_status": old_status,
-                    "new_status": new_status,
-                    "tenant_id": str(svc.tenant_id),
-                    "reason": ready_condition.get("reason", ""),
-                },
-            )
-            svc.status = new_status
-            if new_status == InferenceServiceStatus.FAILED:
-                await self._send_failure_notification(svc)
-            await self._publish_status_change(svc.tenant_id, svc.id, old_status, new_status.value)
-        if svc.canary_kserve_name:
-            canary_obj = await get_inferenceservice(namespace, svc.canary_kserve_name)
-            if canary_obj is None:
-                svc.canary_status = "failed"
-            else:
-                canary_conditions = canary_obj.get("status", {}).get("conditions", [])
-                canary_ready = next(
-                    (c for c in canary_conditions if c.get("type") == "Ready"),
-                    None,
-                )
-                if canary_ready and canary_ready.get("status") == "True":
-                    svc.canary_status = "running"
-                else:
-                    svc.canary_status = "deploying"
+        if new_status == InferenceServiceStatus.RUNNING:
+            await put_inference_route(svc, namespace)
 
     def _get_deploy_name(self, svc: InferenceService) -> str:
-        if svc.service_type == "custom":
-            return svc.k8s_deployment_name or ""
-        return f"{svc.kserve_name}-predictor" if svc.kserve_name else ""
+        return svc.k8s_deployment_name or ""
 
     def _get_keda_name(self, svc: InferenceService) -> str:
-        base = svc.k8s_deployment_name if svc.service_type == "custom" else svc.kserve_name
-        return f"{base}{KEDA_SCALER_SUFFIX}" if base else ""
+        return f"{svc.k8s_deployment_name}{KEDA_SCALER_SUFFIX}" if svc.k8s_deployment_name else ""
 
     async def _send_failure_notification(self, svc: InferenceService) -> None:
         try:
@@ -1382,12 +902,23 @@ class InferenceServiceService:
             raise NotFoundException("租户不存在")
         return tenant
 
+    async def _get_user_or_fail(self, user_id: uuid.UUID) -> User:
+        result = await self.db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise NotFoundException("用户不存在")
+        return user
+
     async def _get_model_version_or_fail(self, model_version_id: uuid.UUID) -> ModelVersion:
         result = await self.db.execute(select(ModelVersion).where(ModelVersion.id == model_version_id))
         version = result.scalar_one_or_none()
         if not version:
             raise NotFoundException("模型版本不存在")
         return version
+
+    async def _get_model_version_db(self, model_version_id: uuid.UUID) -> ModelVersion:
+        """Return ModelVersion or raise NotFoundException (same as _get_model_version_or_fail)."""
+        return await self._get_model_version_or_fail(model_version_id)
 
     async def _resolve_image_ref(self, image_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
         result = await self.db.execute(
@@ -1402,6 +933,8 @@ class InferenceServiceService:
             raise NotFoundException("镜像不存在或不可用")
         if img.tenant_id is not None and img.tenant_id != tenant_id:
             raise NotFoundException("镜像不存在或不可用")
+        if img.category != ImageCategory.INFERENCE.value:
+            raise NotFoundException("该镜像非推理类镜像, 不可用于推理服务")
         return img.image_ref
 
     async def get_metrics(
@@ -1488,16 +1021,8 @@ class InferenceServiceService:
             clients = await get_k8s_clients()
             core_v1 = k8s_client.CoreV1Api(clients["api_client"])
 
-            pods_resp = await core_v1.list_namespaced_pod(
-                namespace=namespace,
-                label_selector=(
-                    f"app.kubernetes.io/name={svc.k8s_deployment_name}"
-                    if svc.service_type == "custom" and svc.k8s_deployment_name
-                    else f"serving.kserve.io/inferenceservice={svc.kserve_name}"
-                    if svc.kserve_name
-                    else ""
-                ),
-            )
+            label_selector = f"app.kubernetes.io/name={svc.k8s_deployment_name}" if svc.k8s_deployment_name else ""
+            pods_resp = await core_v1.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
 
             running_pods = [p.metadata.name for p in pods_resp.items if p.status and p.status.phase == "Running"]
             return running_pods[0] if running_pods else None

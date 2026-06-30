@@ -50,18 +50,6 @@ dependencies:
     condition: dcgmexporter.enabled
     alias: dcgmexporter
 
-  - name: kserve-crd
-    version: "v0.17.0"
-    repository: oci://ghcr.io/kserve/charts
-    condition: kservecrd.enabled
-    alias: kservecrd
-
-  - name: kserve-resources
-    version: "v0.17.0"
-    repository: oci://ghcr.io/kserve/charts
-    condition: kserveresources.enabled
-    alias: kserveresources
-
   - name: keda
     version: "2.16.x"
     repository: https://kedacore.github.io/charts

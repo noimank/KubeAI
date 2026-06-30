@@ -13,6 +13,18 @@ logger = logging.getLogger(__name__)
 MANAGED_BY_LABEL = "kubeai"
 
 
+def build_resource_spec(cpu: str, memory: str, gpu_count: int) -> dict[str, Any]:
+    resources: dict[str, Any] = {
+        "requests": {"cpu": cpu, "memory": memory},
+        "limits": {"cpu": cpu, "memory": memory},
+    }
+    if gpu_count > 0:
+        gpu_key = "nvidia.com/gpu"
+        resources["requests"][gpu_key] = str(gpu_count)
+        resources["limits"][gpu_key] = str(gpu_count)
+    return resources
+
+
 def build_deployment(
     *,
     name: str,
@@ -24,6 +36,12 @@ def build_deployment(
     replicas: int = 1,
     resources: dict[str, Any] | None = None,
     env_vars: dict[str, str] | None = None,
+    init_containers: list[dict[str, Any]] | None = None,
+    volumes: list[dict[str, Any]] | None = None,
+    volume_mounts: list[dict[str, Any]] | None = None,
+    env_from: list[dict[str, Any]] | None = None,
+    image_pull_secrets: list[str] | None = None,
+    security_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     labels = {"app.kubernetes.io/name": name, "app.kubernetes.io/managed-by": MANAGED_BY_LABEL}
 
@@ -40,6 +58,20 @@ def build_deployment(
         container["resources"] = resources
     if env_vars:
         container["env"] = [{"name": k, "value": v} for k, v in env_vars.items()]
+    if env_from:
+        container["envFrom"] = env_from
+    if volume_mounts:
+        container["volumeMounts"] = volume_mounts
+    if security_context:
+        container["securityContext"] = security_context
+
+    pod_spec: dict[str, Any] = {"containers": [container]}
+    if init_containers:
+        pod_spec["initContainers"] = init_containers
+    if volumes:
+        pod_spec["volumes"] = volumes
+    if image_pull_secrets:
+        pod_spec["imagePullSecrets"] = [{"name": n} for n in image_pull_secrets]
 
     return {
         "apiVersion": "apps/v1",
@@ -50,7 +82,7 @@ def build_deployment(
             "selector": {"matchLabels": labels},
             "template": {
                 "metadata": {"labels": labels},
-                "spec": {"containers": [container]},
+                "spec": pod_spec,
             },
         },
     }
@@ -178,9 +210,20 @@ async def delete_k8s_service(namespace: str, name: str) -> None:
 # ── Events ───────────────────────────────────────────────────────────────
 
 
-async def list_deployment_events(namespace: str, deployment_name: str) -> list[dict[str, Any]]:
-    from app.integrations.kserve.client import _event_to_dict
+def _event_to_dict(event: Any) -> dict[str, Any]:
+    return {
+        "type": event.type or "Normal",
+        "reason": event.reason or "",
+        "message": event.message or "",
+        "involved_object_kind": event.involved_object.kind if event.involved_object else "",
+        "involved_object_name": event.involved_object.name if event.involved_object else "",
+        "count": event.count or 1,
+        "first_timestamp": event.first_timestamp.isoformat() if event.first_timestamp else None,
+        "last_timestamp": event.last_timestamp.isoformat() if event.last_timestamp else None,
+    }
 
+
+async def list_deployment_events(namespace: str, deployment_name: str) -> list[dict[str, Any]]:
     core_v1 = (await get_k8s_clients())["core_v1"]
     events: list[dict[str, Any]] = []
 

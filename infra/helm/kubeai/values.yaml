@@ -142,17 +142,6 @@ dcgmexporter:
       operator: Exists
       effect: NoSchedule
 
-# -- KServe (model serving inference)
-# Infrastructure dependency only. Backend/frontend/Taskiq are not deployed by this chart.
-kservecrd:
-  enabled: false
-
-kserveresources:
-  enabled: false
-  kserve:
-    controller:
-      deploymentMode: Standard
-
 # -- KEDA (event-driven autoscaling for inference services)
 keda:
   enabled: false

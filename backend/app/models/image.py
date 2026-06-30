@@ -10,7 +10,9 @@ from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 
 class Image(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "images"
-    __table_args__ = (UniqueConstraint("tenant_id", "name", "tag", name="uq_image_tenant_name_tag"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "category", "name", "tag", name="uq_image_tenant_category_name_tag"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False, comment="镜像名称")
@@ -18,6 +20,9 @@ class Image(Base, TimestampMixin, SoftDeleteMixin):
     image_ref: Mapped[str] = mapped_column(String(500), nullable=False, comment="完整镜像地址")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="镜像描述")
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="preset", comment="来源")
+    category: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="training", comment="镜像分类: training/inference/other"
+    )
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, comment="是否启用")
 
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(

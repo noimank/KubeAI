@@ -1,5 +1,8 @@
 from typing import Any
 
+# Prometheus 地址 (与推理监控同一实例), KEDA prometheus 触发器需可达.
+_PROMETHEUS_ADDRESS = "http://prometheus.monitoring.svc.cluster.local:9090"
+
 
 def build_scaled_object(
     *,
@@ -23,13 +26,20 @@ def build_scaled_object(
             }
         )
     else:
+        # metric_type == "gpu": 按 DCGM GPU 利用率伸缩.
+        # dcgm-exporter 开启 enablePodLabels, DCGM_FI_DEV_GPU_UTIL 带 namespace 与
+        # pod 标签 (app.kubernetes.io/name 经 Prometheus 规范化为 app_kubernetes_io_name).
+        # avg 聚合该 Deployment 全部 GPU/Pod; threshold = 目标 GPU 利用率%.
         triggers.append(
             {
                 "type": "prometheus",
                 "metadata": {
-                    "serverAddress": "http://prometheus.monitoring.svc.cluster.local:9090",
-                    "query": (f'sum(rate(istio_requests_total{{destination_service=~"{deploy_name}.*"}}[1m]))'),
+                    "serverAddress": _PROMETHEUS_ADDRESS,
+                    "metricName": "gpu_utilization",
                     "threshold": str(metric_value),
+                    "query": (
+                        f'avg(DCGM_FI_DEV_GPU_UTIL{{namespace="{namespace}",app_kubernetes_io_name="{deploy_name}"}})'
+                    ),
                 },
             }
         )

@@ -68,6 +68,12 @@ class BuildStatus(enum.StrEnum):
     FAILED = "failed"
 
 
+class ImageCategory(enum.StrEnum):
+    TRAINING = "training"
+    INFERENCE = "inference"
+    OTHER = "other"
+
+
 class TrainingJobStatus(enum.StrEnum):
     PENDING = "pending"
     QUEUED = "queued"

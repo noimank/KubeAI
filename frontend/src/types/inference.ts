@@ -1,8 +1,6 @@
 export type InferenceServiceStatus = 'pending' | 'deploying' | 'running' | 'failed' | 'stopped'
-export type ServiceType = 'model' | 'custom'
 export type ScalingMode = 'fixed' | 'auto'
-export type MetricType = 'concurrency' | 'cpu'
-export type CanaryStatus = 'none' | 'deploying' | 'running' | 'failed'
+export type MetricType = 'gpu' | 'cpu'
 
 export interface AutoScalingConfig {
   scalingMode: ScalingMode
@@ -24,20 +22,11 @@ export interface AutoScalingUpdateRequest {
   pollingInterval: number
 }
 
-export interface ModelVersionSummary {
-  id: string
-  versionNumber: number
-  registeredModelId: string
-  status: string
-  storagePath?: string
-}
-
 export interface InferenceService {
   id: string
   tenantId: string
   createdBy: string
   name: string
-  serviceType: ServiceType
   modelVersionId?: string
   image?: string
   containerPort?: number
@@ -50,7 +39,6 @@ export interface InferenceService {
   minReplicas: number
   maxReplicas: number
   status: InferenceServiceStatus
-  kserveName?: string
   endpointUrl?: string
   proxyEndpoint?: string
   hasToken: boolean
@@ -62,25 +50,28 @@ export interface InferenceService {
   targetMetricValue?: number
   cooldownPeriod: number
   pollingInterval: number
-  canaryStatus: CanaryStatus
-  canaryModelVersionId?: string
-  canaryTrafficPercent?: number
-  canaryKserveName?: string
+  modelVersion?: ModelVersionSummary
   createdAt: string
   updatedAt: string
-  modelVersion?: ModelVersionSummary
+}
+
+export interface ModelVersionSummary {
+  id: string
+  versionNumber: number
+  registeredModelId: string
+  modelName: string
+  status: string
 }
 
 export interface InferenceServiceCreate {
   name: string
-  serviceType: ServiceType
-  modelVersionId?: string
   gpuCount?: number
   cpu?: string
   memory?: string
   replicas?: number
   image?: string
   imageId?: string
+  modelVersionId?: string
   containerPort?: number
   command?: string[]
   args?: string[]
@@ -102,24 +93,6 @@ export interface InferenceServiceEvent {
 
 export interface InferenceServiceScaleRequest {
   replicas: number
-}
-
-export interface CanaryStartRequest {
-  canaryModelVersionId: string
-  canaryTrafficPercent: number
-}
-
-export interface CanaryTrafficUpdateRequest {
-  canaryTrafficPercent: number
-}
-
-export interface CanaryStatusResponse {
-  canaryStatus: CanaryStatus
-  canaryModelVersion?: ModelVersionSummary
-  canaryTrafficPercent?: number
-  stableTrafficPercent?: number
-  canaryEndpointUrl?: string
-  canaryEvents: InferenceServiceEvent[]
 }
 
 // Re-export shared GPU metric types

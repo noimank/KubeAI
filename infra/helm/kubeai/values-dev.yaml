@@ -90,15 +90,6 @@ prometheus:
 dcgmexporter:
   enabled: false  # Dev: no GPU nodes typically
 
-kservecrd:
-  enabled: true
-
-kserveresources:
-  enabled: true
-  kserve:
-    controller:
-      deploymentMode: Standard
-
 keda:
   enabled: true
 

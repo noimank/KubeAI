@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
-from app.models.enums import BuildStatus
+from app.models.enums import BuildStatus, ImageCategory
 from app.models.image import Image
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.image import (
@@ -53,6 +53,7 @@ def _to_response(img: Image) -> ImageResponse:
         image_ref=img.image_ref,
         description=img.description,
         source=img.source,
+        category=ImageCategory(img.category),
         is_enabled=img.is_enabled,
         tenant_id=img.tenant_id,
         build_status=build_status,
@@ -68,6 +69,7 @@ async def list_images(
     user: Annotated[CurrentUser, Depends(require_permission("images", "read"))],
     keyword: str | None = _keyword_query,
     source: str | None = _source_query,
+    category: str | None = Query(None, description="镜像分类: training/inference/other"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ) -> PageResponse[ImageResponse]:
@@ -76,6 +78,7 @@ async def list_images(
     items, total = await service.list_images(
         keyword=keyword,
         source=source,
+        category=category,
         tenant_id=tenant_id,
         page=page,
         page_size=page_size,
@@ -93,10 +96,11 @@ async def list_images(
 async def list_selectable_images(
     db: DbDep,
     user: Annotated[CurrentUser, Depends(require_permission("images", "read"))],
+    category: str | None = Query(None, description="镜像分类: training/inference/other"),
 ) -> BaseResponse[list[ImageSelectableResponse]]:
     tenant_id = await _require_tenant_id(user)
     service = ImageService(db)
-    images = await service.list_selectable_images(tenant_id)
+    images = await service.list_selectable_images(tenant_id, category=category)
     data = [
         ImageSelectableResponse(
             id=img.id,
@@ -104,6 +108,7 @@ async def list_selectable_images(
             tag=img.tag,
             image_ref=img.image_ref,
             source=img.source,
+            category=ImageCategory(img.category),
         )
         for img in images
     ]
@@ -135,6 +140,7 @@ async def create_image(
         tag=req.tag,
         image_ref=req.image_ref,
         description=req.description,
+        category=req.category,
         audit_context=_audit_ctx(request, user),
     )
     return BaseResponse(data=_to_response(image), message="镜像创建成功")
@@ -155,6 +161,7 @@ async def build_image(
         tag=req.tag,
         description=req.description,
         tenant_id=tenant_id,
+        category=req.category,
         audit_context=_audit_ctx(request, user),
     )
     await enqueue_image_build(image.id, tenant_id)

@@ -1,7 +1,7 @@
 import { Select } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { getSelectableImages } from '@/services/images'
-import type { ImageSelectable } from '@/types/image'
+import type { ImageCategory, ImageSelectable } from '@/types/image'
 
 interface ImageSelectProps {
   value?: string | null
@@ -9,6 +9,8 @@ interface ImageSelectProps {
   placeholder?: string
   disabled?: boolean
   style?: React.CSSProperties
+  /** 仅展示该类别的镜像 (训练表单传 'training', 推理表单传 'inference') */
+  category?: ImageCategory
 }
 
 function groupBySource(images: ImageSelectable[]) {
@@ -30,10 +32,11 @@ export default function ImageSelect({
   placeholder = '请选择镜像',
   disabled,
   style,
+  category,
 }: ImageSelectProps) {
   const { data: images = [], isLoading } = useQuery({
-    queryKey: ['selectableImages'],
-    queryFn: getSelectableImages,
+    queryKey: ['selectableImages', category ?? 'all'],
+    queryFn: () => getSelectableImages(category),
   })
 
   const { preset, custom } = groupBySource(images)

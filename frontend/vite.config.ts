@@ -32,6 +32,17 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      // 推理服务代理: 仅 /inference/<32位hex>/** 命中 APISIX 动态路由，其余
+      // /inference、/inference/create、/inference/<uuid> 由 Vite 正常服务
+      '/inference': {
+        target: 'http://localhost:30080',
+        changeOrigin: true,
+        ws: true,
+        bypass(req) {
+          const isInferenceProxy = /^\/inference\/[0-9a-f]{32}(\/|$)/.test(req.url || '')
+          if (!isInferenceProxy) return req.url // 前端页面走 Vite，不代理
+        },
+      },
     },
   },
   build: {

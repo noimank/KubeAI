@@ -8,8 +8,8 @@ import {
   Input,
   InputNumber,
   Radio,
-  Space,
   Select,
+  Space,
   Steps,
   Tag,
 } from 'antd'
@@ -21,21 +21,19 @@ import ResourceAwarePanel from '@/components/ResourceAwarePanel'
 import ImageSelect from '@/components/ImageSelect'
 import { createInferenceService } from '@/services/inference'
 import type { InferenceServiceCreateResult } from '@/services/inference'
-import { getModel, getModels } from '@/services/models'
 import { getSelectableImages } from '@/services/images'
-import type { ServiceType } from '@/types/inference'
+import { getModels, getModel } from '@/services/models'
 
 interface FormValues {
   name: string
-  serviceType: ServiceType
-  modelId?: string
-  modelVersionId?: string
   gpuCount: number
   cpu: string
   memory: string
   replicas: number
   image?: string
   imageId?: string
+  modelId?: string
+  modelVersionId?: string
   containerPort?: number
   command?: string
   args?: string
@@ -43,7 +41,7 @@ interface FormValues {
   scalingMode?: 'fixed' | 'auto'
   minReplicas?: number
   maxReplicas?: number
-  targetMetricType?: 'concurrency' | 'cpu'
+  targetMetricType?: 'gpu' | 'cpu'
   targetMetricValue?: number
   cooldownPeriod?: number
   pollingInterval?: number
@@ -58,7 +56,7 @@ const MEMORY_OPTIONS = [
 ]
 
 const METRIC_TYPE_OPTIONS = [
-  { label: '并发请求数', value: 'concurrency' },
+  { label: 'GPU 利用率', value: 'gpu' },
   { label: 'CPU 利用率', value: 'cpu' },
 ]
 
@@ -68,34 +66,30 @@ export default function CreateInferenceServicePage() {
   const [form] = Form.useForm<FormValues>()
   const [submitting, setSubmitting] = useState(false)
 
-  const serviceType = Form.useWatch('serviceType', form) ?? 'model'
   const scalingMode = Form.useWatch('scalingMode', form) ?? 'fixed'
 
   const { data: modelsData } = useQuery({
     queryKey: ['models-for-inference', 1, 100],
     queryFn: () => getModels({ current: 1, pageSize: 100 }),
   })
-
   const models = modelsData?.items ?? []
 
-  const [selectedModelId, setSelectedModelId] = useState<string | undefined>(undefined)
-
+  const selectedModelId = Form.useWatch('modelId', form)
   const { data: modelDetail } = useQuery({
     queryKey: ['model-detail-for-inference', selectedModelId],
-    queryFn: () => getModel(selectedModelId!),
+    queryFn: () => (selectedModelId ? getModel(selectedModelId) : Promise.resolve(null)),
     enabled: !!selectedModelId,
   })
-
   const versions = modelDetail?.versions ?? []
 
   const handleNext = async () => {
     try {
       const fields =
         current === 0
-          ? serviceType === 'model'
-            ? ['name', 'modelId', 'modelVersionId']
-            : ['name', 'imageId', 'containerPort']
-          : ['gpuCount', 'cpu', 'memory', 'replicas']
+          ? ['name', 'imageId', 'containerPort']
+          : current === 1
+            ? ['gpuCount', 'cpu', 'memory', 'replicas']
+            : []
       await form.validateFields(fields)
       setCurrent(current + 1)
     } catch {
@@ -112,22 +106,18 @@ export default function CreateInferenceServicePage() {
       setSubmitting(true)
       const values = await form.validateFields()
       const isAuto = values.scalingMode === 'auto'
-      const isModel = values.serviceType === 'model'
 
       const res: InferenceServiceCreateResult = await createInferenceService({
         name: values.name,
-        serviceType: values.serviceType,
-        modelVersionId: isModel ? values.modelVersionId : undefined,
         gpuCount: values.gpuCount,
         cpu: String(values.cpu),
         memory: values.memory,
         replicas: values.replicas,
-        image: isModel ? values.image || undefined : undefined,
-        imageId: !isModel ? values.imageId : undefined,
-        containerPort: !isModel ? values.containerPort : undefined,
-        command:
-          !isModel && values.command ? values.command.split(/\s+/).filter(Boolean) : undefined,
-        args: !isModel && values.args ? values.args.split(/\s+/).filter(Boolean) : undefined,
+        imageId: values.imageId,
+        modelVersionId: values.modelVersionId || undefined,
+        containerPort: values.containerPort,
+        command: values.command ? values.command.split(/\s+/).filter(Boolean) : undefined,
+        args: values.args ? values.args.split(/\s+/).filter(Boolean) : undefined,
         description: values.description || undefined,
         autoScaling: isAuto
           ? {
@@ -152,7 +142,7 @@ export default function CreateInferenceServicePage() {
 
   const steps = [
     {
-      title: serviceType === 'model' ? '选择模型版本' : '容器配置',
+      title: '容器配置',
       content: (
         <>
           <Form.Item
@@ -172,81 +162,65 @@ export default function CreateInferenceServicePage() {
             <Input.TextArea placeholder="服务描述（可选）" rows={2} />
           </Form.Item>
 
-          <Form.Item name="serviceType" label="服务类型" initialValue="model">
-            <Radio.Group
-              onChange={() => {
-                setCurrent(0)
-              }}
-            >
-              <Radio value="model">模型推理</Radio>
-              <Radio value="custom">自定义容器</Radio>
-            </Radio.Group>
+          {/* 运行时镜像 / 端口 / 命令. 模型/代码可打进镜像或放挂载的共享卷 (/kubeai/home, /kubeai/workspace). */}
+          <Form.Item
+            name="imageId"
+            label="运行时镜像"
+            rules={[{ required: true, message: '请选择运行时镜像' }]}
+            extra="推理运行时镜像（如 vLLM/TGI/Triton）；模型/代码可打进镜像或放挂载的共享卷"
+          >
+            <ImageSelect placeholder="请选择推理运行时镜像" category="inference" />
+          </Form.Item>
+          <Form.Item
+            name="containerPort"
+            label="容器端口"
+            rules={[{ required: true, message: '请输入容器端口' }]}
+            initialValue={8080}
+          >
+            <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="如 8080" />
+          </Form.Item>
+          <Form.Item
+            name="command"
+            label="启动命令"
+            extra="覆盖镜像默认 ENTRYPOINT，如 python main.py（须以 UID 1000 可写运行）"
+          >
+            <Input placeholder="如 python main.py" />
+          </Form.Item>
+          <Form.Item name="args" label="启动参数" extra="空格分隔，追加到命令之后">
+            <Input placeholder="如 --host 0.0.0.0 --port 8080" />
           </Form.Item>
 
-          {serviceType === 'model' ? (
-            <>
-              <Form.Item
-                name="modelId"
-                label="模型"
-                rules={[{ required: true, message: '请选择模型' }]}
-              >
-                <Select
-                  placeholder="请选择模型"
-                  showSearch
-                  optionFilterProp="label"
-                  options={models.map((m) => ({ label: m.name, value: m.id }))}
-                  onChange={(val) => {
-                    setSelectedModelId(val)
-                    form.setFieldValue('modelVersionId', undefined)
-                  }}
-                />
-              </Form.Item>
-              <Form.Item
-                name="modelVersionId"
-                label="模型版本"
-                rules={[{ required: true, message: '请选择模型版本' }]}
-              >
-                <Select
-                  placeholder={selectedModelId ? '请选择模型版本' : '请先选择模型'}
-                  showSearch
-                  optionFilterProp="label"
-                  disabled={!selectedModelId}
-                  options={versions.map((v) => ({
-                    label: `v${v.versionNumber}`,
-                    value: v.id,
-                  }))}
-                />
-              </Form.Item>
-            </>
-          ) : (
-            <>
-              <Form.Item
-                name="imageId"
-                label="容器镜像"
-                rules={[{ required: true, message: '请选择容器镜像' }]}
-              >
-                <ImageSelect placeholder="请从业务镜像库中选择镜像" />
-              </Form.Item>
-              <Form.Item
-                name="containerPort"
-                label="容器端口"
-                rules={[{ required: true, message: '请输入容器端口' }]}
-                initialValue={8080}
-              >
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="如 8080" />
-              </Form.Item>
-              <Form.Item
-                name="command"
-                label="启动命令"
-                extra="覆盖镜像默认 ENTRYPOINT，如 python main.py"
-              >
-                <Input placeholder="如 python main.py" />
-              </Form.Item>
-              <Form.Item name="args" label="启动参数" extra="空格分隔，追加到命令之后">
-                <Input placeholder="如 --host 0.0.0.0 --port 8080" />
-              </Form.Item>
-            </>
-          )}
+          {/* 可选: 从模型注册仓库选择模型版本 (通过 MinIO initContainer 拉取到 /kubeai/models). */}
+          <Divider>模型（可选）</Divider>
+          <Form.Item
+            name="modelId"
+            label="模型"
+            extra="从模型注册仓库选择预注册模型，通过 MinIO 自动拉取到 /kubeai/models/"
+          >
+            <Select
+              placeholder="请选择模型（可选）"
+              showSearch
+              optionFilterProp="label"
+              allowClear
+              options={models.map((m) => ({ label: m.name, value: m.id }))}
+              onChange={() => {
+                form.setFieldValue('modelVersionId', undefined)
+              }}
+            />
+          </Form.Item>
+          <Form.Item name="modelVersionId" label="模型版本">
+            <Select
+              placeholder={selectedModelId ? '请选择模型版本' : '请先选择模型'}
+              showSearch
+              optionFilterProp="label"
+              allowClear
+              disabled={!selectedModelId}
+              options={versions.map((v) => ({
+                label: `v${v.versionNumber}`,
+                value: v.id,
+              }))}
+            />
+          </Form.Item>
         </>
       ),
     },
@@ -266,11 +240,6 @@ export default function CreateInferenceServicePage() {
           <Form.Item name="replicas" label="副本数" initialValue={1} rules={[{ required: true }]}>
             <InputNumber min={1} max={10} style={{ width: '100%' }} />
           </Form.Item>
-          {serviceType === 'model' && (
-            <Form.Item name="image" label="推理镜像" extra="留空使用 KServe 默认推理镜像">
-              <Input placeholder="如 harbor.example.com/kubeai/sklearn-server:latest" />
-            </Form.Item>
-          )}
 
           <Divider>伸缩模式</Divider>
 
@@ -359,9 +328,7 @@ export default function CreateInferenceServicePage() {
     },
     {
       title: '确认部署',
-      content: (
-        <ConfirmStep form={form} models={models} versions={versions} serviceType={serviceType} />
-      ),
+      content: <ConfirmStep form={form} />,
     },
   ]
 
@@ -405,83 +372,68 @@ export default function CreateInferenceServicePage() {
   )
 }
 
-function ConfirmStep({
-  form,
-  models,
-  versions,
-  serviceType,
-}: {
-  form: FormInstance<FormValues>
-  models: { id: string; name: string }[]
-  versions: { id: string; versionNumber: number }[]
-  serviceType: ServiceType
-}) {
+function ConfirmStep({ form }: { form: FormInstance<FormValues> }) {
   const values = Form.useWatch<FormValues>([], form)
   const { data: selectableImages = [] } = useQuery({
-    queryKey: ['selectableImages'],
-    queryFn: getSelectableImages,
+    queryKey: ['selectableImages', 'inference'],
+    queryFn: () => getSelectableImages('inference'),
   })
+
+  const { data: modelsData } = useQuery({
+    queryKey: ['models-for-inference', 1, 100],
+    queryFn: () => getModels({ current: 1, pageSize: 100 }),
+  })
+  const models = modelsData?.items ?? []
+
+  const { data: modelDetail } = useQuery({
+    queryKey: ['model-detail-for-inference-confirm', values?.modelId],
+    queryFn: () => (values?.modelId ? getModel(values.modelId!) : Promise.resolve(null)),
+    enabled: !!values?.modelId,
+  })
+  const versions = modelDetail?.versions ?? []
+
   if (!values) return null
 
   const isAuto = values.scalingMode === 'auto'
-  const isModel = serviceType === 'model'
-
-  const modelLabel = values.modelId
-    ? (models.find((m) => m.id === values.modelId)?.name ?? '未选择')
-    : '未选择'
-  const version = versions.find((v) => v.id === values.modelVersionId)
-  const versionLabel = version ? `v${version.versionNumber}` : '—'
 
   const selectedImage = values.imageId
     ? selectableImages.find((img) => img.id === values.imageId)
     : null
   const imageLabel = selectedImage ? `${selectedImage.name}:${selectedImage.tag}` : '—'
 
+  const modelLabel = values.modelId
+    ? (models.find((m) => m.id === values.modelId)?.name ?? '未选择')
+    : '未选择'
+  const selectedVersion = values.modelVersionId
+    ? versions.find((v) => v.id === values.modelVersionId)
+    : null
+
   return (
     <Descriptions column={2} bordered size="small">
       <Descriptions.Item label="服务名称">{values.name}</Descriptions.Item>
-      <Descriptions.Item label="服务类型">
-        <Tag color={isModel ? 'blue' : 'purple'}>{isModel ? '模型推理' : '自定义容器'}</Tag>
-      </Descriptions.Item>
       <Descriptions.Item label="描述" span={2}>
         {values.description || '—'}
       </Descriptions.Item>
-
-      {isModel ? (
-        <>
-          <Descriptions.Item label="模型">{modelLabel}</Descriptions.Item>
-          <Descriptions.Item label="版本">
-            <Tag color="blue">{versionLabel}</Tag>
-          </Descriptions.Item>
-        </>
-      ) : (
-        <>
-          <Descriptions.Item label="容器镜像" span={2}>
-            <Tag>{imageLabel}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="容器端口">{values.containerPort ?? '—'}</Descriptions.Item>
-          <Descriptions.Item label="启动命令">
-            {values.command || <Tag>默认</Tag>}
-          </Descriptions.Item>
-        </>
-      )}
-
+      <Descriptions.Item label="运行时镜像" span={2}>
+        <Tag>{imageLabel}</Tag>
+      </Descriptions.Item>
+      <Descriptions.Item label="模型" span={2}>
+        {modelLabel}{' '}
+        {selectedVersion ? <Tag color="blue">v{selectedVersion.versionNumber}</Tag> : '(未选择)'}
+      </Descriptions.Item>
+      <Descriptions.Item label="容器端口">{values.containerPort ?? '—'}</Descriptions.Item>
+      <Descriptions.Item label="启动命令">{values.command || <Tag>默认</Tag>}</Descriptions.Item>
       <Descriptions.Item label="GPU">{values.gpuCount ?? 0} 张</Descriptions.Item>
       <Descriptions.Item label="CPU">{values.cpu} 核</Descriptions.Item>
       <Descriptions.Item label="内存">{values.memory}</Descriptions.Item>
       <Descriptions.Item label="副本数">{values.replicas ?? 1}</Descriptions.Item>
-      {isModel && (
-        <Descriptions.Item label="推理镜像" span={2}>
-          {values.image || <Tag>KServe 默认镜像</Tag>}
-        </Descriptions.Item>
-      )}
       <Descriptions.Item label="伸缩模式" span={2}>
         {isAuto ? (
           <Space>
             <Tag color="blue">自动伸缩</Tag>
             <span>
               {values.minReplicas}-{values.maxReplicas} 副本 |{' '}
-              {values.targetMetricType === 'cpu' ? 'CPU 利用率' : '并发请求数'} &gt;{' '}
+              {values.targetMetricType === 'cpu' ? 'CPU 利用率' : 'GPU 利用率'} &gt;{' '}
               {values.targetMetricValue}
             </span>
           </Space>
