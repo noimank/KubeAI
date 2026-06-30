@@ -2,15 +2,17 @@ import base64
 from typing import Annotated, Any
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, File, Request, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, CurrentUserEntity, OptionalCurrentUser, get_db
+from app.core.auth_helpers import resolve_identity_from_request
+from app.core.casbin import CasbinEnforcer
 from app.core.config import settings
-from app.core.exceptions import BadRequestException, ConflictException
+from app.core.exceptions import BadRequestException, ConflictException, ForbiddenException, UnauthorizedException
 from app.core.redis import get_redis
 from app.core.security import decode_token, hash_password, verify_password
 from app.models.enums import AuditAction, ResourceType
@@ -138,6 +140,40 @@ def _build_user_response(user: UserModel) -> UserResponse:
 @router.get("/me", response_model=BaseResponse[UserResponse])
 async def me(user: CurrentUserEntity) -> BaseResponse[UserResponse]:
     return BaseResponse(data=_build_user_response(user), message="获取成功")
+
+
+@router.get("/check", include_in_schema=False)
+async def auth_check(
+    request: Request,
+    resource: Annotated[str, Query()],
+    action: Annotated[str, Query()],
+    db: DbDep,
+    redis: RedisDep,
+) -> Response:
+    """APISIX forward-auth 通用鉴权端点.
+
+    身份解析委托 ``resolve_identity_from_request`` (Cookie / Bearer),
+    资源级鉴权走 Casbin ``enforce(role, resource, action)``.
+
+    APISIX forward-auth 配置示例::
+
+        {
+          "forward-auth": {
+            "uri": "http://backend.kubeai:8000/api/auth/check?resource=experiments&action=read",
+            "request_headers": ["Cookie"],
+            "upstream_headers": ["X-KubeAI-User"]
+          }
+        }
+    """
+    identity = await resolve_identity_from_request(request, db, redis)
+    if not identity:
+        raise UnauthorizedException("未登录或 Token 无效")
+    if not identity.tenant_id:
+        raise ForbiddenException("需要租户上下文")
+    if not CasbinEnforcer.enforce(identity.role.value, resource, action):
+        raise ForbiddenException(f"权限不足: 无法对 {resource} 执行 {action} 操作")
+
+    return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
 
 
 @router.patch("/me/profile", response_model=BaseResponse[UserResponse])

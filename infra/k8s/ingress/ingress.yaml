@@ -19,10 +19,10 @@
 # [ ] 4. 开发环境: devenv 路由由 Backend 通过 APISIX Admin API 动态创建/销毁
 #          - 依赖 APISIX Admin API 可达且 API Key 正确配置
 #          - 无需在此文件中手动管理
-# [ ] 5. MLflow UI 鉴权: MLflow 自身无租户隔离, 给 mlflow 路由加 forward-auth → backend /api/auth/me
-#          - 否则 /mlflow 等于公开全部实验数据. APISIX 配置参考:
-#            curl -X PATCH http://apisix-admin:9180/apisix/admin/routes/<mlflow_route_id> \
-#              -H 'X-API-KEY: <key>' -d '{... "plugins": {"forward-auth": {...}}}'
+# [✓] 5. MLflow UI 鉴权: MLflow 自身无租户隔离, 已通过 forward-auth 插件鉴权
+#          - 端点: backend /api/auth/check?resource=experiments&action=read
+#          - 配置方式: APISIX Admin API PUT /apisix/admin/routes/<mlflow_route_id>
+#          - 插件参数: request_headers=["Cookie"], upstream_headers=["X-KubeAI-User"]
 #
 # ============================================================
 # 路由优先级说明
@@ -37,9 +37,10 @@
 # 以下配置基于 kubeai-prod-env (192.168.18.171) 上的 APISIX 运行配置:
 #   - API 路由: host=aiaxis.uimpcloud.com, uri=/api/*, priority=100,
 #     upstream=backend.kubeai:8000, websocket=true
-#   - Label Studio: host=aiaxis.uimpcloud.com, uris=["/labelstudio","/labelstudio/*"],
-#     priority=100, proxy-rewrite regex ["^/labelstudio/?(.*)$","/$1"],
-#     upstream=labelstudio.kubeai:8080
+#   - MLflow: host=aiaxis.uimpcloud.com, uris=["/mlflow","/mlflow/*"],
+#     priority=100, proxy-rewrite regex ["^/mlflow/?(.*)$","/$1"],
+#     forward-auth → /api/auth/check?resource=experiments&action=read,
+#     upstream=mlflow.kubeai:5000
 #   - 主路由: host=aiaxis.uimpcloud.com, uri=/*, upstream=frontend.kubeai:80
 #   - SSL: Let's Encrypt 自动续期证书，snis=["aiaxis.uimpcloud.com"]
 ---
