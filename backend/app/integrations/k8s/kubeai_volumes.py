@@ -61,8 +61,6 @@ def build_kubeai_env_vars(*, env_id: str | None = None, extra: dict[str, str] | 
     merged = dict(extra); merged.update(<框架键>).
     """
     merged: dict[str, str] = dict(extra or {})
-    if settings.BACKEND_API_URL:
-        merged["KUBEAI_API_URL"] = settings.BACKEND_API_URL
     if env_id:
         merged["KUBEAI_ENV_ID"] = env_id
     merged["KUBEAI_ROOT_PATH"] = KUBEAI_CONTAINER_ROOT

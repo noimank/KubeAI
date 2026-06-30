@@ -73,8 +73,6 @@ class Settings(BaseSettings):
 
     PROMETHEUS_URL: str = "http://localhost:9090"
 
-    API_BASE_URL: str = "http://localhost:8000"
-
     MLFLOW_TRACKING_URI: str = "http://localhost:5000"
 
     LABEL_STUDIO_URL: str = "http://labelstudio.kubeai.local"
@@ -105,8 +103,6 @@ class Settings(BaseSettings):
     # TensorBoard sidecar 镜像与端口. 镜像地址在本地/生产/不同 registry 间需可覆盖.
     TENSORBOARD_IMAGE: str = "kubeai-tensorboard:latest"
     TENSORBOARD_PORT: int = 6006
-
-    BACKEND_API_URL: str = ""
 
 
 settings = Settings()

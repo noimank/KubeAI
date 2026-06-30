@@ -81,7 +81,6 @@ data:
 
   # -- 内部服务地址 (按实际部署修改；下文为独立 k8s YAML 部署的默认地址)
   PROMETHEUS_URL: "http://keda-kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
-  API_BASE_URL: "http://backend.kubeai.svc.cluster.local:8000"
 
   # -- MLflow 实验追踪 (必选基础依赖; 训练任务可选择是否启用, 通过创建任务表单的 "实验追踪" 开关)
   MLFLOW_TRACKING_URI: "http://mlflow.kubeai.svc.cluster.local:5000"
@@ -142,6 +141,3 @@ stringData:
   OIDC_ISSUER: ""
   OIDC_CLIENT_ID: ""
   OIDC_CLIENT_SECRET: ""
-
-  # -- 后端对外访问地址 (用于推理代理回调，留空则使用 API_BASE_URL)
-  BACKEND_API_URL: ""
