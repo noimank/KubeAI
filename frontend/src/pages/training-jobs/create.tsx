@@ -14,8 +14,14 @@ import {
   Steps,
   Switch,
   Tag,
+  Tooltip,
 } from 'antd'
-import { CheckCircleOutlined, FileTextOutlined, RocketOutlined } from '@ant-design/icons'
+import {
+  CheckCircleOutlined,
+  FileTextOutlined,
+  InfoCircleOutlined,
+  RocketOutlined,
+} from '@ant-design/icons'
 import type { FormInstance } from 'antd'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -233,7 +239,7 @@ export default function CreateTrainingJobPage() {
             label="镜像"
             rules={[{ required: true, message: '请选择镜像' }]}
           >
-            <ImageSelect placeholder="请选择训练镜像" />
+            <ImageSelect placeholder="请选择训练镜像" category="training" />
           </Form.Item>
           <Form.Item
             name="command"
@@ -340,7 +346,14 @@ export default function CreateTrainingJobPage() {
             items={[
               {
                 key: 'hyperparams',
-                label: '超参数',
+                label: (
+                  <Space size={4}>
+                    初始超参数
+                    <Tooltip title="这些参数将在容器启动时通过 HP_* 环境变量注入（如 HP_LEARNING_RATE=0.001）。训练脚本可通过 os.environ 读取，通常用于 mlflow.log_params()。实际记录的超参数请查看实验追踪。">
+                      <InfoCircleOutlined style={{ color: '#999' }} />
+                    </Tooltip>
+                  </Space>
+                ),
                 children: (
                   <Form.List name="hyperparameters">
                     {(fields, { add, remove }) => (
@@ -563,7 +576,7 @@ function ConfirmStep({
         </code>
       </Descriptions.Item>
       {hp.length > 0 && (
-        <Descriptions.Item label="超参数" span={2}>
+        <Descriptions.Item label="初始超参数" span={2}>
           {hp.map((h) => (
             <Tag key={h.key} style={{ marginBottom: 4 }}>
               {h.key}={h.value}

@@ -40,6 +40,7 @@ export interface TrainingJob {
   homePath?: string
   mlflowEnabled: boolean
   tensorboardEnabled: boolean
+  experimentId?: string
   createdAt: string
   updatedAt: string
 }

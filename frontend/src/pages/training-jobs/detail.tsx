@@ -14,6 +14,7 @@ import {
   Steps,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -21,6 +22,7 @@ import { formatDate } from '@/utils/format'
 import {
   CheckCircleOutlined,
   DesktopOutlined,
+  ExperimentOutlined,
   InboxOutlined,
   RocketOutlined,
   ReloadOutlined,
@@ -383,7 +385,22 @@ export default function TrainingJobDetailPage() {
         </Typography.Text>
       </Card>
 
-      <Card title="超参数" size="small">
+      <Card
+        title={
+          <Space>
+            初始超参数
+            <Tooltip title="这些参数在容器启动时通过 HP_* 环境变量注入。训练脚本可通过 os.environ['HP_LEARNING_RATE'] 读取，通常用于 mlflow.log_params()。实际记录的超参数请查看实验追踪。">
+              <Tag style={{ cursor: 'help' }}>HP_*</Tag>
+            </Tooltip>
+          </Space>
+        }
+        size="small"
+        extra={
+          job.mlflowEnabled && job.experimentId ? (
+            <Link to={`/experiments/${job.experimentId}`}>查看实验 →</Link>
+          ) : null
+        }
+      >
         {hpEntries.length > 0 ? (
           <Descriptions bordered size="small" column={2}>
             {hpEntries.map(([key, value]) => (
@@ -432,7 +449,17 @@ export default function TrainingJobDetailPage() {
             {job.priority === 'high' ? '高' : job.priority === 'low' ? '低' : '普通'}
           </Descriptions.Item>
           <Descriptions.Item label="MLflow 追踪">
-            {job.mlflowEnabled ? <Tag color="green">已启用</Tag> : <Tag>未启用</Tag>}
+            {job.mlflowEnabled ? (
+              job.experimentId ? (
+                <Link to={`/experiments/${job.experimentId}`}>
+                  <Tag color="green">已启用</Tag> 查看实验 →
+                </Link>
+              ) : (
+                <Tag color="green">已启用</Tag>
+              )
+            ) : (
+              <Tag>未启用</Tag>
+            )}
           </Descriptions.Item>
         </Descriptions>
       </Card>
@@ -600,6 +627,41 @@ export default function TrainingJobDetailPage() {
               </Descriptions.Item>
             </Descriptions>
           </Card>
+
+          {/* 实验追踪入口：仅 MLflow 启用且有关联 experiment 时显示 */}
+          {job.mlflowEnabled && job.experimentId && (
+            <Card
+              size="small"
+              hoverable
+              style={{ cursor: 'pointer', borderColor: '#1677ff' }}
+              onClick={() => navigate(`/experiments/${job.experimentId}`)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <ExperimentOutlined style={{ fontSize: 24, color: '#1677ff' }} />
+                <div>
+                  <Typography.Text strong>实验追踪</Typography.Text>
+                  <br />
+                  <Typography.Text type="secondary">
+                    查看实验结果：超参数、指标曲线、对比分析 →
+                  </Typography.Text>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* 实验追踪提示：仅 MLflow 启用但实验尚未创建时显示 */}
+          {job.mlflowEnabled &&
+            !job.experimentId &&
+            ['running', 'queued', 'pending', 'initializing'].includes(job.status) && (
+              <Card size="small" style={{ borderColor: '#faad14' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <ExperimentOutlined style={{ fontSize: 24, color: '#faad14' }} />
+                  <Typography.Text type="secondary">
+                    实验追踪正在初始化，任务开始运行后将自动创建实验记录
+                  </Typography.Text>
+                </div>
+              </Card>
+            )}
         </div>
       ),
     },

@@ -17,6 +17,7 @@ from app.core.exceptions import AppException, ForbiddenException, UnauthorizedEx
 from app.core.redis import _redis_pool, get_redis
 from app.integrations.base import sanitize_k8s_name
 from app.models.enums import TrainingJobStatus, UserRole
+from app.models.experiment import Experiment
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.training_job import (
@@ -213,8 +214,18 @@ async def get_training_job(
     tenant_id = _require_tenant_id(user)
     job = await service.get_training_job(training_job_id, tenant_id)
     username = await _resolve_username(db, job.created_by)
+
+    # 查询关联的 experiment ID (用于前端跳转实验追踪)
+    exp_result = await db.execute(select(Experiment.id).where(Experiment.training_job_id == training_job_id))
+    experiment_id = exp_result.scalar_one_or_none()
+
     return BaseResponse(
-        data=_to_response(job, workspace_path="/workspace", home_path=f"/home/{sanitize_k8s_name(username)}"),
+        data=_to_response(
+            job,
+            workspace_path="/workspace",
+            home_path=f"/home/{sanitize_k8s_name(username)}",
+            experiment_id=experiment_id,
+        ),
         message="获取成功",
     )
 

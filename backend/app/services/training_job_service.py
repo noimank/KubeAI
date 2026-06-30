@@ -34,7 +34,7 @@ from app.integrations.volcano.client import (
 from app.integrations.volcano.job_builder import build_vcjob
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.dev_environment import DevEnvironment
-from app.models.enums import DevEnvironmentStatus, TrainingJobStatus
+from app.models.enums import DevEnvironmentStatus, ImageCategory, TrainingJobStatus
 from app.models.experiment import Experiment
 from app.models.image import Image
 from app.models.tenant import Tenant
@@ -369,6 +369,7 @@ class TrainingJobService:
             try:
                 experiment_service = ExperimentService(self.db)
                 await experiment_service.terminate_experiments_for_job(job.id)
+                await experiment_service.sync_experiment_status(job.id, "stopped")
                 await self.db.commit()
             except Exception as e:
                 logger.warning("Failed to terminate MLflow runs for job %s: %s", job.id, e)
@@ -881,6 +882,8 @@ class TrainingJobService:
             raise NotFoundException("镜像不存在")
         if not image.is_enabled:
             raise BadRequestException("镜像已禁用")
+        if image.category != ImageCategory.TRAINING.value:
+            raise BadRequestException("该镜像非训练类镜像, 不可用于训练任务")
         return image
 
     async def _get_user_or_fail(self, user_id: uuid.UUID) -> User:

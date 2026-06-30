@@ -9,10 +9,11 @@ import {
   Spin,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ExperimentOutlined, RocketOutlined } from '@ant-design/icons'
+import { ExperimentOutlined, LinkOutlined, RocketOutlined } from '@ant-design/icons'
 import { Line } from '@ant-design/charts'
 import { useQuery } from '@tanstack/react-query'
 import { getExperiment } from '@/services/experiments'
@@ -90,9 +91,14 @@ export default function ExperimentDetailPage() {
           </Descriptions.Item>
           <Descriptions.Item label="训练任务">
             {experiment.trainingJobId ? (
-              <Link to={`/training-jobs/${experiment.trainingJobId}`}>
-                {experiment.trainingJobName || '查看任务'}
-              </Link>
+              <Space>
+                <Link to={`/training-jobs/${experiment.trainingJobId}`}>
+                  {experiment.trainingJobName || '查看任务'}
+                </Link>
+                <Tooltip title="跳转至训练任务详情，查看完整配置、日志与资源信息">
+                  <LinkOutlined style={{ color: '#1677ff' }} />
+                </Tooltip>
+              </Space>
             ) : (
               '—'
             )}
@@ -107,9 +113,40 @@ export default function ExperimentDetailPage() {
         </Descriptions>
       </Card>
 
-      {/* Key metrics summary */}
+      {/* 关键超参数摘要 */}
+      {hpEntries.length > 0 && (
+        <Card
+          title="关键超参数"
+          size="small"
+          extra={
+            <Button type="link" size="small" onClick={() => setActiveTab('hyperparams')}>
+              查看全部 →
+            </Button>
+          }
+        >
+          <Descriptions bordered size="small" column={2}>
+            {hpEntries.slice(0, 6).map(([key, value]) => (
+              <Descriptions.Item key={key} label={key}>
+                <Typography.Text code style={{ fontSize: 12 }}>
+                  {String(value)}
+                </Typography.Text>
+              </Descriptions.Item>
+            ))}
+          </Descriptions>
+        </Card>
+      )}
+
+      {/* 关键指标摘要 */}
       {experiment.metrics && experiment.metrics.length > 0 && (
-        <Card title="关键指标" size="small">
+        <Card
+          title="关键指标"
+          size="small"
+          extra={
+            <Button type="link" size="small" onClick={() => setActiveTab('metrics')}>
+              查看曲线 →
+            </Button>
+          }
+        >
           <Descriptions bordered size="small" column={2}>
             {experiment.metrics.map((m) => (
               <Descriptions.Item key={m.key} label={m.key}>
@@ -124,6 +161,13 @@ export default function ExperimentDetailPage() {
 
   const hyperparamsTab = (
     <Card title="超参数" size="small">
+      <Typography.Text
+        type="secondary"
+        style={{ display: 'block', marginBottom: 16, fontSize: 12 }}
+      >
+        训练脚本通过 mlflow.log_params()
+        记录的实际超参数。若与创建任务时配置的初始值不同，以此处为准。
+      </Typography.Text>
       {hpEntries.length > 0 ? (
         <Descriptions bordered size="small" column={2}>
           {hpEntries.map(([key, value]) => (
@@ -135,7 +179,7 @@ export default function ExperimentDetailPage() {
           ))}
         </Descriptions>
       ) : (
-        <Empty description="暂无超参数数据。请确认训练脚本通过环境变量 MLFLOW_RUN_ID 恢复了平台预创建的运行" />
+        <Empty description="训练脚本未记录超参数。请确保脚本中调用了 mlflow.log_params()" />
       )}
     </Card>
   )
@@ -143,7 +187,7 @@ export default function ExperimentDetailPage() {
   const metricsTab = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {metricKeys.length === 0 ? (
-        <Empty description="暂无指标数据。请确认训练脚本通过环境变量 MLFLOW_RUN_ID 恢复了平台预创建的运行" />
+        <Empty description="训练脚本未记录指标。请确保脚本中调用了 mlflow.log_metric()" />
       ) : (
         metricKeys.map((key) => {
           const series = experiment.metricHistories?.[key] ?? []
@@ -176,55 +220,10 @@ export default function ExperimentDetailPage() {
     </div>
   )
 
-  const configTab = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Card title="训练命令" size="small">
-        {experiment.trainingJob?.command ? (
-          <Typography.Text copyable code style={{ fontSize: 12, wordBreak: 'break-all' }}>
-            {experiment.trainingJob.command}
-          </Typography.Text>
-        ) : (
-          <Typography.Text type="secondary">—</Typography.Text>
-        )}
-      </Card>
-
-      <Card title="资源规格" size="small">
-        <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="GPU">
-            {experiment.trainingJob?.gpuCount ?? '—'} 张
-          </Descriptions.Item>
-          <Descriptions.Item label="CPU">{experiment.trainingJob?.cpu ?? '—'} 核</Descriptions.Item>
-          <Descriptions.Item label="内存">
-            {experiment.trainingJob?.memory ?? '—'}
-          </Descriptions.Item>
-          <Descriptions.Item label="镜像">
-            {experiment.trainingJob?.imageName || experiment.imageName || '—'}
-          </Descriptions.Item>
-        </Descriptions>
-      </Card>
-
-      <Card title="数据集信息" size="small">
-        <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="数据集版本">
-            {experiment.trainingJob?.datasetVersion || experiment.datasetVersion || '—'}
-          </Descriptions.Item>
-          <Descriptions.Item label="数据集">
-            {experiment.trainingJobId ? (
-              <Link to={`/training-jobs/${experiment.trainingJobId}`}>查看训练任务</Link>
-            ) : (
-              '—'
-            )}
-          </Descriptions.Item>
-        </Descriptions>
-      </Card>
-    </div>
-  )
-
   const tabs = [
     { key: 'overview', label: '概览', children: overviewTab },
     { key: 'hyperparams', label: '超参数', children: hyperparamsTab },
     { key: 'metrics', label: '指标', children: metricsTab },
-    { key: 'config', label: '训练配置', children: configTab },
   ]
 
   return (

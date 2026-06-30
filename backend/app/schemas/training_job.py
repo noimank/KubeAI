@@ -58,6 +58,7 @@ class TrainingJobResponse(BaseModel):
     home_path: str | None = None
     mlflow_enabled: bool = False
     tensorboard_enabled: bool = False
+    experiment_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 
