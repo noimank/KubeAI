@@ -42,6 +42,7 @@ def build_deployment(
     env_from: list[dict[str, Any]] | None = None,
     image_pull_secrets: list[str] | None = None,
     security_context: dict[str, Any] | None = None,
+    node_selector: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     labels = {"app.kubernetes.io/name": name, "app.kubernetes.io/managed-by": MANAGED_BY_LABEL}
 
@@ -72,6 +73,8 @@ def build_deployment(
         pod_spec["volumes"] = volumes
     if image_pull_secrets:
         pod_spec["imagePullSecrets"] = [{"name": n} for n in image_pull_secrets]
+    if node_selector:
+        pod_spec["nodeSelector"] = node_selector
 
     return {
         "apiVersion": "apps/v1",

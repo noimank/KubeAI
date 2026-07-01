@@ -372,6 +372,7 @@ class InferenceServiceService:
             volumes=volumes,
             volume_mounts=volume_mounts,
             image_pull_secrets=image_pull_secrets,
+            node_selector={"kubeai": "true"},
         )
 
         try:
