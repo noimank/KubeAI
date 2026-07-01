@@ -59,6 +59,9 @@ class InferenceService(Base, TimestampMixin):
     target_metric_value: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="目标指标阈值")
     cooldown_period: Mapped[int] = mapped_column(Integer, nullable=False, default=300, comment="冷却时间(秒)")
     polling_interval: Mapped[int] = mapped_column(Integer, nullable=False, default=30, comment="轮询间隔(秒)")
+    subpath_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="rewrite", comment="子路径模式: rewrite/native"
+    )
 
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("id", uuid.uuid4())

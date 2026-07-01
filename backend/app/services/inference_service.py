@@ -97,6 +97,7 @@ class InferenceServiceService:
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
         model_version_id: uuid.UUID | None = None,
+        subpath_mode: str = "rewrite",
     ) -> tuple[InferenceService, str]:
         svc, tenant, api_token = await self._create_inference_service_record(
             tenant_id=tenant_id,
@@ -115,6 +116,7 @@ class InferenceServiceService:
             description=description,
             auto_scaling=auto_scaling,
             model_version_id=model_version_id,
+            subpath_mode=subpath_mode,
         )
         await self._deploy_inference_service_resources(svc=svc, tenant=tenant)
         await self.db.refresh(svc)
@@ -139,6 +141,7 @@ class InferenceServiceService:
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
         model_version_id: uuid.UUID | None = None,
+        subpath_mode: str = "rewrite",
     ) -> tuple[InferenceService, str]:
         svc, _, api_token = await self._create_inference_service_record(
             tenant_id=tenant_id,
@@ -157,6 +160,7 @@ class InferenceServiceService:
             description=description,
             auto_scaling=auto_scaling,
             model_version_id=model_version_id,
+            subpath_mode=subpath_mode,
         )
         return svc, api_token
 
@@ -179,6 +183,7 @@ class InferenceServiceService:
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
         model_version_id: uuid.UUID | None = None,
+        subpath_mode: str = "rewrite",
     ) -> tuple[InferenceService, Tenant, str]:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
@@ -203,6 +208,7 @@ class InferenceServiceService:
             min_replicas=min_rep,
             max_replicas=max_rep,
             scaling_mode="auto" if is_auto else "fixed",
+            subpath_mode=subpath_mode,
             status=InferenceServiceStatus.PENDING,
             description=description,
             env_vars=env_vars,
@@ -315,6 +321,7 @@ class InferenceServiceService:
         is_auto: bool,
         auto_scaling: AutoScalingConfig | None,
         model_version_id: uuid.UUID | None = None,
+        subpath_mode: str = "rewrite",
     ) -> None:
         # 可选镜像拉取 secret (Harbor). 未配置 Harbor 时回退到无 pull secret (不阻塞).
         image_pull_secrets: list[str] | None = None
@@ -345,11 +352,10 @@ class InferenceServiceService:
 
         init_containers.append(build_chown_init_container(name="inference-init", volume_mounts=volume_mounts))
         final_env_vars = build_kubeai_env_vars(extra=env_vars)
-        # 注入 ROOT_PATH (= /inference/<hex>) —— 告知应用平台对外访问前缀.
-        # 前端代码 / OpenAPI docs / 跳转等如需生成正确的外部 URL 可读此变量拼接;
-        # 不消费它的存量应用行为不变 (proxy-rewrite 仍剥前缀, 上游见原生路径).
-        # 注意: ROOT_PATH(URL 前缀) 与 KUBEAI_ROOT_PATH(容器文件系统根 /kubeai) 无关.
-        final_env_vars["ROOT_PATH"] = inference_path(svc.id)
+        # 注入 BASE_URL_PREFIX (= /inference/<hex>) —— 告知应用平台对外访问前缀.
+        # 两种子路径模式都注入: rewrite 模式下应用仅用于拼外部 URL(OpenAPI docs / 跳转 /
+        # 前端 fetch), native 模式下应用还据此做路由(自行 StripPrefix). 见 inference_route.
+        final_env_vars["BASE_URL_PREFIX"] = inference_path(svc.id)
 
         dep_body = build_deployment(
             name=k8s_name,

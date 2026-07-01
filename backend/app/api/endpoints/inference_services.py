@@ -101,6 +101,7 @@ async def create_inference_service(
         description=req.description,
         auto_scaling=req.auto_scaling,
         model_version_id=req.model_version_id,
+        subpath_mode=req.subpath_mode,
     )
     await enqueue_inference_service_deploy(svc.id, tenant_id)
     resp = InferenceServiceCreateResponse.model_validate(

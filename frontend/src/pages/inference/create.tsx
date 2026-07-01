@@ -46,6 +46,7 @@ interface FormValues {
   targetMetricValue?: number
   cooldownPeriod?: number
   pollingInterval?: number
+  subpathMode?: 'rewrite' | 'native'
 }
 
 const MEMORY_OPTIONS = [
@@ -127,6 +128,7 @@ export default function CreateInferenceServicePage() {
         args: values.args ? values.args.split(/\s+/).filter(Boolean) : undefined,
         envVars: envVars && Object.keys(envVars).length > 0 ? envVars : undefined,
         description: values.description || undefined,
+        subpathMode: values.subpathMode,
         autoScaling: isAuto
           ? {
               scalingMode: 'auto',
@@ -186,6 +188,17 @@ export default function CreateInferenceServicePage() {
             initialValue={8080}
           >
             <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="如 8080" />
+          </Form.Item>
+          <Form.Item
+            name="subpathMode"
+            label="子路径模式"
+            initialValue="rewrite"
+            tooltip="应用是否自行处理 /inference/<hex> 访问前缀。重写：平台剥前缀，上游见原生路径（适用 vLLM/TGI 等不透明 API）；透传：前缀原样转发，应用读 BASE_URL_PREFIX 自行路由（适用 RemoteBash/Jupyter 等 Web 应用）"
+          >
+            <Radio.Group>
+              <Radio value="rewrite">重写（剥前缀）</Radio>
+              <Radio value="native">透传（保留前缀）</Radio>
+            </Radio.Group>
           </Form.Item>
           <Form.Item
             name="command"
@@ -461,7 +474,12 @@ function ConfirmStep({ form }: { form: FormInstance<FormValues> }) {
         {selectedVersion ? <Tag color="blue">v{selectedVersion.versionNumber}</Tag> : '(未选择)'}
       </Descriptions.Item>
       <Descriptions.Item label="容器端口">{values.containerPort ?? '—'}</Descriptions.Item>
-      <Descriptions.Item label="启动命令">{values.command || <Tag>默认</Tag>}</Descriptions.Item>
+      <Descriptions.Item label="子路径模式">
+        {values.subpathMode === 'native' ? <Tag color="blue">透传</Tag> : <Tag>重写</Tag>}
+      </Descriptions.Item>
+      <Descriptions.Item label="启动命令" span={2}>
+        {values.command || <Tag>默认</Tag>}
+      </Descriptions.Item>
       <Descriptions.Item label="启动参数" span={2}>
         {values.args || <Tag>默认</Tag>}
       </Descriptions.Item>

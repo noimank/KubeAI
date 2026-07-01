@@ -4,14 +4,19 @@
 由 forward-auth 回 backend 校验, upstream 直连推理 Service 的 ClusterIP,
 不再经 backend Python 反代.
 
-  * proxy-rewrite 剥 /inference/<hex>/ 前缀, 上游收到原生路径 (如 /v1/completions).
-    存量应用不受影响 — 从上游看来请求仍在根路径上, 无需改造.
-  * 部署时注入 ``ROOT_PATH=/inference/<hex>`` 环境变量, 应用可读它生成正确的外部 URL
-    (redirects / OpenAPI docs / 前端 fetch 等). 这只是告知"平台的访问前缀是什么",
-    不影响 proxy 侧的前缀剥离; 不消费此变量的存量应用行为不变.
+子路径模式 (``InferenceService.subpath_mode``) 决定前缀由谁处理 —— 二选一, 不可两边都剥:
+
+  * ``rewrite`` (默认): proxy-rewrite 剥 ``/inference/<hex>`` 前缀, 上游收到原生路径
+    (如 /v1/completions). 适用不透明推理 API (vLLM/TGI), 它们在根路径提供服务.
+  * ``native``: 不剥前缀, 原样转发 ``/inference/<hex>/*``. 适用自行处理子路径的 Web 应用
+    (如 RemoteBash / Jupyter / RStudio —— 它们按前缀挂载路由并渲染带前缀的资源 URL).
+    若对这类应用仍剥前缀, 上游会收到裸 ``/`` 而自身又按前缀路由 → 双重剥离 → 404.
+
+两种模式都注入 ``BASE_URL_PREFIX=/inference/<hex>`` 告知应用平台访问前缀:
+rewrite 模式仅用于拼外部 URL, native 模式还用于路由.
+
   * ``uris`` 同时匹配裸路径 (``/inference/<hex>``) 与带子路径 (``/inference/<hex>/*``),
     避免无尾斜杠的 URL 落到平台 SPA 兜底路由.
-    注意: ``ROOT_PATH``(URL 前缀契约) 与 ``KUBEAI_ROOT_PATH``(容器文件系统根 /kubeai) 无关.
 
 推理服务统一为自定义运行时 Deployment + ClusterIP Service (KServe 已移除).
 """
@@ -93,12 +98,13 @@ def _stable_upstream_node(svc: InferenceService, namespace: str) -> str:
 def _build_apisix_route_payload(*, svc: InferenceService, namespace: str) -> dict[str, Any]:
     """Build an APISIX Admin API route payload for an inference service.
 
-    路由通过 ``uris`` 同时匹配裸路径与带子路径, proxy-rewrite 剥掉
-    ``/inference/<hex>`` 前缀后透传原生路径给上游; 存量应用行为不变.
+    ``uris`` 同时匹配裸路径与带子路径. ``svc.subpath_mode`` 决定是否剥前缀:
 
-    部署时注入的 ``ROOT_PATH`` 环境变量告知应用平台访问前缀 —— 应用
-    可据此生成正确的外部 URL (OpenAPI docs / 前端 fetch / 跳转等),
-    但不消费它的存量应用完全不受影响.
+    * ``rewrite`` (默认): 加 proxy-rewrite 剥 ``/inference/<hex>`` 前缀, 上游见原生路径.
+    * ``native``: 不加 proxy-rewrite, 前缀原样转发, 由应用按 ``BASE_URL_PREFIX`` 自行处理.
+
+    两种模式都注入 ``BASE_URL_PREFIX`` (见 inference_service 部署逻辑); forward-auth /
+    uris / upstream / websocket 配置完全一致.
     """
     hex_id = _service_id_hex(svc.id)
     path = inference_path(svc.id)
@@ -114,15 +120,16 @@ def _build_apisix_route_payload(*, svc: InferenceService, namespace: str) -> dic
             "request_headers": ["Cookie", "Authorization"],
             "upstream_headers": ["X-KubeAI-User"],
         },
-        # 剥 /inference/<hex> 前缀, 上游收到原生路径.
-        # ^(path)/?(.*) 同时覆盖裸路径与带子路径:
-        #   /inference/<hex>       → $2=""  → /
-        #   /inference/<hex>/foo   → $2="foo" → /foo
-        #   /inference/<hex>/a/b   → $2="a/b" → /a/b
-        "proxy-rewrite": {
-            "regex_uri": [f"^{path}/?(.*)", "/$1"],
-        },
     }
+    # rewrite 模式: 剥 /inference/<hex> 前缀, 上游收到原生路径.
+    # ^path/?(.*) 只有一个捕获组, 同时覆盖裸路径与带子路径:
+    #   /inference/<hex>     → $1=""   → /
+    #   /inference/<hex>/foo → $1="foo" → /foo
+    # native 模式不加此插件 —— 前缀原样转发, 由应用按 BASE_URL_PREFIX 自行路由 (避免双重剥离).
+    if svc.subpath_mode != "native":
+        plugins["proxy-rewrite"] = {
+            "regex_uri": [f"^{path}/?(.*)", "/$1"],
+        }
 
     payload: dict[str, Any] = {
         "id": hex_id,

@@ -93,6 +93,19 @@ def test_payload_targets_service_clusterip_has_auth_and_rewrite() -> None:
     assert "traffic-split" not in payload["plugins"]
 
 
+def test_payload_native_mode_omits_proxy_rewrite() -> None:
+    # native 模式: 应用自行处理 /inference/<hex> 前缀, 平台不剥 —— 否则双重剥离致 404.
+    svc = _make_svc(k8s_service_name="m1", container_port=8000, status="running", subpath_mode="native")
+    payload = _build_apisix_route_payload(svc=svc, namespace=_NAMESPACE)
+
+    hex_id = svc.id.hex
+    assert "proxy-rewrite" not in payload["plugins"]
+    # 其余契约不变: forward-auth 鉴权仍在, uris 仍同时匹配裸路径与子路径, upstream 直连不变.
+    assert "forward-auth" in payload["plugins"]
+    assert payload["uris"] == [f"/inference/{hex_id}", f"/inference/{hex_id}/*"]
+    assert payload["upstream"]["nodes"] == {f"m1.{_NAMESPACE}.svc.cluster.local:8000": 1}
+
+
 # ── put / delete 行为 ─────────────────────────────────────────────────────────
 
 

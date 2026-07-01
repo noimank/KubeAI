@@ -1,5 +1,6 @@
 export type InferenceServiceStatus = 'pending' | 'deploying' | 'running' | 'failed' | 'stopped'
 export type ScalingMode = 'fixed' | 'auto'
+export type SubpathMode = 'rewrite' | 'native'
 export type MetricType = 'gpu' | 'cpu'
 
 export interface AutoScalingConfig {
@@ -46,6 +47,7 @@ export interface InferenceService {
   envVars?: Record<string, string>
   errorMessage?: string
   scalingMode: ScalingMode
+  subpathMode?: SubpathMode
   targetMetricType?: MetricType
   targetMetricValue?: number
   cooldownPeriod: number
@@ -78,6 +80,7 @@ export interface InferenceServiceCreate {
   envVars?: Record<string, string>
   description?: string
   autoScaling?: AutoScalingConfig
+  subpathMode?: SubpathMode
 }
 
 export interface InferenceServiceEvent {

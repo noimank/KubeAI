@@ -41,6 +41,7 @@ class InferenceServiceCreateRequest(BaseModel):
     env_vars: dict[str, str] | None = None
     description: str | None = None
     auto_scaling: AutoScalingConfig | None = None
+    subpath_mode: Literal["rewrite", "native"] = "rewrite"
 
     @model_validator(mode="after")
     def _validate_required(self) -> "InferenceServiceCreateRequest":
@@ -85,6 +86,7 @@ class InferenceServiceResponse(BaseModel):
     env_vars: dict[str, str] | None
     error_message: str | None = None
     scaling_mode: str = "fixed"
+    subpath_mode: str = "rewrite"
     target_metric_type: str | None = None
     target_metric_value: int | None = None
     cooldown_period: int = 300
