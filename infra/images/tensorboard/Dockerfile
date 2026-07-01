@@ -10,7 +10,7 @@
 
 FROM python:3.12-slim-bookworm
 
-RUN pip install --no-cache-dir setuptools tensorboard==2.18.0
+RUN pip install --no-cache-dir 'setuptools<70' tensorboard==2.18.0
 
 # 非 root 用户, 与 dev_pod 保持一致 (UID 1000)
 RUN useradd -u 1000 -m -s /bin/bash tensorboard
@@ -24,5 +24,4 @@ EXPOSE 6006
 # build_vcjob overrides `command` to add `--path_prefix=/tensorboard/<hex>` so
 # TensorBoard serves under the APISIX-routed subpath.
 # --host=0.0.0.0 makes the server reachable via the ClusterIP Service.
-# --noassets disables Google Fonts external links (NetworkPolicy blocks egress).
-CMD ["tensorboard", "--logdir=/kubeai/tensorboard", "--host=0.0.0.0", "--port=6006", "--noassets"]
+CMD ["tensorboard", "--logdir=/kubeai/tensorboard", "--host=0.0.0.0", "--port=6006"]
