@@ -77,8 +77,8 @@ class TestBuildVcjobSingle:
 
         container = result["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
         env_names = [e["name"] for e in container["env"]]
-        assert "HP_LR" in env_names
-        assert "HP_EPOCHS" in env_names
+        assert "lr" in env_names
+        assert "epochs" in env_names
 
     def test_priority_classes(self):
         for priority in ("low", "normal", "high"):

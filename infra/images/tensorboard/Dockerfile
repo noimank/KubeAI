@@ -1,7 +1,8 @@
 # 平台 TensorBoard sidecar 镜像 — 镜像地址通过 TENSORBOARD_IMAGE 配置注入.
 # Build: docker build -t kubeai-tensorboard:latest -f infra/images/tensorboard/Dockerfile .
 #
-# 极简设计: 只装 tensorboard + 一个非 root 用户, 总镜像 < 200MB.
+# 极简设计: 只装 tensorboard + setuptools + 一个非 root 用户, 总镜像 < 200MB.
+# setuptools 提供 tensorboard 启动时依赖的 pkg_resources (python:3.12-slim 不预装).
 # 不预装 tensorflow/torch — trainer 容器负责这些.
 #
 # 用法: 由平台 build_vcjob 在 trainer Pod 注入 sidecar 容器,
@@ -9,7 +10,7 @@
 
 FROM python:3.12-slim-bookworm
 
-RUN pip install --no-cache-dir tensorboard==2.18.0
+RUN pip install --no-cache-dir setuptools tensorboard==2.18.0
 
 # 非 root 用户, 与 dev_pod 保持一致 (UID 1000)
 RUN useradd -u 1000 -m -s /bin/bash tensorboard

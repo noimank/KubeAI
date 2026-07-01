@@ -349,7 +349,7 @@ export default function CreateTrainingJobPage() {
                 label: (
                   <Space size={4}>
                     初始超参数
-                    <Tooltip title="这些参数将在容器启动时通过 HP_* 环境变量注入（如 HP_LEARNING_RATE=0.001）。训练脚本可通过 os.environ 读取，通常用于 mlflow.log_params()。实际记录的超参数请查看实验追踪。">
+                    <Tooltip title="这些参数将作为环境变量原样注入容器（如 learning_rate=0.001），键名和值均不做修改。训练脚本可通过 os.environ 读取，通常用于 mlflow.log_params()。实际记录的超参数请查看实验追踪。">
                       <InfoCircleOutlined style={{ color: '#999' }} />
                     </Tooltip>
                   </Space>

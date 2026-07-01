@@ -51,7 +51,7 @@ def build_vcjob(
         env.append({"name": "KUBEAI_HOME_PATH", "value": f"{KUBEAI_CONTAINER_ROOT}/home"})
     if hyperparameters:
         for key, value in hyperparameters.items():
-            env.append({"name": f"HP_{key.upper()}", "value": value})
+            env.append({"name": key, "value": value})
     if mlflow_tracking_uri:
         env.append({"name": "MLFLOW_TRACKING_URI", "value": mlflow_tracking_uri})
     if mlflow_experiment_name:
@@ -117,7 +117,6 @@ def build_vcjob(
                     "--host=0.0.0.0",
                     f"--port={settings.TENSORBOARD_PORT}",
                     f"--path_prefix={tensorboard_path(uuid.UUID(job_id))}",
-                    "--noassets",
                 ],
                 "restartPolicy": "Always",
                 "resources": {
