@@ -7,7 +7,7 @@ TensorBoard 的训练任务创建 per-job ClusterIP Service 与 APISIX 路由. �
 
 与 dev_pod 的区别:
   * 不创建 Pod (Pod 由 Volcano 调度)
-  * Service selector 指向装了 sidecar 的 master pod (volcano.sh/task-name=master)
+  * Service selector 指向装了 sidecar 的 master pod (volcano.sh/task-spec=master)
   * 路由原样转发 (无 proxy-rewrite) —— sidecar 以 --path_prefix=/tensorboard/<hex>
     运行, 自行生成带前缀的资源 URL; 仅 forward-auth 鉴权 (Cookie header).
 """
@@ -94,12 +94,12 @@ def build_tensorboard_service(job_id: uuid.UUID, namespace: str, vcjob_name: str
 
     Selector 包含两条件:
       * ``volcano.sh/job-name=<vcjob_name>``: 选该 VCJob 的所有 pod
-      * ``volcano.sh/task-name=master``: 仅保留 master task pod (分布式场景),
+      * ``volcano.sh/task-spec=master``: 仅保留 master task pod (分布式场景),
         避免 worker 被打到 (worker 没有 6006 端口在 listen)
 
     单 master 训练 (worker_count=1) 同样工作, ``build_vcjob`` 统一将 task 命名
     为 ``master`` (无论 worker_count), 因此 Volcano 给 pod 打的
-    ``volcano.sh/task-name`` 标签始终为 ``master``.
+    ``volcano.sh/task-spec`` 标签始终为 ``master``.
     """
     return client.V1Service(
         metadata=client.V1ObjectMeta(
@@ -110,7 +110,7 @@ def build_tensorboard_service(job_id: uuid.UUID, namespace: str, vcjob_name: str
         spec=client.V1ServiceSpec(
             selector={
                 "volcano.sh/job-name": vcjob_name,
-                "volcano.sh/task-name": "master",
+                "volcano.sh/task-spec": "master",
             },
             ports=[
                 client.V1ServicePort(
