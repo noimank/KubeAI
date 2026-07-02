@@ -1,5 +1,4 @@
 # 平台 TensorBoard sidecar 镜像 — 镜像地址通过 TENSORBOARD_IMAGE 配置注入.
-# Build: docker build -t kubeai-tensorboard:latest -f infra/images/tensorboard/Dockerfile .
 #
 # 极简设计: 只装 tensorboard + setuptools + 一个非 root 用户, 总镜像 < 200MB.
 # setuptools 提供 tensorboard 启动时依赖的 pkg_resources (python:3.12-slim 不预装).
@@ -7,6 +6,8 @@
 #
 # 用法: 由平台 build_vcjob 在 trainer Pod 注入 sidecar 容器,
 # 共享 emptyDir 卷 /kubeai/tensorboard, 读取 trainer 写的 tfevents.
+
+# Build: docker build -t hub.uimpcloud.com/kubeai/kubeai-tensorboard:latest  -f infra/images/tensorboard/Dockerfile .
 
 FROM python:3.12-slim-bookworm
 

@@ -6,7 +6,7 @@
 # with --ServerApp.base_url set to the environment's path prefix.
 #
 # Build:
-#   docker build -t kubeai-jupyter-tensorflow -f Dockerfile.tensorflow .
+#   docker build -t hub.uimpcloud.com/kubeai/jupyter-env:tensorflow -f Dockerfile.tensorflow .
 
 FROM quay.io/jupyter/tensorflow-notebook:cuda-latest
 

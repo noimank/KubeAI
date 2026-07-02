@@ -6,8 +6,7 @@
 # with --ServerApp.base_url set to the environment's path prefix.
 #
 # Build:
-#   docker build -t kubeai-jupyter-scipy -f Dockerfile.scipy .
-#   docker build -t hub.uimpcloud.com/kubeai/jupyter-scipy:latest -f Dockerfile.scipy .
+#   docker build -t hub.uimpcloud.com/kubeai/jupyter-env:scipy -f Dockerfile.scipy .
 
 FROM quay.io/jupyter/scipy-notebook:latest
 

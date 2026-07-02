@@ -6,7 +6,7 @@
 # with --ServerApp.base_url set to the environment's path prefix.
 #
 # Build:
-#   docker build -t kubeai-jupyter-pytorch -f Dockerfile.pytorch .
+#   docker build -t hub.uimpcloud.com/kubeai/jupyter-env:pytorch -f Dockerfile.pytorch .
 
 FROM quay.io/jupyter/pytorch-notebook:cuda12-latest
 
