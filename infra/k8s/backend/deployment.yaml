@@ -3,6 +3,11 @@
 #
 # 数据持久化: /data/kubeai 用于存放数据集、算法文件、用户上传数据等。
 # 生产环境建议替换为 PVC 或 NFS 等共享存储，避免节点故障导致数据丢失。
+#
+# 部署前必须在宿主机上执行: chown -R 999:999 /data/kubeai
+# (hostPath 卷由 kubelet 创建，默认属主为 root，容器进程 UID 999 无法写入)
+# 此操作只需执行一次，后续新目录的 GID 自动继承 fsGroup。
+# OnRootMismatch 策略确保宿主机上已 chown 的目录不会每次启动都递归扫描，避免耗时。
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -27,10 +32,8 @@ spec:
       serviceAccountName: backend
       nodeSelector:
         kubeai: "true"
-      # hostPath 模式:/data/kubeai 在宿主机上归属 root,容器进程(UID 999)无法写入。
-      # fsGroup 让 kubelet 在挂载时把卷根 chown 到 999,子目录继承即可写。
-      # 新建子目录(datasets/ 等)由 Python 端 Path.mkdir(parents=True) 创建,默认 umask 0022
-      # 即可被 UID 999 所属的 GID 999 写(因 fsGroup 加入了 999 组)。
+      # fsGroup 让 kubelet 在挂载时把卷根 chown 到 999，子目录继承 GID 999 即可写。
+      # 注意: OnRootMismatch 仅在宿主机目录 GID 不匹配时执行 chown，已 chown 过则跳过。
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
