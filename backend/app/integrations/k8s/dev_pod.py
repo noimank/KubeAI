@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import structlog
 from kubernetes_asyncio import client
@@ -168,6 +169,11 @@ def build_dev_pod(
         resources.requests["nvidia.com/gpu"] = gpu_str
         resources.limits["nvidia.com/gpu"] = gpu_str
 
+    # rserver must run as root: it creates /var/log/rstudio-server, manages the
+    # /var/run/rstudio-server socket, and writes file locks under /etc/rstudio.
+    # It then drops to the `rstudio` user (configured in rserver.conf) for R
+    # sessions.  Without root it exits 1 silently on startup.
+    is_rstudio = environment_type == "rstudio"
     container = client.V1Container(
         name=name,
         image=image,
@@ -176,7 +182,11 @@ def build_dev_pod(
         env=_to_v1_env_vars(env_vars),
         volume_mounts=[_v1_volume_mount(vm) for vm in volume_mounts],
         ports=[client.V1ContainerPort(container_port=DEV_ENV_PORT, name="http")],
-        security_context=client.V1SecurityContext(run_as_user=1000, run_as_group=100, run_as_non_root=True),
+        security_context=(
+            client.V1SecurityContext(run_as_user=0, run_as_group=0)
+            if is_rstudio
+            else client.V1SecurityContext(run_as_user=1000, run_as_group=100, run_as_non_root=True)
+        ),
     )
 
     _apply_native_entrypoint(container, environment_type, path)
@@ -224,9 +234,10 @@ def _apply_native_entrypoint(container: client.V1Container, environment_type: st
     ``base_url`` is the path prefix (e.g. ``/devenv/<hex>``) without trailing
     slash.  Each app uses its own sub-path mechanism:
 
-    - Jupyter: ``--ServerApp.base_url`` — serves at the full prefixed path
+    - Jupyter: ``--ServerApp.base_url`` — genuinely serves at the full prefixed path
     - VS Code: code-server has NO sub-path flag → APISIX ``proxy-rewrite`` strips prefix
-    - RStudio: ``--www-root-path`` — serves at the full prefixed path
+    - RStudio: ``--www-root-path`` only affects URL generation (prepends prefix to
+      redirects/links); request routing still happens at ``/`` → APISIX strips prefix
     """
     base = f"{base_url}/"
 
@@ -259,16 +270,26 @@ def _apply_native_entrypoint(container: client.V1Container, environment_type: st
             "/kubeai/home/.code-server",
         ]
     elif environment_type == "rstudio":
-        # RStudio --www-root-path tells it the prefix added by a reverse proxy.
-        # APISIX does NOT strip the prefix.
-        container.command = ["rserver"]
+        # rocker/verse is built to run under s6-overlay's `/init`, NOT a bare
+        # `rserver`.  `/init` runs /etc/cont-init.d/* and does what
+        # `rserver --auth-none=1` alone CANNOT: on DISABLE_AUTH=true, 02_userconf
+        # copies disable_auth_rserver.conf → rserver.conf (auth-none=1) AND writes
+        # `USER=rstudio` to /etc/environment, which rserver's startup script
+        # sources to pick the anonymous-session user.  Skip /init and the
+        # user-id cookie stays empty, so every request loops / ↔ /auth-sign-in.
+        # We append the per-env www-port / www-root-path to
+        # disable_auth_rserver.conf so 02_userconf's copy carries them into
+        # rserver.conf.  www-root-path only shapes URL generation (redirects,
+        # cookie path); request routing still happens at /, hence APISIX must
+        # strip the prefix (see _build_apisix_route_payload).
+        container.command = ["/bin/sh", "-c"]
         container.args = [
-            f"--www-port={DEV_ENV_PORT}",
-            f"--www-root-path={base}",
-            "--auth-none=1",
-            "--server-daemonize=0",
-            # Persist RStudio session data in user's home directory
-            "--server-data-dir=/kubeai/home/.rstudio",
+            f"printf 'www-port={DEV_ENV_PORT}\\nwww-root-path={base}\\n' "
+            f">> /etc/rstudio/disable_auth_rserver.conf && exec /init"
+        ]
+        # Triggers rocker's cont-init to disable auth and set up the rstudio user.
+        container.env = (container.env or []) + [
+            client.V1EnvVar(name="DISABLE_AUTH", value="true"),
         ]
     else:
         # Default: Jupyter (same as above)
@@ -351,11 +372,23 @@ def _build_apisix_route_payload(
         },
     }
 
-    # Only VS Code needs proxy-rewrite — code-server has no sub-path flag.
-    if environment_type == "vscode":
-        plugins["proxy-rewrite"] = {
-            "regex_uri": [f"^{path}/(.*)", "/$1"],
-        }
+    # VS Code and RStudio both need proxy-rewrite to strip the /devenv/<hex>/
+    # prefix.  code-server has no sub-path flag at all; rserver's --www-root-path
+    # only affects URL *generation* (prepends the prefix to redirects and in-page
+    # links) — request *routing* still happens at /, so the prefix must be stripped.
+    # Jupyter (--ServerApp.base_url) genuinely serves at the full prefixed path.
+    if environment_type in ("vscode", "rstudio"):
+        proxy_rewrite: dict[str, Any] = {"regex_uri": [f"^{path}/(.*)", "/$1"]}
+        if environment_type == "rstudio":
+            # rserver emits absolute URLs (CSS/JS/redirects) using the request
+            # scheme.  APISIX sits behind an HTTPS-terminating proxy (Tengine), so
+            # it observes http and would otherwise make rserver produce http://
+            # links → mixed-content blocking on the HTTPS page.  Re-set
+            # X-Forwarded-Proto to the browser-facing scheme; proxy-rewrite runs
+            # after APISIX's own X-Forwarded-Proto handling and overrides it.
+            scheme = urlparse(settings.FRONTEND_URL).scheme or "https"
+            proxy_rewrite["headers"] = {"set": {"X-Forwarded-Proto": scheme}}
+        plugins["proxy-rewrite"] = proxy_rewrite
 
     return {
         "id": route_id,
