@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+mlruns/
+*.png
+*.pt
+*.json

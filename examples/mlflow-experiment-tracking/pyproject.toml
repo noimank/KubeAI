@@ -1,0 +1,12 @@
+[project]
+name = "mlflow-experiment-tracking"
+version = "1.0.0"
+description = "KubeAI 平台实验追踪与可视化示例 — 模拟训练 + MLflow 指标记录"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mlflow>=2.8.0",
+    "tensorboard>=2.15.0",
+    "numpy>=1.24.0",
+    "matplotlib>=3.7.0",
+]
