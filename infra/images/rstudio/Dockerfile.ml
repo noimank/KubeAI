@@ -8,7 +8,7 @@
 # APISIX forward-auth layer.
 #
 # Build:
-#   docker build -t kubeai-rstudio-ml -f Dockerfile.ml .
+#   docker build -t hub.uimpcloud.com/kubeai/rstudio-env:ml -f Dockerfile.ml .
 
 FROM rocker/ml:4.4
 
@@ -46,8 +46,7 @@ RUN install2.r --error --skipinstalled -r "$CRAN_REPO" -n 4 \
     glmnet \
     plotly \
     torch \
-    tensorflow \
-    reticulate
+    tensorflow
 
 # RStudio Server runtime config — only session-default-working-dir is kept here;
 # server-port and auth-none are passed as CLI args by the KubeAI backend.

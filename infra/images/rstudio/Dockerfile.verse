@@ -8,7 +8,6 @@
 # APISIX forward-auth layer.
 #
 # Build:
-#   docker build -t kubeai-rstudio-verse -f Dockerfile.verse .
 #   docker build -t hub.uimpcloud.com/kubeai/rstudio-env:base -f Dockerfile.verse .
 
 # Pin the base image. Avoid `latest` because rocker may switch Ubuntu/R versions
@@ -48,8 +47,7 @@ RUN install2.r --error --skipinstalled -r "$CRAN_REPO" -n 4 \
     randomForest \
     xgboost \
     glmnet \
-    plotly \
-    reticulate
+    plotly
 
 # RStudio Server runtime config — only session-default-working-dir is kept here;
 # server-port and auth-none are passed as CLI args by the KubeAI backend.
