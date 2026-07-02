@@ -278,7 +278,11 @@ class TrainingJobService:
         )
         jobs = list(result.scalars().all())
 
-        non_terminal = [job for job in jobs if job.vcjob_name and job.status not in TERMINAL_STATUSES]
+        non_terminal = [
+            job
+            for job in jobs
+            if job.vcjob_name and job.status not in (TrainingJobStatus.SUCCEEDED, TrainingJobStatus.STOPPED)
+        ]
         if non_terminal:
             tenant = await self._get_tenant_or_fail(tenant_id)
             namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
@@ -304,6 +308,8 @@ class TrainingJobService:
                     self._update_job_timestamps(job, new_status)
                     if new_status == TrainingJobStatus.FAILED:
                         job.error_message = await self._extract_failure_reason(namespace, job.vcjob_name)
+                    else:
+                        job.error_message = None
                     logger.info("TrainingJob %s status synced (batch): %s -> %s", job.id, old_status, new_status)
                     if new_status in TERMINAL_STATUSES:
                         try:
@@ -556,7 +562,8 @@ class TrainingJobService:
         if not job.vcjob_name:
             return
 
-        if job.status in TERMINAL_STATUSES:
+        # SUCCEEDED / STOPPED 是真正的终态. FAILED 不是——Volcano 可能已自动重试成功
+        if job.status in (TrainingJobStatus.SUCCEEDED, TrainingJobStatus.STOPPED):
             return
 
         try:
@@ -582,6 +589,8 @@ class TrainingJobService:
                 self._update_job_timestamps(job, new_status)
                 if new_status == TrainingJobStatus.FAILED:
                     job.error_message = await self._extract_failure_reason(namespace, job.vcjob_name)
+                else:
+                    job.error_message = None
                 logger.info(
                     "TrainingJob %s status synced: %s -> %s",
                     job.id,
@@ -956,7 +965,7 @@ class TrainingJobService:
         stmt = (
             select(TrainingJob)
             .where(TrainingJob.vcjob_name.is_not(None))
-            .where(TrainingJob.status.not_in(TERMINAL_STATUSES))
+            .where(TrainingJob.status.not_in((TrainingJobStatus.SUCCEEDED, TrainingJobStatus.STOPPED)))
             .limit(limit)
         )
         result = await self.db.execute(stmt)
@@ -1010,6 +1019,8 @@ class TrainingJobService:
                     if new_status == TrainingJobStatus.FAILED:
                         with contextlib.suppress(Exception):
                             job.error_message = await self._extract_failure_reason(namespace, job.vcjob_name)
+                    else:
+                        job.error_message = None
                     logger.info(
                         "TrainingJob %s status synced (scheduled): %s -> %s",
                         job.id,

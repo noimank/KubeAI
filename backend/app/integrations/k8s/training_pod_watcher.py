@@ -79,11 +79,11 @@ _ACTIVE_STATUSES = {
     TrainingJobStatus.QUEUED,
     TrainingJobStatus.INITIALIZING,
     TrainingJobStatus.RUNNING,
+    TrainingJobStatus.FAILED,  # Volcano may have auto-retried — keep watching
 }
 
 _TERMINAL_STATUSES = {
     TrainingJobStatus.SUCCEEDED,
-    TrainingJobStatus.FAILED,
     TrainingJobStatus.STOPPED,
 }
 
@@ -208,7 +208,7 @@ async def _handle_added_or_modified(
     """Pod was created or updated — reconcile training job status."""
     current_status = TrainingJobStatus(job.status)
 
-    # ── Pod Ready + Running while job is PENDING / QUEUED / INITIALIZING ───
+    # ── Pod Ready + Running while job is PENDING / QUEUED / INITIALIZING / FAILED ───
     if (
         ready
         and phase == "Running"
@@ -217,9 +217,11 @@ async def _handle_added_or_modified(
             TrainingJobStatus.PENDING,
             TrainingJobStatus.QUEUED,
             TrainingJobStatus.INITIALIZING,
+            TrainingJobStatus.FAILED,
         )
     ):
         job.status = TrainingJobStatus.RUNNING
+        job.error_message = None
         _update_timestamps(job, TrainingJobStatus.RUNNING)
         await db.commit()
         await _publish_training_status_change(job.tenant_id, job.id, current_status, TrainingJobStatus.RUNNING)
@@ -244,13 +246,14 @@ async def _handle_added_or_modified(
         )
         return
 
-    # ── Pod Succeeded while job is RUNNING ─────────────────────────────────
-    if phase == "Succeeded" and current_status == TrainingJobStatus.RUNNING:
+    # ── Pod Succeeded while job is RUNNING or FAILED (Volcano may have retried) ───
+    if phase == "Succeeded" and current_status in (TrainingJobStatus.RUNNING, TrainingJobStatus.FAILED):
         # For distributed training: only succeed when ALL pods are done
         all_succeeded = await _all_pods_succeeded(namespace, job.vcjob_name)
         if not all_succeeded:
             return  # Other workers still running — wait for their events
         job.status = TrainingJobStatus.SUCCEEDED
+        job.error_message = None
         _update_timestamps(job, TrainingJobStatus.SUCCEEDED)
         await db.commit()
         await _on_terminal_status(job, current_status, TrainingJobStatus.SUCCEEDED)
