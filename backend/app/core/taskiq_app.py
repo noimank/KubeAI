@@ -58,7 +58,6 @@ async def _on_worker_shutdown(_broker: object) -> None:
 
 
 # Import task modules so @broker.task decorators are registered
-import app.tasks.algorithm_tasks  # noqa: E402
 import app.tasks.annotation_tasks  # noqa: E402
 import app.tasks.dataset_tasks  # noqa: E402
 import app.tasks.dev_environment_tasks  # noqa: E402

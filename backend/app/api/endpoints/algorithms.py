@@ -1,4 +1,3 @@
-import tempfile
 import uuid
 from typing import Annotated, Any
 
@@ -24,7 +23,6 @@ from app.services.algorithm_service import AlgorithmService
 from app.services.algorithm_storage_service import AlgorithmStorageService
 from app.services.audit_service import AuditService
 from app.services.dev_environment_service import DevEnvironmentService
-from app.tasks.algorithm_tasks import enqueue_algorithm_upload
 from app.tasks.dev_environment_tasks import enqueue_dev_environment_provision
 
 router = APIRouter(prefix="/algorithms", tags=["algorithms"])
@@ -109,23 +107,19 @@ async def create_algorithm(
     file_bytes = await file.read()
     filename = file.filename or "algorithm"
 
-    # 保存到临时文件供 Taskiq worker 处理
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{filename}") as tmp:
-        tmp.write(file_bytes)
-        temp_path = tmp.name
-
     service = AlgorithmService(db)
-    algo = await service.create_algorithm_record(
+    algo = await service.create_algorithm(
         tenant_id=tenant_id,
         user_id=user.id,
         name=name,
         description=description,
         tags=tag_list,
+        file_bytes=file_bytes,
+        filename=filename,
         audit_context=_audit_ctx(req, user),
     )
-    await enqueue_algorithm_upload(algo.id, tenant_id, temp_path, filename)
     data = await _build_detail_response(db, algo)
-    return BaseResponse(data=data, message="算法上传任务已提交")
+    return BaseResponse(data=data, message="算法上传成功")
 
 
 # ------------------------------------------------------------------
