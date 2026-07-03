@@ -742,7 +742,7 @@ class TestVcjobBuilderMlflowEnv:
 class TestVcjobBuilderTensorboard:
     """验证 TensorBoard sidecar 注入与单 master / 分布式场景的 task name 命名一致性.
 
-    TensorBoard Service 的 selector (``volcano.sh/task-name=master``) 依赖 task
+    TensorBoard Service 的 selector (``volcano.sh/task-spec=master``) 依赖 task
     name 统一为 ``master``; 如果单 master 时 task 叫别的名字, Service 会找不到
     Pod, TB 链接 502.
 
@@ -889,7 +889,7 @@ class TestVcjobBuilderTensorboard:
         assert "tensorboard-logs" not in [v["name"] for v in spec["volumes"]]
 
     def test_tensorboard_service_selector_matches_master(self):
-        """TB Service selector 用 task-name=master; 必须与 build_vcjob 的 task 名一致."""
+        """TB Service selector 用 task-spec=master; 必须与 build_vcjob 的 task 名一致."""
         from app.integrations.k8s.tensorboard import build_tensorboard_service
         from app.integrations.volcano.job_builder import build_vcjob
 
@@ -909,9 +909,9 @@ class TestVcjobBuilderTensorboard:
         svc = build_tensorboard_service(uuid.uuid4(), "kubeai-default", "svc-match-single")
         selector = svc.spec.selector
 
-        # Service selector 期望 task-name=master, 而 build_vcjob 的 task name 也是 master
+        # Service selector 期望 task-spec=master, 而 build_vcjob 的 task name 也是 master
         single_task_names = [t["name"] for t in single["spec"]["tasks"]]
-        assert selector["volcano.sh/task-name"] == "master"
+        assert selector["volcano.sh/task-spec"] == "master"
         assert "master" in single_task_names
 
         # 分布式: master task 也叫 master, selector 命中正确
@@ -929,5 +929,5 @@ class TestVcjobBuilderTensorboard:
             tensorboard_enabled=True,
         )
         dist_task_names = [t["name"] for t in dist["spec"]["tasks"]]
-        assert selector["volcano.sh/task-name"] == "master"
+        assert selector["volcano.sh/task-spec"] == "master"
         assert "master" in dist_task_names
