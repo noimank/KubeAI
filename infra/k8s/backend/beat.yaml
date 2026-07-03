@@ -1,7 +1,7 @@
 # Taskiq Scheduler Deployment - 定时任务调度器
 # Scheduler 必须保持单副本，避免重复投递定时任务。
 #
-# 部署前必须在宿主机上执行: chown -R 999:999 /data/kubeai
+# 部署前必须在宿主机上执行: chown -R 1000:100 /data/kubeai
 # 此操作只需执行一次，后续新目录的 GID 自动继承 fsGroup。
 ---
 apiVersion: apps/v1
@@ -29,9 +29,9 @@ spec:
         kubeai: "true"
       securityContext:
         runAsNonRoot: true
-        runAsUser: 999
-        runAsGroup: 999
-        fsGroup: 999
+        runAsUser: 1000
+        runAsGroup: 100
+        fsGroup: 100
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: taskiq-scheduler
