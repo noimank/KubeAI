@@ -110,7 +110,7 @@ api.interceptors.response.use(
         if (status >= 400 && status < 500) {
           getMessageInstance()?.error(errorMessage || '请求错误')
         } else if (status >= 500) {
-          getMessageInstance()?.error('服务器错误，请稍后重试')
+          getMessageInstance()?.error(errorMessage || '服务器错误，请稍后重试')
         }
     }
 
