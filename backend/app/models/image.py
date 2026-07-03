@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
@@ -11,7 +11,16 @@ from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 class Image(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "images"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "category", "name", "tag", name="uq_image_tenant_category_name_tag"),
+        # 部分唯一索引: 仅约束未软删的行, 软删后同名镜像可重新添加
+        Index(
+            "uq_image_tenant_category_name_tag",
+            "tenant_id",
+            "category",
+            "name",
+            "tag",
+            unique=True,
+            postgresql_where="deleted_at IS NULL",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
