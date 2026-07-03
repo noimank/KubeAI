@@ -1,5 +1,9 @@
-# Jupyter PyTorch Notebook (GPU)
-# Deep learning with PyTorch + CUDA 12
+# Jupyter PyTorch Notebook (CPU)
+# Deep learning with PyTorch (CPU-only)
+#
+# ⚠️ 当前为 CPU 版本（部署机器无 GPU，镜像更轻量）。若机器配备 GPU，
+#    需自行切换为 CUDA 基础镜像：
+#      将下方 FROM 改为 quay.io/jupyter/pytorch-notebook:cuda12-latest
 #
 # Native entrypoint — runs directly on port 8888.
 # The KubeAI backend runs "jupyter lab" directly on port 8888
@@ -8,7 +12,7 @@
 # Build:
 #   docker build -t hub.uimpcloud.com/kubeai/jupyter-env:pytorch -f Dockerfile.pytorch .
 
-FROM quay.io/jupyter/pytorch-notebook:cuda12-latest
+FROM quay.io/jupyter/pytorch-notebook:latest
 
 USER root
 

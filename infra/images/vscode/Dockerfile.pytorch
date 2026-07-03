@@ -1,5 +1,16 @@
-# VS Code Server + PyTorch (GPU)
-# Code-server with CUDA 12 + PyTorch for GPU-accelerated development
+# VS Code Server + PyTorch (CPU)
+# Code-server with PyTorch for CPU-only development
+#
+# ⚠️ 当前为 CPU 版本（部署机器无 GPU，镜像更轻量）。若机器配备 GPU，
+#    需自行切换为 CUDA 基础镜像，主要改动：
+#      1. 将 FROM 改为 nvidia/cuda:12.4.1-devel-ubuntu22.04
+#      2. 该镜像不含 code-server，需手动安装：
+#           curl -fsSL https://code-server.dev/install.sh | sh -s -- --version=4.122.0
+#      3. 该镜像不含 coder 用户，需手动创建（dev_pod.py 要求 runAsGroup=100）：
+#           groupadd -g 100 coder && useradd -m -s /bin/bash -u 1000 -g 100 coder
+#      4. PyTorch 安装改用 CUDA wheel：
+#           uv pip install --system torch torchvision torchaudio \
+#               --index-url https://download.pytorch.org/whl/cu124
 #
 # Native entrypoint — runs directly on port 8888.
 # The KubeAI backend runs "code-server" directly on port 8888
@@ -12,12 +23,19 @@
 #   docker build -t kubeai-vscode-pytorch -f Dockerfile.pytorch .
 #   docker build -t hub.uimpcloud.com/kubeai/vscode-env:pytorch -f Dockerfile.pytorch .
 
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+FROM codercom/code-server:4.122.0
+
+# The base image already runs as USER coder (uid 1000:1000).
+# Switch to root for system package installation and uv setup.
+USER root
 
 # 安装 uv（与 KubeAI 后端一致的 Python 包管理器）
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-ENV DEBIAN_FRONTEND=noninteractive
+# Ensure GID 100 exists — dev_pod.py securityContext sets runAsGroup=100.
+# The base codercom/code-server image only has GID 1000 (coder group).
+# Without GID 100, Kubernetes will refuse to start the container.
+RUN groupadd -g 100 coder-users 2>/dev/null || true
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
@@ -28,33 +46,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://code-server.dev/install.sh | sh -s -- --version=4.122.0
+# PyTorch CPU
+RUN uv pip install --no-cache --system --break-system-packages \
+    torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cpu
 
-RUN uv pip install --no-cache --system \
-    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-
-RUN uv pip install --no-cache --system \
+# 常用深度学习生态包
+RUN uv pip install --no-cache --system --break-system-packages \
     numpy scipy pandas matplotlib scikit-learn \
     transformers datasets accelerate wandb \
     optuna plotly \
     mlflow onnx onnxruntime \
     flask fastapi
 
-# Create coder group with GID 100 (matching dev_pod.py securityContext.runAsGroup).
-# The useradd default would create group "coder" with GID 1000, which fails at
-# Pod startup when Kubernetes tries to start the container with runAsGroup=100.
-RUN groupadd -g 100 coder 2>/dev/null || true \
-    && useradd -m -s /bin/bash -u 1000 -g 100 coder
-
-# Install extensions as coder so they land in /home/coder/.local/...,
-# not /root/.local/... where they would be lost at runtime.
+# Switch back to coder BEFORE installing extensions.
+# code-server installs extensions to $HOME/.local/share/code-server/extensions/ —
+# running this as root would put them in /root/ and they would be lost at runtime.
 USER coder
 
 RUN code-server --install-extension ms-python.python \
     && code-server --install-extension ms-toolsai.jupyter
 
-
-USER coder
 WORKDIR /home/coder
 
 EXPOSE 8888
