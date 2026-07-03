@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import ConflictException, NotFoundException
 from app.models.dataset import Dataset, DatasetVersion
 from app.services.dataset_service import DatasetService
 
@@ -12,6 +12,12 @@ from app.services.dataset_service import DatasetService
 def _sync_result(value):
     result = MagicMock()
     result.scalar_one_or_none.return_value = value
+    return result
+
+
+def _count_result(value):
+    result = MagicMock()
+    result.scalar_one.return_value = value
     return result
 
 
@@ -295,7 +301,12 @@ class TestDatasetAggregation:
 class TestDeleteDataset:
     async def test_delete_dataset_success(self, service, mock_db):
         dataset = _make_dataset()
-        mock_db.execute.return_value = _sync_result(dataset)
+        mock_db.execute.side_effect = [
+            _sync_result(dataset),
+            _count_result(0),
+            _count_result(0),
+            _count_result(0),
+        ]
         mock_db.delete = AsyncMock()
 
         with patch.object(service.storage, "delete_dataset", new_callable=AsyncMock):
@@ -310,9 +321,31 @@ class TestDeleteDataset:
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.delete_dataset(uuid.uuid4(), uuid.uuid4())
 
+    async def test_delete_blocked_by_references(self, service, mock_db):
+        dataset = _make_dataset()
+        mock_db.execute.side_effect = [
+            _sync_result(dataset),
+            _count_result(2),  # 训练任务
+            _count_result(0),  # 标注项目
+            _count_result(1),  # 模型版本
+        ]
+        mock_db.delete = AsyncMock()
+
+        with pytest.raises(ConflictException) as exc_info:
+            await service.delete_dataset(dataset.id, dataset.tenant_id)
+
+        assert "2 个训练任务" in exc_info.value.message
+        assert "1 个模型版本" in exc_info.value.message
+        mock_db.delete.assert_not_called()
+
     async def test_delete_with_audit(self, service, mock_db):
         dataset = _make_dataset()
-        mock_db.execute.return_value = _sync_result(dataset)
+        mock_db.execute.side_effect = [
+            _sync_result(dataset),
+            _count_result(0),
+            _count_result(0),
+            _count_result(0),
+        ]
         mock_db.delete = AsyncMock()
 
         with (
