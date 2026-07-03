@@ -149,6 +149,9 @@ def build_vcjob(
         # 让 Volcano 的 task maxRetry 和 job maxRetry 正常工作,
         # 而不是由 Kubelet 无限重启容器永远不 fail
         "restartPolicy": "Never",
+        # 训练 Pod 须与 backend/worker/推理同节点 (kubeai=true): workspace 等 hostPath 跨 Pod
+        # 共享依赖此契约 — 本地模型存储下, 注册训练产物时 backend 直接从 workspace 硬链接文件.
+        "nodeSelector": {"kubeai": "true"},
     }
     if init_containers:
         pod_spec["initContainers"] = init_containers

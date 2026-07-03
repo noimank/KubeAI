@@ -240,12 +240,12 @@ export default function CreateInferenceServicePage() {
             </Form.List>
           </Form.Item>
 
-          {/* 可选: 从模型注册仓库选择模型版本 (通过 MinIO initContainer 拉取到 /kubeai/models). */}
+          {/* 可选: 从模型注册仓库选择模型版本 (模型文件经共享存储卷直接挂载到 /kubeai/models/). */}
           <Divider>模型（可选）</Divider>
           <Form.Item
             name="modelId"
             label="模型"
-            extra="从模型注册仓库选择预注册模型，通过 MinIO 自动拉取到 /kubeai/models/"
+            extra="从模型注册仓库选择预注册模型，模型文件将通过共享存储卷直接挂载到 /kubeai/models/"
           >
             <Select
               placeholder="请选择模型（可选）"

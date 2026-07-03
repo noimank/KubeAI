@@ -68,10 +68,12 @@ data:
   # -- 前端地址（OIDC 回调/邮件链接等使用，部署时必须改为实际域名）
   FRONTEND_URL: "https://kubeai.example.com"  # FIXME: 改为实际生产域名
 
-  # -- MinIO (非敏感配置)
+  # -- MinIO (保留兼容; 模型存储已改本地 MODEL_BASE_PATH, 此处不再被模型链路使用)
   MINIO_SECURE: "false"
   MINIO_BUCKET_PREFIX: "kubeai-models-"
   DATASET_BASE_PATH: "/data/kubeai/datasets"
+  # -- 模型文件本地存储路径 (backend/worker 同节点共享 hostPath /data/kubeai)
+  MODEL_BASE_PATH: "/data/kubeai/models"
 
   # -- Harbor (非敏感配置)
   HARBOR_PROJECT_PREFIX: "kubeai-"

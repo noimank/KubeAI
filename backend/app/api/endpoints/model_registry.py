@@ -1,20 +1,19 @@
-import tempfile
 import uuid
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
-from app.core.clients import get_minio_client
 from app.core.config import settings
 from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.model_download_token import issue_download_token, verify_download_token
 from app.integrations.base import sanitize_k8s_name
-from app.integrations.k8s.namespace import make_namespace_name
-from app.integrations.k8s.pvc import make_workspace_host_path
-from app.integrations.k8s.upload_job import build_upload_job, create_upload_job, get_upload_job_status
-from app.integrations.minio import MinIOClient
+from app.integrations.k8s.pvc import make_user_home_host_path, make_workspace_host_path
+from app.integrations.storage.model_storage import ModelStorage, get_model_storage
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.enums import ModelVersionStatus
 from app.models.image import Image
@@ -32,12 +31,11 @@ from app.schemas.model_registry import (
     RegisteredModelResponse,
 )
 from app.services.audit_service import AuditService
-from app.tasks.model_registry_tasks import enqueue_model_files_upload, enqueue_model_objects_delete
 
 router = APIRouter(prefix="/model-registry", tags=["model-registry"])
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
-MinioDep = Annotated[MinIOClient, Depends(lambda: get_minio_client())]
+ModelStorageDep = Annotated[ModelStorage, Depends(get_model_storage)]
 
 
 def _audit_ctx(request: Request, user: Any) -> dict[str, Any]:
@@ -174,65 +172,16 @@ async def _resolve_image_info(db: AsyncSession, versions: list[ModelVersion]) ->
     return {row.id: (row.name, row.tag) for row in result.all()}
 
 
-async def _sync_version_upload_status(
-    version: ModelVersion,
-    db: AsyncSession,
-    minio: MinIOClient,
-    tenant: Tenant,
-) -> None:
-    if version.status != ModelVersionStatus.UPLOADING:
-        return
-
-    namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
-
-    if version.upload_job_name:
-        job_status = await get_upload_job_status(namespace, version.upload_job_name)
-        k8s_status = job_status.get("status")
-
-        if k8s_status == "completed":
-            await _finalize_upload(version, db, minio, tenant)
-            return
-        if k8s_status == "failed":
-            version.status = ModelVersionStatus.FAILED
-            await db.flush()
-            return
-
-    # Job not found (TTL expired) or still running — check MinIO directly
-    await _finalize_upload(version, db, minio, tenant)
-
-
-async def _finalize_upload(
-    version: ModelVersion,
-    db: AsyncSession,
-    minio: MinIOClient,
-    tenant: Tenant,
-) -> None:
-    try:
-        objects = await minio.list_objects(tenant.name, version.storage_path)
-    except Exception:
-        return
-
-    if objects:
-        version.file_count = len(objects)
-        version.total_size_bytes = sum(o["size"] for o in objects)
-        version.status = ModelVersionStatus.AVAILABLE
-    elif version.upload_job_name:
-        version.status = ModelVersionStatus.FAILED
-    await db.flush()
-
-
 @router.post("", response_model=BaseResponse[ModelVersionResponse])
 async def register_model(
     req: ModelVersionCreateRequest,
     db: DbDep,
-    minio: MinioDep,
+    model_storage: ModelStorageDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("models", "write"))],
 ) -> BaseResponse[ModelVersionResponse]:
     tenant_id = _require_tenant_id(user)
-
     tenant = await _get_tenant_or_fail(db, tenant_id)
-    namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
     training_job: TrainingJob | None = None
     dataset_id: uuid.UUID | None = None
@@ -252,37 +201,26 @@ async def register_model(
     version_number = await _next_version_number(db, model.id)
     storage_path = f"models/{sanitize_k8s_name(req.name)}/v{version_number}"
 
+    # 路径 A: 源文件与模型目录同节点同盘, 硬链接 (零拷贝) 到模型目录.
+    # 支持绝对路径 /kubeai/home|workspace/... 与相对工作空间路径; 注册前预校验源存在.
+    home_host_path = make_user_home_host_path(user.username)
     workspace_host_path = make_workspace_host_path(tenant.name)
-    short_id = uuid.uuid4().hex[:8]
-    upload_job_name = f"kubeai-upload-{short_id}"
-
-    bucket = await minio.ensure_bucket(tenant.name)
-    upload_job = build_upload_job(
-        namespace=namespace,
-        job_name=upload_job_name,
-        workspace_host_path=workspace_host_path,
-        source_paths=req.file_paths,
-        minio_endpoint=f"http://{settings.MINIO_ENDPOINT}",
-        minio_access_key=settings.MINIO_ACCESS_KEY,
-        minio_secret_key=settings.MINIO_SECRET_KEY,
-        minio_bucket=bucket,
-        target_path=storage_path,
-    )
-
     try:
-        await create_upload_job(namespace, upload_job)
-    except Exception as e:
-        raise BadRequestException(f"上传任务创建失败: {e}") from e
+        file_count, total_size = await model_storage.link_or_copy_model_sources(
+            tenant.name, storage_path, req.file_paths, home_host_path, workspace_host_path
+        )
+    except (FileNotFoundError, ValueError) as e:
+        raise BadRequestException(f"模型注册失败: {e}") from e
 
     version = ModelVersion(
         registered_model_id=model.id,
         version_number=version_number,
         description=req.description,
         storage_path=storage_path,
-        status=ModelVersionStatus.UPLOADING,
-        upload_job_name=upload_job_name,
-        file_count=len(req.file_paths),
-        total_size_bytes=0,
+        status=ModelVersionStatus.AVAILABLE,
+        upload_job_name=None,
+        file_count=file_count,
+        total_size_bytes=total_size,
         training_job_id=req.training_job_id,
         dataset_id=dataset_id,
         dataset_version_id=dataset_version_id,
@@ -313,7 +251,7 @@ async def register_model(
 @router.post("/local-upload", response_model=BaseResponse[ModelVersionResponse])
 async def register_model_local(
     db: DbDep,
-    minio: MinioDep,
+    model_storage: ModelStorageDep,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_permission("models", "write"))],
     name: str | None = Form(None, min_length=1, max_length=200),
@@ -322,10 +260,11 @@ async def register_model_local(
     training_job_id: uuid.UUID | None = Form(None),  # noqa: B008
     files: list[UploadFile] = File(..., min_length=1),  # noqa: B008
 ) -> BaseResponse[ModelVersionResponse]:
-    """本地上传模型文件 — 文件保存到临时目录, MinIO 上传由 Taskiq worker 异步执行."""
+    """本地上传模型文件 — 流式分块直写到本地模型目录, 同步完成 (不再经 /tmp 与 Taskiq worker)."""
     if not model_id and not name:
         raise BadRequestException("请提供模型名称或模型 ID")
     tenant_id = _require_tenant_id(user)
+    tenant = await _get_tenant_or_fail(db, tenant_id)
 
     dataset_id: uuid.UUID | None = None
     dataset_version_id: uuid.UUID | None = None
@@ -350,24 +289,28 @@ async def register_model_local(
     version_number = await _next_version_number(db, model.id)
     storage_path = f"models/{sanitize_k8s_name(model.name)}/v{version_number}"
 
-    # 保存文件到临时目录供 Taskiq worker 处理
-    temp_dir = tempfile.mkdtemp(prefix=f"kubeai_model_{model.id}_")
+    # 路径 B: 流式分块直写到本地模型目录 (1MB chunk), 不再把整文件读进内存.
+    await model_storage.ensure_version_dir(tenant.name, storage_path)
+    file_count = 0
+    total_size = 0
     for f in files:
-        content = await f.read()
-        file_path = f"{temp_dir}/{f.filename}"
-        with open(file_path, "wb") as dest:
-            dest.write(content)
+        filename = f.filename or f"{uuid.uuid4().hex}"
+        try:
+            written = await model_storage.save_upload_stream(tenant.name, storage_path, filename, f)
+        except ValueError as e:
+            raise BadRequestException(f"非法文件名: {filename}") from e
+        file_count += 1
+        total_size += written
 
-    # 创建模型版本记录 (UPLOADING 状态)
     version = ModelVersion(
         registered_model_id=model.id,
         version_number=version_number,
         description=description,
         storage_path=storage_path,
-        status=ModelVersionStatus.UPLOADING,
+        status=ModelVersionStatus.AVAILABLE,
         upload_job_name=None,
-        file_count=0,
-        total_size_bytes=0,
+        file_count=file_count,
+        total_size_bytes=total_size,
         training_job_id=training_job_id,
         dataset_id=dataset_id,
         dataset_version_id=dataset_version_id,
@@ -392,9 +335,7 @@ async def register_model_local(
 
     await db.flush()
     await db.refresh(version)
-    await enqueue_model_files_upload(version.id, tenant_id, temp_dir)
-
-    return BaseResponse(data=_build_version_response(version), message="模型上传任务已提交")
+    return BaseResponse(data=_build_version_response(version), message="模型上传成功")
 
 
 @router.get("", response_model=PageResponse[RegisteredModelResponse])
@@ -435,7 +376,6 @@ async def list_models(
 async def get_model(
     model_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "read"))],
 ) -> BaseResponse[RegisteredModelDetailResponse]:
     tenant_id = _require_tenant_id(user)
@@ -446,19 +386,7 @@ async def get_model(
     if not model:
         raise NotFoundException("模型不存在")
 
-    tenant = await _get_tenant_or_fail(db, tenant_id)
     versions = sorted(model.versions, key=lambda v: v.version_number)
-
-    # Sync uploading versions
-    modified = False
-    for v in versions:
-        if v.status == ModelVersionStatus.UPLOADING:
-            await _sync_version_upload_status(v, db, minio, tenant)
-            modified = True
-    if modified:
-        await db.commit()
-        for v in versions:
-            await db.refresh(v)
 
     user_name_map = await _resolve_user_names(db, [model])
     training_job_names = await _resolve_training_job_names(db, versions)
@@ -489,7 +417,6 @@ async def get_model_version(
     model_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "read"))],
 ) -> BaseResponse[ModelVersionResponse]:
     tenant_id = _require_tenant_id(user)
@@ -504,13 +431,6 @@ async def get_model_version(
         raise NotFoundException("模型版本不存在")
 
     await _verify_model_tenant(db, model_id, tenant_id)
-
-    # Sync upload status
-    if version.status == ModelVersionStatus.UPLOADING:
-        tenant = await _get_tenant_or_fail(db, tenant_id)
-        await _sync_version_upload_status(version, db, minio, tenant)
-        await db.commit()
-        await db.refresh(version)
 
     training_job_names = await _resolve_training_job_names(db, [version])
     ds_names, ds_ver_nums = await _resolve_dataset_info(db, [version])
@@ -533,7 +453,7 @@ async def list_version_files(
     model_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
+    model_storage: ModelStorageDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "read"))],
 ) -> BaseResponse[list[ModelVersionFileResponse]]:
     tenant_id = _require_tenant_id(user)
@@ -544,23 +464,59 @@ async def list_version_files(
         raise BadRequestException("模型文件尚未上传完成")
 
     tenant = await _get_tenant_or_fail(db, tenant_id)
-    prefix = version.storage_path
-    objects = await minio.list_objects(tenant.name, prefix)
-
-    files: list[ModelVersionFileResponse] = []
-    for obj in objects:
-        # Strip prefix to get relative file name
-        object_name: str = obj["object_name"]
-        file_name = object_name[len(prefix) + 1 :] if object_name.startswith(prefix + "/") else object_name
-        files.append(
-            ModelVersionFileResponse(
-                file_name=file_name,
-                size_bytes=obj["size"],
-                content_type=obj["content_type"],
-                last_modified=obj.get("last_modified"),
-            )
+    objects = await model_storage.list_files(tenant.name, version.storage_path)
+    files = [
+        ModelVersionFileResponse(
+            file_name=obj["file_name"],
+            size_bytes=obj["size_bytes"],
+            content_type=obj["content_type"],
+            last_modified=obj["last_modified"],
         )
+        for obj in objects
+    ]
     return BaseResponse(data=files, message="获取成功")
+
+
+@router.get("/files/download")
+async def download_model_file(
+    token: str,
+    db: DbDep,
+    model_storage: ModelStorageDep,
+) -> FileResponse:
+    """匿名下载端点 — 验证 HMAC 签名 token 后流式返回模型文件 (模拟 S3 presigned URL).
+
+    token 由 ``POST /download-url`` 签发, 绑定 (version, file, tenant, expire).
+    """
+    try:
+        payload = verify_download_token(token)
+    except ValueError as e:
+        raise BadRequestException(f"无效或过期的下载链接: {e}") from e
+
+    version_id = uuid.UUID(str(payload["v"]))
+    file_name = str(payload["f"])
+    tenant_id = uuid.UUID(str(payload["t"]))
+
+    result = await db.execute(select(ModelVersion).where(ModelVersion.id == version_id))
+    version = result.scalar_one_or_none()
+    if not version or version.status != ModelVersionStatus.AVAILABLE:
+        raise NotFoundException("模型版本不可用")
+
+    # 校验版本归属 token 中的 tenant (防跨租户, 不泄露存在性)
+    tenant_row = await db.execute(
+        select(RegisteredModel.tenant_id).where(RegisteredModel.id == version.registered_model_id)
+    )
+    if tenant_row.scalar_one_or_none() != tenant_id:
+        raise NotFoundException("模型版本不存在")
+
+    tenant = await _get_tenant_or_fail(db, tenant_id)
+    try:
+        file_path = model_storage.resolve_file_path(tenant.name, version.storage_path, file_name)
+    except ValueError as e:
+        raise NotFoundException("文件不存在") from e
+    if not file_path.is_file():
+        raise NotFoundException("文件不存在")
+
+    return FileResponse(path=str(file_path), filename=Path(file_name).name)
 
 
 @router.post("/{model_id}/versions/{version_id}/files/download-url", response_model=BaseResponse[str])
@@ -569,7 +525,7 @@ async def get_file_download_url(
     version_id: uuid.UUID,
     body: ModelFileDownloadRequest,
     db: DbDep,
-    minio: MinioDep,
+    model_storage: ModelStorageDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "read"))],
 ) -> BaseResponse[str]:
     tenant_id = _require_tenant_id(user)
@@ -580,8 +536,17 @@ async def get_file_download_url(
         raise BadRequestException("模型文件尚未上传完成")
 
     tenant = await _get_tenant_or_fail(db, tenant_id)
-    object_name = f"{version.storage_path}/{body.file_name}"
-    url = await minio.presigned_get_url(tenant.name, object_name, download_filename=body.file_name)
+    # 预校验文件存在并防穿越
+    try:
+        file_path = model_storage.resolve_file_path(tenant.name, version.storage_path, body.file_name)
+    except ValueError as e:
+        raise BadRequestException(f"非法文件名: {body.file_name}") from e
+    if not file_path.is_file():
+        raise NotFoundException("文件不存在")
+
+    token = issue_download_token(version.id, body.file_name, tenant.id)
+    base = settings.FRONTEND_URL.rstrip("/")
+    url = f"{base}{settings.API_PREFIX}/model-registry/files/download?token={token}"
     return BaseResponse(data=url, message="获取成功")
 
 
@@ -648,28 +613,15 @@ async def _verify_model_tenant(db: AsyncSession, model_id: uuid.UUID, tenant_id:
         raise ForbiddenException("无权访问其他租户的资源")
 
 
-async def _delete_version_minio_objects(minio: MinIOClient, tenant_name: str, storage_path: str) -> int:
-    """Delete all MinIO objects under a version's storage_path prefix. Returns count of deleted objects."""
-    try:
-        objects = await minio.list_objects(tenant_name, storage_path)
-    except Exception:
-        return 0
-    if not objects:
-        return 0
-    object_names = [o["object_name"] for o in objects]
-    await minio.delete_objects(tenant_name, object_names)
-    return len(object_names)
-
-
 @router.delete("/{model_id}/versions/{version_id}", response_model=BaseResponse[None])
 async def delete_model_version(
     model_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
+    model_storage: ModelStorageDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "manage"))],
 ) -> BaseResponse[None]:
-    """删除指定模型版本 — DB 记录立即删除, MinIO 清理由 Taskiq worker 异步执行."""
+    """删除指定模型版本 — 先删本地磁盘版本目录, 再删 DB 记录."""
     tenant_id = _require_tenant_id(user)
     await _verify_model_tenant(db, model_id, tenant_id)
     version = await _get_version_or_fail(db, version_id, model_id)
@@ -680,26 +632,24 @@ async def delete_model_version(
         raise BadRequestException("模型至少需要保留一个版本, 请直接删除整个模型")
 
     tenant = await _get_tenant_or_fail(db, tenant_id)
-    storage_path = version.storage_path
-
+    version_number = version.version_number
+    # 先删磁盘文件 (ignore_errors 不阻塞), 再删 DB 记录
+    await model_storage.delete_version(tenant.name, version.storage_path)
     await db.delete(version)
     await db.commit()
 
-    # 异步清理 MinIO 文件
-    await enqueue_model_objects_delete(tenant.name, [storage_path])
-
-    return BaseResponse(message=f"版本 v{version.version_number} 已删除")
+    return BaseResponse(message=f"版本 v{version_number} 已删除")
 
 
 @router.delete("/{model_id}", response_model=BaseResponse[None])
 async def delete_registered_model(
     model_id: uuid.UUID,
     db: DbDep,
-    minio: MinioDep,
     request: Request,
+    model_storage: ModelStorageDep,
     user: Annotated[CurrentUser, Depends(require_permission("models", "manage"))],
 ) -> BaseResponse[None]:
-    """删除整个模型 — DB 记录立即删除, MinIO 清理由 Taskiq worker 异步执行."""
+    """删除整个模型 — 先删本地磁盘各版本目录, 再删 DB 记录 (级联删 versions)."""
     tenant_id = _require_tenant_id(user)
     await _verify_model_tenant(db, model_id, tenant_id)
 
@@ -707,7 +657,7 @@ async def delete_registered_model(
     model = result.scalar_one()
 
     tenant = await _get_tenant_or_fail(db, tenant_id)
-    storage_paths = [v.storage_path for v in model.versions]
+    model_name = model.name
 
     audit_service = AuditService(db)
     await audit_service.log_action(
@@ -722,9 +672,10 @@ async def delete_registered_model(
         request_id=_audit_ctx(request, user).get("request_id"),
     )
 
+    # 先删磁盘各版本目录 (ignore_errors 不阻塞), 再删 DB (级联删 versions)
+    for v in model.versions:
+        await model_storage.delete_version(tenant.name, v.storage_path)
     await db.delete(model)
     await db.commit()
 
-    await enqueue_model_objects_delete(tenant.name, storage_paths)
-
-    return BaseResponse(message=f"模型 {model.name} 已删除")
+    return BaseResponse(message=f"模型 {model_name} 已删除")

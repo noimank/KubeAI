@@ -162,14 +162,11 @@ export default function TrainingJobDetailPage() {
   const registerMutation = useMutation({
     mutationFn: registerModel,
     onSuccess: () => {
-      getMessageInstance()?.success('模型注册成功，文件正在上传中')
+      getMessageInstance()?.success('模型注册成功')
       setRegisterModalOpen(false)
       setModelName('')
       setModelDesc('')
       setModelFilePaths('')
-    },
-    onError: () => {
-      getMessageInstance()?.error('模型注册失败')
     },
   })
 
@@ -791,16 +788,19 @@ export default function TrainingJobDetailPage() {
             />
           </div>
           <div>
-            <Typography.Text strong>工作空间文件路径（每行一个）</Typography.Text>
+            <Typography.Text strong>模型文件路径（每行一个）</Typography.Text>
             <Input.TextArea
               value={modelFilePaths}
               onChange={(e) => setModelFilePaths(e.target.value)}
-              placeholder={'experiment-1/model.pth\nexperiment-1/config.yaml'}
+              placeholder={
+                '/kubeai/workspace/exp-1/model.pth\n/kubeai/home/mycode/config.yaml\nexp-1/model.pth'
+              }
               rows={4}
               style={{ marginTop: 4, fontFamily: 'monospace' }}
             />
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              路径相对于 {job.workspacePath || '/workspace'} 目录
+              支持绝对路径 /kubeai/home/...（个人目录）与
+              /kubeai/workspace/...（租户工作空间）；相对路径默认基于工作空间。注册前会校验文件是否存在。
             </Typography.Text>
           </div>
           <div>

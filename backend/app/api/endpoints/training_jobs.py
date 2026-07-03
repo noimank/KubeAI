@@ -15,10 +15,9 @@ from app.core.auth_helpers import resolve_identity_from_request
 from app.core.clients import get_prometheus_client
 from app.core.exceptions import AppException, ForbiddenException, UnauthorizedException
 from app.core.redis import _redis_pool, get_redis
-from app.integrations.base import sanitize_k8s_name
+from app.integrations.k8s.kubeai_volumes import HOME_MOUNT_PATH, WORKSPACE_MOUNT_PATH
 from app.models.enums import TrainingJobStatus, UserRole
 from app.models.experiment import Experiment
-from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.training_job import (
     LogResponse,
@@ -89,9 +88,8 @@ async def create_training_job(
         tensorboard_enabled=req.tensorboard_enabled,
     )
     await enqueue_submit_training_job(job.id, tenant_id)
-    username = getattr(user, "username", "")
     return BaseResponse(
-        data=_to_response(job, workspace_path="/workspace", home_path=f"/home/{sanitize_k8s_name(username)}"),
+        data=_to_response(job, workspace_path=WORKSPACE_MOUNT_PATH, home_path=HOME_MOUNT_PATH),
         message="训练任务创建成功",
     )
 
@@ -213,7 +211,6 @@ async def get_training_job(
     service = TrainingJobService(db)
     tenant_id = _require_tenant_id(user)
     job = await service.get_training_job(training_job_id, tenant_id)
-    username = await _resolve_username(db, job.created_by)
 
     # 查询关联的 experiment ID (用于前端跳转实验追踪)
     exp_result = await db.execute(select(Experiment.id).where(Experiment.training_job_id == training_job_id))
@@ -222,8 +219,8 @@ async def get_training_job(
     return BaseResponse(
         data=_to_response(
             job,
-            workspace_path="/workspace",
-            home_path=f"/home/{sanitize_k8s_name(username)}",
+            workspace_path=WORKSPACE_MOUNT_PATH,
+            home_path=HOME_MOUNT_PATH,
             experiment_id=experiment_id,
         ),
         message="获取成功",
@@ -380,9 +377,3 @@ async def get_training_job_metrics(
         step=step,
     )
     return BaseResponse(data=TrainingMetricsResponse(**data), message="获取成功")
-
-
-async def _resolve_username(db: AsyncSession, user_id: uuid.UUID) -> str:
-    result = await db.execute(select(User.username).where(User.id == user_id))
-    row = result.scalar_one_or_none()
-    return row or ""

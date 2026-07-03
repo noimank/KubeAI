@@ -65,6 +65,7 @@ class Settings(BaseSettings):
 
     DATASET_BASE_PATH: str = "/data/kubeai/datasets"
     ALGORITHM_BASE_PATH: str = "/data/kubeai/algorithms"
+    MODEL_BASE_PATH: str = "/data/kubeai/models"
 
     HARBOR_URL: str = "http://harbor.kubeai.local"
     HARBOR_USERNAME: str = "admin"

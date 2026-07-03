@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 
-from app.core.config import settings
 from app.core.exceptions import (
     ConflictException,
     ExternalServiceException,
@@ -34,7 +33,6 @@ from app.integrations.k8s.kubeai_volumes import (
     build_chown_init_container,
     build_kubeai_env_vars,
     build_kubeai_volumes,
-    build_model_pull_init_container,
     build_models_volume,
 )
 from app.integrations.k8s.namespace import make_namespace_name
@@ -334,21 +332,13 @@ class InferenceServiceService:
         volumes, volume_mounts = build_kubeai_volumes(username=username, tenant_name=tenant_name)
         init_containers: list[dict[str, Any]] = []
 
-        # 可选模型版本: 添加 models-volume + model-pull initContainer (MinIO → /kubeai/models).
+        # 可选模型版本: 挂载本地模型版本目录到 /kubeai/models (文件已由 backend 写入 hostPath,
+        # 推理 Pod 直接读, 无需 model-pull initContainer).
         if model_version_id is not None:
             model_version = await self._get_model_version_db(model_version_id)
-            minio_bucket = f"{settings.MINIO_BUCKET_PREFIX.rstrip('-')}-{sanitize_k8s_name(tenant_name)}"
-            model_vol, model_mnt = build_models_volume(tenant_name)
+            model_vol, model_mnt = build_models_volume(tenant_name, model_version.storage_path)
             volumes.append(model_vol)
             volume_mounts.append(model_mnt)
-            init_containers.append(
-                build_model_pull_init_container(
-                    name="model-pull",
-                    minio_bucket=minio_bucket,
-                    storage_path=model_version.storage_path,
-                    volume_mounts=[model_mnt],
-                )
-            )
 
         init_containers.append(build_chown_init_container(name="inference-init", volume_mounts=volume_mounts))
         final_env_vars = build_kubeai_env_vars(extra=env_vars)

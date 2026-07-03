@@ -96,46 +96,14 @@ def build_models_host_path(tenant_name: str) -> str:
     return f"/data/kubeai/models/{sanitize_k8s_name(tenant_name)}"
 
 
-def build_models_volume(tenant_name: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    """构建模型 hostPath 卷及其挂载点.
+def build_models_volume(tenant_name: str, storage_path: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """构建模型 hostPath 卷及其挂载点 (指向具体版本子目录).
 
     返回 (volume, volume_mount), 形态与 `build_deployment` 的入参一致.
-    模型卷挂载到 /kubeai/models/.
+    模型卷挂载到 /kubeai/models/ — 容器内直接是该版本目录的内容, 推理框架 MODEL_PATH 无需改.
+    本地存储后模型文件已由 backend 写入 hostPath, 推理 Pod 直接读, 无需 model-pull initContainer.
     """
-    host_path = build_models_host_path(tenant_name)
+    host_path = f"{build_models_host_path(tenant_name)}/{storage_path}"
     vol: dict[str, Any] = {"name": "models-volume", "hostPath": {"path": host_path, "type": "DirectoryOrCreate"}}
     mnt: dict[str, Any] = {"name": "models-volume", "mountPath": MODEL_MOUNT_PATH}
     return vol, mnt
-
-
-def build_model_pull_init_container(
-    *,
-    name: str,
-    minio_bucket: str,
-    storage_path: str,
-    volume_mounts: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """构建 model-pull initContainer (dict 形态).
-
-    使用 minio/mc 从 MinIO 拉取模型到本地卷 (/kubeai/models/).
-    凭证通过 s3-credentials Secret (envFrom) 注入, 与 upload_job.py 模式一致.
-    """
-    return {
-        "name": name,
-        "image": settings.MINIO_MC_IMAGE,
-        "command": ["/bin/sh", "-c"],
-        "args": [
-            "mc alias set kubeai $AWS_ENDPOINT_URL $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY\n"
-            f"mc cp --recursive kubeai/$MINIO_BUCKET/$STORAGE_PATH/ {MODEL_MOUNT_PATH}/"
-        ],
-        "env": [
-            {"name": "MINIO_BUCKET", "value": minio_bucket},
-            {"name": "STORAGE_PATH", "value": storage_path},
-        ],
-        "envFrom": [{"secretRef": {"name": "s3-credentials"}}],
-        "volumeMounts": volume_mounts,
-        "resources": {
-            "requests": {"cpu": "100m", "memory": "128Mi"},
-            "limits": {"cpu": "500m", "memory": "256Mi"},
-        },
-    }
