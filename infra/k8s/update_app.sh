@@ -192,6 +192,13 @@ for dep in "${BACKEND_DEPLOYS[@]}"; do
         upgrade_deployment "${dep}" "taskiq-worker" "${BACKEND_IMAGE}" || exit 1
     else
         upgrade_deployment "${dep}" "backend" "${BACKEND_IMAGE}" || exit 1
+        # backend Deployment 有 init container (migrate) 也须同步版本，
+        # 否则 PG 重建后旧版 alembic 缺少新迁移导致 DDL 不匹配
+        if ! kubectl set image "deployment/${dep}" "migrate=${BACKEND_IMAGE}" -n "${NAMESPACE}"; then
+            log_err "  [SET IMAGE FAIL] ${dep}/migrate"
+            exit 1
+        fi
+        log_info "  [SET IMAGE OK] ${dep}/migrate"
     fi
 done
 for dep in "${FRONTEND_DEPLOYS[@]}"; do
