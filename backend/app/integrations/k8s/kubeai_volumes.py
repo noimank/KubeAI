@@ -105,5 +105,5 @@ def build_models_volume(tenant_name: str, storage_path: str) -> tuple[dict[str, 
     """
     host_path = f"{build_models_host_path(tenant_name)}/{storage_path}"
     vol: dict[str, Any] = {"name": "models-volume", "hostPath": {"path": host_path, "type": "DirectoryOrCreate"}}
-    mnt: dict[str, Any] = {"name": "models-volume", "mountPath": MODEL_MOUNT_PATH}
+    mnt: dict[str, Any] = {"name": "models-volume", "mountPath": MODEL_MOUNT_PATH, "readOnly": True}
     return vol, mnt
