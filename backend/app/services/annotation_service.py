@@ -217,7 +217,9 @@ class AnnotationService:
         existing_result = await self.db.execute(
             select(AnnotationTask.kubeai_object_name).where(AnnotationTask.project_id == project_id)
         )
-        existing_names = set(existing_result.scalars().all())
+        # kubeai_object_name is e.g. "datasets/tenant_name/dataset_name/v1/file.jpg"
+        # extract the base file name for deduplication against storage file names
+        existing_names = {name.rsplit("/", 1)[-1] if "/" in name else name for name in existing_result.scalars().all()}
 
         new_files = [f for f in files if f["file_name"] not in existing_names]
         if not new_files:
@@ -376,7 +378,6 @@ class AnnotationService:
             stats = await self.ls_client.get_project_stats(project.label_studio_project_id)
             project.total_tasks = stats.get("total", project.total_tasks)
             project.completed_tasks = stats.get("completed", project.completed_tasks)
-            await self.db.flush()
         except Exception as e:
             logger.warning("同步 LabelStudio 统计失败: %s", e)
 
