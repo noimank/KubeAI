@@ -61,19 +61,49 @@ def _extract_bearer_token(request: Request) -> str | None:
 
 
 def _to_response(svc: InferenceService) -> InferenceServiceResponse:
-    resp = InferenceServiceResponse.model_validate(svc)
-    resp.has_token = svc.auth_token_hash is not None
-    resp.error_message = svc.error_message
+    mv_summary = None
     if svc.model_version is not None:
         mv = svc.model_version
-        resp.model_version = ModelVersionSummary(
+        mv_summary = ModelVersionSummary(
             id=mv.id,
             version_number=mv.version_number,
             registered_model_id=mv.registered_model_id,
             model_name=mv.model.name if mv.model else "",
             status=mv.status,
         )
-    return resp
+    return InferenceServiceResponse(
+        id=svc.id,
+        tenant_id=svc.tenant_id,
+        created_by=svc.created_by,
+        name=svc.name,
+        model_version_id=svc.model_version_id,
+        image=svc.image,
+        container_port=svc.container_port,
+        command=svc.command,
+        args=svc.args,
+        gpu_count=svc.gpu_count,
+        cpu=svc.cpu,
+        memory=svc.memory,
+        replicas=svc.replicas,
+        min_replicas=svc.min_replicas,
+        max_replicas=svc.max_replicas,
+        status=svc.status,
+        endpoint_url=svc.endpoint_url,
+        proxy_endpoint=svc.proxy_endpoint,
+        has_token=svc.auth_token_hash is not None,
+        description=svc.description,
+        env_vars=svc.env_vars,
+        error_message=svc.error_message,
+        scaling_mode=svc.scaling_mode,
+        subpath_mode=svc.subpath_mode,
+        target_metric_type=svc.target_metric_type,
+        target_metric_value=svc.target_metric_value,
+        cooldown_period=svc.cooldown_period,
+        polling_interval=svc.polling_interval,
+        created_at=svc.created_at,
+        updated_at=svc.updated_at,
+        model_version=mv_summary,
+    )
 
 
 @router.post("", response_model=BaseResponse[InferenceServiceCreateResponse])
@@ -104,9 +134,8 @@ async def create_inference_service(
         subpath_mode=req.subpath_mode,
     )
     await enqueue_inference_service_deploy(svc.id, tenant_id)
-    resp = InferenceServiceCreateResponse.model_validate(
-        {**{k: v for k, v in svc.__dict__.items() if not k.startswith("_")}, "auth_token": api_token, "has_token": True}
-    )
+    base = _to_response(svc)
+    resp = InferenceServiceCreateResponse(**base.model_dump(), auth_token=api_token)
     return BaseResponse(data=resp, message="推理服务创建任务已提交")
 
 
