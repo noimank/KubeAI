@@ -82,29 +82,6 @@ class LogResponse(BaseModel):
     total_lines: int
 
 
-class GpuMetricPoint(BaseModel):
-    gpu_index: int
-    utilization_percent: float
-    memory_used_mib: float
-    memory_total_mib: float
-    temperature_c: float
-    power_w: float
-
-
-class TimeSeriesPoint(BaseModel):
-    timestamp: str
-    value: float
-    label: str
-
-
-class TrainingMetricsResponse(BaseModel):
-    gpu_metrics: list[GpuMetricPoint]
-    gpu_utilization_history: list[TimeSeriesPoint]
-    metrics_url: str | None
-    prometheus_available: bool
-    timestamp: str
-
-
 class TrainingJobFromEnvironmentRequest(BaseModel):
     environment_id: uuid.UUID
     name: str = Field(min_length=1, max_length=100)

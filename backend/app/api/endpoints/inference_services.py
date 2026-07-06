@@ -10,6 +10,7 @@ from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.auth_helpers import resolve_identity_from_request
 from app.core.clients import get_prometheus_client
 from app.core.exceptions import ForbiddenException, UnauthorizedException
+from app.core.gpu_metrics import MetricsResponse
 from app.core.redis import get_redis
 from app.integrations.k8s.deployment import list_deployment_events
 from app.integrations.k8s.namespace import make_namespace_name
@@ -22,7 +23,6 @@ from app.schemas.inference_service import (
     InferenceServiceCreateRequest,
     InferenceServiceCreateResponse,
     InferenceServiceEventResponse,
-    InferenceServiceMetricsResponse,
     InferenceServiceResponse,
     InferenceServiceScaleRequest,
     InferenceServiceScaleResponse,
@@ -327,14 +327,14 @@ async def get_inference_service_events(
     return BaseResponse(data=events, message="获取成功")
 
 
-@router.get("/{service_id}/metrics", response_model=BaseResponse[InferenceServiceMetricsResponse])
+@router.get("/{service_id}/metrics", response_model=BaseResponse[MetricsResponse])
 async def get_inference_service_metrics(
     service_id: uuid.UUID,
     db: DbDep,
     user: Annotated[CurrentUser, Depends(require_permission("inference_services", "read"))],
     duration: str = Query("20m", description="历史范围(如 20m/1h)"),
     step: str = Query("15s", description="查询精度"),
-) -> BaseResponse[InferenceServiceMetricsResponse]:
+) -> BaseResponse[MetricsResponse]:
     service = InferenceServiceService(db)
     tenant_id = _require_tenant_id(user)
     prom_client = get_prometheus_client()
@@ -345,4 +345,4 @@ async def get_inference_service_metrics(
         duration=duration,
         step=step,
     )
-    return BaseResponse(data=InferenceServiceMetricsResponse(**data), message="获取成功")
+    return BaseResponse(data=MetricsResponse(**data), message="获取成功")

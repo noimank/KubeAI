@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, or_, select
@@ -14,6 +14,13 @@ from app.core.exceptions import (
     ConflictException,
     NotFoundException,
     QuotaExceededException,
+)
+from app.core.gpu_metrics import (
+    degraded_response,
+    metrics_success,
+    parse_duration,
+    parse_gpu_history,
+    parse_gpu_metrics,
 )
 from app.core.ws_pubsub import get_ws_pubsub
 from app.integrations.base import sanitize_k8s_name
@@ -734,121 +741,39 @@ class TrainingJobService:
         if job.tensorboard_enabled and job.status not in TERMINAL_STATUSES:
             metrics_url = tensorboard_access_url(job.id)
 
-        # Degraded response when Prometheus unavailable
-        prometheus_available = prom_client is not None
         if not prom_client:
-            return {
-                "gpu_metrics": [],
-                "gpu_utilization_history": [],
-                "metrics_url": metrics_url,
-                "prometheus_available": prometheus_available,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
+            return degraded_response(metrics_url)
 
         try:
-            # Find running pod for GPU metrics query
-            pod_name: str | None = None
-            if job.vcjob_name:
-                pods = await list_vcjob_pods(namespace, job.vcjob_name)
-                running_pods = [p for p in pods if p["status"] == "running"]
-                if running_pods:
-                    pod_name = running_pods[0]["pod_name"]
+            pod_name = await self._get_running_vcjob_pod(job, namespace)
 
-            # Query instant GPU metrics
-            raw_metrics = await prom_client.query_gpu_metrics(namespace, pod_name)
-            gpu_metrics = self._parse_gpu_metrics(raw_metrics)
-
-            # Query GPU utilization history
             end_ts = str(datetime.now(UTC).timestamp())
-            start_dt = datetime.now(UTC) - self._parse_duration(duration)
-            start_ts = str(start_dt.timestamp())
-            raw_history = await prom_client.query_gpu_utilization_range(namespace, pod_name, start_ts, end_ts, step)
-            history = self._parse_gpu_history(raw_history)
+            start_ts = str((datetime.now(UTC) - parse_duration(duration)).timestamp())
 
-            return {
-                "gpu_metrics": gpu_metrics,
-                "gpu_utilization_history": history,
-                "metrics_url": metrics_url,
-                "prometheus_available": prometheus_available,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
+            raw_metrics = await prom_client.query_gpu_metrics(namespace, pod_name)
+            raw_history = await prom_client.query_gpu_utilization_range(namespace, pod_name, start_ts, end_ts, step)
+
+            return metrics_success(
+                gpu_metrics=parse_gpu_metrics(raw_metrics),
+                history=parse_gpu_history(raw_history),
+                metrics_url=metrics_url,
+            )
         except Exception as e:
             logger.warning("Prometheus query failed, returning degraded response: %s", e)
-            return {
-                "gpu_metrics": [],
-                "gpu_utilization_history": [],
-                "metrics_url": metrics_url,
-                "prometheus_available": prometheus_available,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
+            return degraded_response(metrics_url)
 
     @staticmethod
-    def _parse_gpu_metrics(raw_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Parse Prometheus instant query results into GPU metric dicts."""
-        gpu_data: dict[int, dict[str, float]] = {}
-        for item in raw_results:
-            metric = item.get("metric", {})
-            gpu_idx = int(metric.get("gpu", "0"))
-            name = metric.get("__name__", "")
-            value = float(item.get("value", [0, "0"])[1])
-
-            if gpu_idx not in gpu_data:
-                gpu_data[gpu_idx] = {}
-            gpu_data[gpu_idx][name] = value
-
-        points: list[dict[str, Any]] = []
-        for idx in sorted(gpu_data.keys()):
-            d = gpu_data[idx]
-            fb_used = d.get("DCGM_FI_DEV_FB_USED", 0)
-            fb_free = d.get("DCGM_FI_DEV_FB_FREE", 0)
-            total_mem = fb_used + fb_free
-            points.append(
-                {
-                    "gpu_index": idx,
-                    "utilization_percent": d.get("DCGM_FI_DEV_GPU_UTIL", 0),
-                    "memory_used_mib": fb_used,
-                    "memory_total_mib": total_mem,
-                    "temperature_c": d.get("DCGM_FI_DEV_GPU_TEMP", 0),
-                    "power_w": d.get("DCGM_FI_DEV_POWER_USAGE", 0),
-                }
-            )
-        return points
-
-    @staticmethod
-    def _parse_gpu_history(raw_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Parse Prometheus range query results into time series dicts."""
-        points: list[dict[str, Any]] = []
-        for series in raw_results:
-            metric = series.get("metric", {})
-            label = f"GPU {metric.get('gpu', '?')}"
-            for ts, val in series.get("values", []):
-                dt = datetime.fromtimestamp(float(ts), tz=UTC)
-                points.append(
-                    {
-                        "timestamp": dt.isoformat(),
-                        "value": float(val),
-                        "label": label,
-                    }
-                )
-        return points
-
-    @staticmethod
-    def _parse_duration(duration: str) -> timedelta:
-        """Parse duration string (e.g. '20m', '1h') into timedelta."""
-        from datetime import timedelta
-
+    async def _get_running_vcjob_pod(job: TrainingJob, namespace: str) -> str | None:
+        """Find the first running pod name for a Volcano VCJob."""
+        if not job.vcjob_name:
+            return None
         try:
-            unit = duration[-1]
-            value = int(duration[:-1])
-        except (IndexError, ValueError):
-            return timedelta(minutes=20)
-        if unit == "s":
-            return timedelta(seconds=value)
-        if unit == "m":
-            return timedelta(minutes=value)
-        if unit == "h":
-            return timedelta(hours=value)
-        return timedelta(minutes=20)
+            pods = await list_vcjob_pods(namespace, job.vcjob_name)
+            running = [p for p in pods if p["status"] == "running"]
+            return running[0]["pod_name"] if running else None
+        except Exception as e:
+            logger.warning("Failed to list VCJob pods for metrics: %s", e)
+            return None
 
     async def _check_gpu_quota(self, namespace: str, gpu_limit: int, requested: int) -> None:
         if requested == 0:

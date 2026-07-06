@@ -1,14 +1,9 @@
-import { useMemo } from 'react'
 import { Alert, Card, Spin, Table, Tag, Tooltip, Typography } from 'antd'
 import type { InferenceServiceEvent } from '@/types/inference'
 import { formatDate } from '@/utils/format'
 import type { GpuMetricPoint, TimeSeriesPoint } from '@/types/metrics'
 import GpuMetricsChart from '@/components/GpuMetricsChart'
-
-const LOW_GPU_THRESHOLD = 10
-const WARNING_DURATION_MS = 5 * 60 * 1000
-const HIGH_TEMP_THRESHOLD = 80
-const MIN_RECENT_SAMPLES = 10
+import { useGpuAlerts } from '@/hooks/useGpuAlerts'
 
 interface MonitorTabProps {
   serviceStatus: string
@@ -32,19 +27,7 @@ export function MonitorTab({
   const isServiceActive = serviceStatus === 'running' || serviceStatus === 'deploying'
   const healthyStatus = serviceStatus === 'running'
 
-  // GPU low utilization warning: warn if recent history all below threshold
-  const shouldWarnGpu = useMemo(() => {
-    if (!gpuUtilizationHistory.length) return false
-    const cutoff = Date.now() - WARNING_DURATION_MS
-    const recent = gpuUtilizationHistory.filter((p) => new Date(p.timestamp).getTime() >= cutoff)
-    if (recent.length < MIN_RECENT_SAMPLES) return false
-    return recent.every((p) => p.value < LOW_GPU_THRESHOLD)
-  }, [gpuUtilizationHistory])
-
-  // GPU high temperature warning
-  const shouldWarnTemp = useMemo(() => {
-    return gpuMetrics.some((m) => m.temperatureC >= HIGH_TEMP_THRESHOLD)
-  }, [gpuMetrics])
+  const { shouldWarnGpu, shouldWarnTemp } = useGpuAlerts(gpuMetrics, gpuUtilizationHistory)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -72,7 +55,7 @@ export function MonitorTab({
         <Alert
           type="warning"
           message="GPU 利用率偏低"
-          description={`最近 5 分钟内 GPU 利用率持续低于 ${LOW_GPU_THRESHOLD}%，请检查推理服务是否正常接收请求`}
+          description="GPU 利用率持续低于阈值，请检查推理服务是否正常接收请求"
           showIcon
         />
       )}
@@ -82,7 +65,7 @@ export function MonitorTab({
         <Alert
           type="warning"
           message="GPU 温度过高"
-          description={`部分 GPU 温度已达到 ${HIGH_TEMP_THRESHOLD}°C，请检查散热环境或降低负载`}
+          description="部分 GPU 温度已达到阈值，请检查散热环境或降低负载"
           showIcon
         />
       )}

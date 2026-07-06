@@ -99,7 +99,6 @@ export interface InferenceServiceScaleRequest {
 }
 
 // Re-export shared GPU metric types
-export type { GpuMetricPoint, TimeSeriesPoint } from './metrics'
 import type { GpuMetricPoint, TimeSeriesPoint } from './metrics'
 
 export interface InferenceServiceMetrics {

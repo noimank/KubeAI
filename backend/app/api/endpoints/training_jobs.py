@@ -14,6 +14,7 @@ from app.api.deps import CurrentUser, authenticate_ws_token, get_db, require_per
 from app.core.auth_helpers import resolve_identity_from_request
 from app.core.clients import get_prometheus_client
 from app.core.exceptions import AppException, ForbiddenException, UnauthorizedException
+from app.core.gpu_metrics import MetricsResponse
 from app.core.redis import _redis_pool, get_redis
 from app.integrations.k8s.kubeai_volumes import HOME_MOUNT_PATH, WORKSPACE_MOUNT_PATH
 from app.models.enums import TrainingJobStatus, UserRole
@@ -25,7 +26,6 @@ from app.schemas.training_job import (
     TrainingJobCreateRequest,
     TrainingJobFromEnvironmentRequest,
     TrainingJobResponse,
-    TrainingMetricsResponse,
 )
 from app.services.training_job_service import TrainingJobService
 from app.tasks.training_job_tasks import (
@@ -358,14 +358,14 @@ async def stream_training_job_logs_ws(
             await websocket.close()
 
 
-@router.get("/{training_job_id}/metrics", response_model=BaseResponse[TrainingMetricsResponse])
+@router.get("/{training_job_id}/metrics", response_model=BaseResponse[MetricsResponse])
 async def get_training_job_metrics(
     training_job_id: uuid.UUID,
     db: DbDep,
     user: Annotated[CurrentUser, Depends(require_permission("training_jobs", "read"))],
     duration: str = Query("20m", description="历史范围(如 20m/1h)"),
     step: str = Query("15s", description="查询精度"),
-) -> BaseResponse[TrainingMetricsResponse]:
+) -> BaseResponse[MetricsResponse]:
     service = TrainingJobService(db)
     tenant_id = _require_tenant_id(user)
     prom_client = get_prometheus_client()
@@ -376,4 +376,4 @@ async def get_training_job_metrics(
         duration=duration,
         step=step,
     )
-    return BaseResponse(data=TrainingMetricsResponse(**data), message="获取成功")
+    return BaseResponse(data=MetricsResponse(**data), message="获取成功")

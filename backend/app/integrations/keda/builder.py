@@ -1,7 +1,6 @@
 from typing import Any
 
-# Prometheus 地址 (与推理监控同一实例), KEDA prometheus 触发器需可达.
-_PROMETHEUS_ADDRESS = "http://prometheus.monitoring.svc.cluster.local:9090"
+from app.core.config import settings
 
 
 def build_scaled_object(
@@ -34,7 +33,7 @@ def build_scaled_object(
             {
                 "type": "prometheus",
                 "metadata": {
-                    "serverAddress": _PROMETHEUS_ADDRESS,
+                    "serverAddress": settings.PROMETHEUS_URL,
                     "metricName": "gpu_utilization",
                     "threshold": str(metric_value),
                     "query": (

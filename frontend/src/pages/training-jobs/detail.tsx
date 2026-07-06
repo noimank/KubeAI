@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
   Alert,
   Breadcrumb,
@@ -30,6 +30,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import LogStream from '@/components/LogStream'
 import GpuMetricsChart from '@/components/GpuMetricsChart'
+import { useGpuAlerts } from '@/hooks/useGpuAlerts'
 import { useRbacStore } from '@/stores/rbacStore'
 import {
   buildLogStreamWsUrl,
@@ -66,9 +67,6 @@ const STATUS_STEPS = [
 const STREAMABLE_STATUSES: TrainingJobStatus[] = ['pending', 'queued', 'initializing', 'running']
 const HISTORY_STATUSES: TrainingJobStatus[] = ['succeeded', 'failed', 'stopped']
 const NOT_STARTED_STATUSES: TrainingJobStatus[] = ['pending', 'queued']
-
-const LOW_GPU_THRESHOLD = 10
-const WARNING_DURATION_MS = 10 * 60 * 1000
 
 function getStepIndex(status: TrainingJobStatus): number {
   const map: Record<string, number> = {
@@ -197,15 +195,11 @@ export default function TrainingJobDetailPage() {
     refetchInterval: isRunning ? 10_000 : false,
   })
 
-  // GPU low utilization warning
-  const shouldWarnGpu = useMemo(() => {
-    const history = metricsData?.gpuUtilizationHistory
-    if (!history?.length) return false
-    const cutoff = Date.now() - WARNING_DURATION_MS
-    const recent = history.filter((p) => new Date(p.timestamp).getTime() >= cutoff)
-    if (recent.length < 10) return false
-    return recent.every((p) => p.value < LOW_GPU_THRESHOLD)
-  }, [metricsData?.gpuUtilizationHistory])
+  const { shouldWarnGpu } = useGpuAlerts(
+    metricsData?.gpuMetrics ?? [],
+    metricsData?.gpuUtilizationHistory ?? [],
+    { warningWindowMs: 10 * 60 * 1000 },
+  )
 
   if (isLoading) {
     return (
