@@ -50,7 +50,7 @@ class ModelVersion(Base, TimestampMixin):
     hyperparameters: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
 
-    model: Mapped[RegisteredModel] = relationship(back_populates="versions")
+    model: Mapped[RegisteredModel] = relationship(back_populates="versions", lazy="joined")
 
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("id", uuid.uuid4())
