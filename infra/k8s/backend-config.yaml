@@ -50,7 +50,14 @@ data:
   # -- 开发环境空闲检测
   DEV_ENV_IDLE_TIMEOUT_MINUTES: "60"
   DEV_ENV_IDLE_CHECK_INTERVAL_SECONDS: "300"
+
+  # -- 服务状态同步间隔 (推理/训练 Job 状态轮询)
   INFERENCE_SERVICE_STATUS_SYNC_INTERVAL_SECONDS: "60"
+  TRAINING_JOB_STATUS_SYNC_INTERVAL_SECONDS: "60"
+
+  # -- 身份/租户缓存 TTL (秒)
+  IDENTITY_CACHE_TTL_SECONDS: "300"
+  TENANT_STATUS_CACHE_TTL_SECONDS: "120"
 
   # -- 资源清理 (已完成训练任务的 Pod 清理)
   RESOURCE_CLEANUP_ENABLED: "true"
@@ -71,6 +78,9 @@ data:
   # -- MinIO (保留兼容; 模型存储已改本地 MODEL_BASE_PATH, 此处不再被模型链路使用)
   MINIO_SECURE: "false"
   MINIO_BUCKET_PREFIX: "kubeai-models-"
+  # 集群内 Pod 访问 MinIO 的地址, 带 scheme (initContainer / model-pull 等使用)
+  # Helm 拓扑: http://kubeai-minio.kubeai.svc.cluster.local:9000
+  MINIO_INTERNAL_ENDPOINT: "http://minio.kubeai.svc.cluster.local:9000"
   DATASET_BASE_PATH: "/data/kubeai/datasets"
   # -- 模型文件本地存储路径 (backend/worker 同节点共享 hostPath /data/kubeai)
   MODEL_BASE_PATH: "/data/kubeai/models"
@@ -90,6 +100,9 @@ data:
   # -- Label Studio 数据标注 (部署 labelstudio/ 后启用)
   LABEL_STUDIO_URL: "http://labelstudio.kubeai.svc.cluster.local:8080"
 
+  # -- 算法文件本地存储路径
+  ALGORITHM_BASE_PATH: "/data/kubeai/algorithms"
+
   # -- 开发环境 Native Pod 管理 — APISIX Admin API 动态路由
   # 路由 /devenv/<uuid_hex>/ 与主应用共用域名
 
@@ -101,6 +114,14 @@ data:
 
   # APISIX forward-auth 回源地址 (K8s 集群内可达的后端)
   KUBEAI_BACKEND_INTERNAL_URL: "http://backend.kubeai.svc.cluster.local:8000"
+
+  # -- 容器镜像 (生产环境必须使用内网可访问的地址，禁止用 Docker Hub/GCR 等外网源)
+  # BusyBox initContainer: dev-env / inference 共用，做 hostPath chown
+  BUSYBOX_IMAGE: "hub.uimpcloud.com/kubeai/busybox:1.36"
+  # Kaniko: 训练任务镜像构建
+  KANIKO_IMAGE: "hub.uimpcloud.com/kubeai/kaniko-executor:latest"
+  # MinIO mc: 数据集导入等任务
+  MINIO_MC_IMAGE: "hub.uimpcloud.com/kubeai/minio-mc:latest"
 
   # -- TensorBoard sidecar 镜像与端口 (由 build_vcjob 注入到 trainer Pod)
   # 训练任务创建时勾选 "TensorBoard 可视化" 即注入该 sidecar
