@@ -13,6 +13,9 @@ import {
   BellOutlined,
   FolderOpenOutlined,
   UserOutlined,
+  CalculatorOutlined,
+  ThunderboltOutlined,
+  BuildOutlined,
 } from '@ant-design/icons'
 import type { MenuDataItem } from '@ant-design/pro-components'
 import { filterMenuItems, toMenuDataItem } from './sidebar-utils'
@@ -91,6 +94,28 @@ const MENU_CONFIG: MenuEntry[] = [
         permission: 'dev_environments:read',
       },
       { path: '/images', name: '镜像管理', icon: <AppstoreOutlined />, permission: 'images:read' },
+    ],
+  },
+  {
+    type: 'group',
+    key: 'group-business-algorithm',
+    name: '业务算法库',
+    children: [
+      {
+        path: '/business-algorithm/metaheuristic',
+        name: '元启发算法',
+        icon: <ThunderboltOutlined />,
+      },
+      {
+        path: '/business-algorithm/data-planning',
+        name: '数据规划',
+        icon: <CalculatorOutlined />,
+      },
+      {
+        path: '/business-algorithm/heuristic-rules',
+        name: '启发式规则',
+        icon: <BuildOutlined />,
+      },
     ],
   },
   {

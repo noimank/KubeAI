@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     LABEL_STUDIO_URL: str = "http://labelstudio.kubeai.local"
     LABEL_STUDIO_API_TOKEN: str = ""
 
+    # -- 业务算法库 (balibrary) 独立服务地址
+    BALIBRARY_URL: str = "http://balibrary.kubeai.svc:8800"
+
     # -- Dev environment native pod management
     # Routes are pushed directly to APISIX Admin API at env create/delete time.
 

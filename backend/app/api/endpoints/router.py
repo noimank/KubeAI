@@ -4,6 +4,7 @@ from app.api.endpoints.algorithms import router as algorithms_router
 from app.api.endpoints.annotations import router as annotations_router
 from app.api.endpoints.audit_logs import router as audit_logs_router
 from app.api.endpoints.auth import router as auth_router
+from app.api.endpoints.business_algorithm import router as business_algorithm_router
 from app.api.endpoints.credentials import router as credentials_router
 from app.api.endpoints.dashboard import router as dashboard_router
 from app.api.endpoints.datasets import router as datasets_router
@@ -31,6 +32,7 @@ async def health_check() -> HealthResponse:
 
 
 api_router.include_router(auth_router)
+api_router.include_router(business_algorithm_router)
 api_router.include_router(algorithms_router)
 api_router.include_router(annotations_router)
 api_router.include_router(credentials_router)

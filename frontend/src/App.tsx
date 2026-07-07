@@ -47,6 +47,10 @@ const TenantDetailPage = lazy(() => import('./pages/admin/tenants/detail'))
 const UsersPage = lazy(() => import('./pages/admin/users'))
 const AuditLogsPage = lazy(() => import('./pages/admin/audit-logs'))
 const ProfilePage = lazy(() => import('./pages/profile'))
+const BusinessAlgorithmPage = lazy(() => import('./pages/business-algorithm'))
+const MetaheuristicPage = lazy(() => import('./pages/business-algorithm/Metaheuristic'))
+const DataPlanningPage = lazy(() => import('./pages/business-algorithm/DataPlanning'))
+const HeuristicRulesPage = lazy(() => import('./pages/business-algorithm/HeuristicRules'))
 
 function LoadingFallback() {
   return <LoadingPage />
@@ -320,6 +324,12 @@ export default function App() {
                         </PermissionGuard>
                       }
                     />
+                    <Route path="business-algorithm" element={<Outlet />}>
+                      <Route index element={<BusinessAlgorithmPage />} />
+                      <Route path="metaheuristic" element={<MetaheuristicPage />} />
+                      <Route path="data-planning" element={<DataPlanningPage />} />
+                      <Route path="heuristic-rules" element={<HeuristicRulesPage />} />
+                    </Route>
                     <Route path="profile" element={<ProfilePage />} />
                     <Route path="403" element={<ForbiddenPage />} />
                   </Route>
