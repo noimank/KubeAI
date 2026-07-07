@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -124,6 +125,9 @@ class DevEnvironmentService:
 
         The global Pod Watcher (``dev_pod_watcher.py``) receives ADDED / MODIFIED
         events and transitions STARTING → RUNNING or FAILED with sub-second latency.
+
+        If the pod already exists and is Ready (e.g. env was stopped in DB but pod
+        survives on the node), skip creation and recover the DB state to RUNNING.
         """
         env = await self._get_environment_or_fail(env_id, tenant_id)
         if env.status != DevEnvironmentStatus.STARTING:
@@ -133,6 +137,21 @@ class DevEnvironmentService:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
         user = await self._get_user_or_fail(env.created_by)
+
+        # Recovery: if the pod is already Running and Ready, skip creation and
+        # restore the DB state in-place.  This handles the case where a pod
+        # survives a transient readiness loss that the watcher misinterpreted
+        # as a crash (RUNNING → STOPPED), as well as a failed stop_server that
+        # left the pod running.
+        pod_mgr = get_dev_pod_manager()
+        existing = await pod_mgr.get_pod(env.id, namespace)
+        if existing is not None and _pod_is_running_ready(existing):
+            now = datetime.now(UTC).isoformat()
+            env.access_url = dev_access_url(env.id)
+            env.last_active_at = env.last_active_at or now
+            await self._transition(env, DevEnvironmentStatus.RUNNING, clear_error=True)
+            logger.info("dev_env_recovered_from_stopped", env_id=str(env.id), name=env.name)
+            return
 
         await self._create_dev_pod(env, tenant, user.username, namespace)
 
@@ -570,3 +589,27 @@ class DevEnvironmentService:
             raise NotFoundException("数据集版本不存在")
 
         return dataset, version
+
+
+# ------------------------------------------------------------------
+# Module-level helpers (shared with dev_pod_watcher.py)
+# ------------------------------------------------------------------
+
+
+def _pod_is_running_ready(pod: object) -> bool:
+    """Check whether a K8s Pod is Running, Ready, and NOT terminating."""
+    from kubernetes_asyncio.client import V1Pod
+
+    if not isinstance(pod, V1Pod):
+        return False
+
+    if pod.metadata and pod.metadata.deletion_timestamp is not None:
+        return False
+    if not pod.status:
+        return False
+
+    phase: str | None = pod.status.phase
+    conditions = pod.status.conditions or []
+
+    ready = any(c.type == "Ready" and c.status == "True" for c in conditions)
+    return bool(phase == "Running" and ready)

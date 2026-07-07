@@ -226,8 +226,11 @@ async def _handle_added_or_modified(
         logger.warning("dev_env_failed", env_id=str(env.id), phase=phase)
         return
 
-    # ── Running pod lost readiness (crash / eviction) ────────────────
-    if (not ready or phase not in ("Running", "Succeeded")) and env.status == DevEnvironmentStatus.RUNNING:
+    # ── Pod entered a terminal phase while env was RUNNING ────────────
+    # Only react to truly terminal phases (Failed, Succeeded) — transient
+    # readiness probe blips cause ready=False with phase=Running, which is
+    # NOT a crash.  Evictions are handled by the DELETED path instead.
+    if phase in ("Failed", "Succeeded") and env.status == DevEnvironmentStatus.RUNNING:
         env.status = DevEnvironmentStatus.STOPPED
         env.stopped_reason = env.stopped_reason or "server_missing"
         await db.commit()
