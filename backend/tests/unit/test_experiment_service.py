@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.models.experiment import Experiment
 from app.services.experiment_service import ExperimentService
@@ -28,6 +29,11 @@ def _mock_db():
     db.flush = AsyncMock()
     db.add = MagicMock()
     db.execute = AsyncMock()
+    # Result 对象须是同步 MagicMock: 否则 .scalar_one_or_none() 会被当作 AsyncMock 返回协程.
+    db.execute.return_value = MagicMock()
+    db.rollback = AsyncMock()
+    # 默认: 幂等 SELECT 查无已存在记录, 走创建分支 (create_experiment 首行 SELECT).
+    db.execute.return_value.scalar_one_or_none.return_value = None
     return db
 
 
@@ -96,6 +102,62 @@ class TestCreateExperiment:
                     training_job_id=uuid.uuid4(),
                     mlflow_experiment_name="kubeai-x",
                 )
+
+    async def test_create_experiment_returns_existing_without_mlflow_calls(self):
+        """幂等短路: 同一 training_job_id 已有记录 (重试时上次失败已 commit 持久化) → 直接返回, 不再调 MLflow."""
+        job_id = uuid.uuid4()
+        tenant_id = uuid.uuid4()
+        existing = _make_experiment(
+            training_job_id=job_id, tenant_id=tenant_id, mlflow_experiment_id="42", mlflow_run_id="run-1"
+        )
+        mlflow_client = AsyncMock()
+
+        db = _mock_db()
+        db.execute.return_value.scalar_one_or_none.return_value = existing
+
+        with patch("app.services.experiment_service.get_mlflow_client", return_value=mlflow_client):
+            service = ExperimentService(db)
+            exp = await service.create_experiment(
+                tenant_id=tenant_id,
+                training_job_id=job_id,
+                mlflow_experiment_name="kubeai-abc-my-job",
+            )
+
+        assert exp is existing  # 复用既有记录, 不新建
+        mlflow_client.get_or_create_experiment.assert_not_called()
+        mlflow_client.create_run.assert_not_called()
+        db.add.assert_not_called()
+        db.flush.assert_not_called()
+
+    async def test_create_experiment_reselects_on_concurrent_insert(self):
+        """并发竞态: flush 撞唯一约束 → 回滚并取回先入库的记录 (Taskiq at-least-once 兜底)."""
+        job_id = uuid.uuid4()
+        tenant_id = uuid.uuid4()
+        winner = _make_experiment(
+            training_job_id=job_id, tenant_id=tenant_id, mlflow_experiment_id="42", mlflow_run_id="run-1"
+        )
+        mlflow_client = AsyncMock()
+        mlflow_client.get_or_create_experiment.return_value = "42"
+        mlflow_client.create_run.return_value = "run-2"
+
+        db = _mock_db()
+        # 第一次 execute (幂等 SELECT) → None; flush 抛 IntegrityError; 第二次 execute (re-SELECT) → winner.
+        db.execute.side_effect = [
+            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),
+            MagicMock(scalar_one=MagicMock(return_value=winner)),
+        ]
+        db.flush.side_effect = IntegrityError("INSERT INTO experiments", {}, Exception("duplicate key"))
+
+        with patch("app.services.experiment_service.get_mlflow_client", return_value=mlflow_client):
+            service = ExperimentService(db)
+            exp = await service.create_experiment(
+                tenant_id=tenant_id,
+                training_job_id=job_id,
+                mlflow_experiment_name="kubeai-abc-my-job",
+            )
+
+        assert exp is winner  # 取回竞态中先入库的记录
+        db.rollback.assert_awaited_once()
 
 
 class TestGetExperiments:

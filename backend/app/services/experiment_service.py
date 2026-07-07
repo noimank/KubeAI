@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.clients import get_mlflow_client
 from app.models.dataset import DatasetVersion
@@ -46,12 +47,23 @@ class ExperimentService:
         训练脚本 ``mlflow.start_run(run_id=...)`` 恢复该 run —— 形成 job↔run 1:1 强绑定.
         Volcano 重试时 env 不变, 脚本 resume 同一 run, 不再产生多 run.
 
+        幂等: 同一 ``training_job_id`` 已有记录则直接返回, 不重复创建 MLflow experiment/run.
+        覆盖两类场景 ——
+          1. 提交重试: 上次 ``create_vcjob`` 失败但 Experiment 已被调用方 commit 持久化,
+             重试时此处 SELECT 命中并短路, 避免重复 MLflow run 与重复 DB 行.
+          2. 并发提交 (Taskiq at-least-once): 唯一约束在 flush 时拒绝重复, 回滚后取回先入库的记录.
+
         experiment 与 run 创建都幂等/可重入失败即抛错 (fail-fast): MLflow 不可达时不提交 VCJob,
         避免留下半截状态.
 
         Raises:
             RuntimeError: MLflow experiment 或 run 创建失败
         """
+        # 幂等短路: 重试/并发场景下已存在的记录直接复用.
+        existing = await self.db.execute(select(Experiment).where(Experiment.training_job_id == training_job_id))
+        if (experiment := existing.scalar_one_or_none()) is not None:
+            return experiment
+
         mlflow_client = get_mlflow_client()
 
         experiment_id = await mlflow_client.get_or_create_experiment(
@@ -77,7 +89,13 @@ class ExperimentService:
             status="active",
         )
         self.db.add(experiment)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError:
+            # 并发竞态: 另一事务抢先插入同一 training_job_id, 回滚后取回其记录.
+            await self.db.rollback()
+            result = await self.db.execute(select(Experiment).where(Experiment.training_job_id == training_job_id))
+            experiment = result.scalar_one()
         return experiment
 
     async def get_experiments(

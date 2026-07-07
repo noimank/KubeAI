@@ -6,12 +6,14 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from kubernetes_asyncio.client.exceptions import ApiException
 from sqlalchemy import func, or_, select
 
 from app.core.config import settings
 from app.core.exceptions import (
     BadRequestException,
     ConflictException,
+    ExternalServiceException,
     NotFoundException,
     QuotaExceededException,
 )
@@ -239,9 +241,11 @@ class TrainingJobService:
             await create_vcjob(namespace, vcjob_body)
         except Exception as e:
             logger.error("Failed to submit VCJob %s: %s", vcjob_name, e)
-            job.status = TrainingJobStatus.FAILED
-            job.error_message = f"Volcano 提交失败: {e}"
+            # 持久化已 flush 的 Experiment: 重试时 create_experiment 据此幂等短路,
+            # 不重复创建 MLflow run. 任务状态由 Taskiq 层 (_mark_retrying/_mark_failed) 统一管理.
             await self.db.commit()
+            if isinstance(e, ApiException) and e.status == 404:
+                raise ExternalServiceException("Volcano VCJob CRD 未安装, 请确认集群已部署 Volcano") from e
             raise
 
         # TensorBoard 可视化资源 (Service + APISIX 路由). 失败仅记录,

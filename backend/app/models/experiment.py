@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TenantMixin, TimestampMixin
@@ -10,12 +10,13 @@ from app.models.base import Base, TenantMixin, TimestampMixin
 
 class Experiment(Base, TimestampMixin, TenantMixin):
     __tablename__ = "experiments"
+    # 一对一: 一个训练任务至多一条 Experiment (DB 强制, 兜底重试/并发重复插入).
+    __table_args__ = (UniqueConstraint("training_job_id", name="uq_experiments_training_job_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     training_job_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("training_jobs.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     mlflow_experiment_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     mlflow_run_id: Mapped[str | None] = mapped_column(String(100), nullable=True)

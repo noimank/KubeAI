@@ -3,8 +3,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from kubernetes_asyncio.client.exceptions import ApiException
 
-from app.core.exceptions import QuotaExceededException
+from app.core.exceptions import ExternalServiceException, QuotaExceededException
 from app.integrations.k8s.pod import map_failure_message
 from app.models.enums import TrainingJobStatus
 from app.models.image import Image
@@ -865,6 +866,44 @@ class TestMlflowPerJobBinding:
         # MLflow 不可用 → build_vcjob 都不会被调用 → VCJob 不提交
         mock_build.assert_not_called()
         assert job.status == TrainingJobStatus.PENDING  # 状态未变
+
+    @patch("app.services.training_job_service.create_vcjob", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.build_vcjob")
+    @patch("app.services.training_job_service.get_quota_used", new_callable=AsyncMock)
+    @patch("app.services.training_job_service.ExperimentService")
+    async def test_submission_maps_crd_missing_404_to_external_service_exception(
+        self, mock_exp_service_cls, mock_quota, mock_build, mock_create, service, mock_db
+    ):
+        """集群未装 Volcano VCJob CRD → create_vcjob 抛 ApiException 404 → 友好 ExternalServiceException.
+
+        同时验证: 失败分支仍 commit 已 flush 的 Experiment (重试幂等短路依赖其持久化),
+        而非回滚 (回滚会导致重试重复创建 MLflow run).
+        """
+        tenant = _make_tenant()
+        image = _make_image()
+        user = _make_user()
+        job = _make_job(mlflow_enabled=True)
+
+        mock_quota.return_value = {}
+        mock_build.return_value = {"metadata": {"name": "test"}}
+        mock_create.side_effect = ApiException(status=404, reason="the server could not find the requested resource")
+
+        mock_experiment = MagicMock()
+        mock_experiment.mlflow_run_id = "run-xyz"
+        mock_exp_service_cls.return_value.create_experiment = AsyncMock(return_value=mock_experiment)
+
+        mock_db.execute.side_effect = [
+            _sync_result(job),
+            _sync_result(tenant),
+            _sync_result(user),
+            _sync_result(image),
+        ]
+
+        with pytest.raises(ExternalServiceException, match="Volcano VCJob CRD 未安装"):
+            await service.execute_training_job_submission(job.id, tenant.id)
+
+        # 失败分支持久化已 flush 的 Experiment, 供重试幂等短路 (而非 rollback).
+        mock_db.commit.assert_awaited()
 
     async def test_create_training_job_record_default_mlflow_disabled(self, service, mock_db):
         image = _make_image()
