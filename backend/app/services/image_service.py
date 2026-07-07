@@ -99,7 +99,13 @@ class ImageService:
         category: str = "training",
         audit_context: dict[str, Any] | None = None,
     ) -> Image:
-        existing = await self.db.execute(select(Image).where(Image.image_ref == image_ref, Image.deleted_at.is_(None)))
+        existing = await self.db.execute(
+            select(Image).where(
+                Image.image_ref == image_ref,
+                Image.category == category,
+                Image.deleted_at.is_(None),
+            )
+        )
         if existing.scalar_one_or_none():
             raise ConflictException("镜像地址已存在")
 
@@ -136,9 +142,11 @@ class ImageService:
         image = await self._get_image_or_fail(image_id)
 
         if "image_ref" in kwargs and kwargs["image_ref"] != image.image_ref:
+            target_category = kwargs.get("category") or image.category
             existing = await self.db.execute(
                 select(Image).where(
                     Image.image_ref == kwargs["image_ref"],
+                    Image.category == target_category,
                     Image.id != image_id,
                     Image.deleted_at.is_(None),
                 )
