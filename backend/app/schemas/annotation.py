@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class AnnotationProjectCreateRequest(BaseModel):
-    name: str = Field(max_length=200)
+    name: str = Field(min_length=3, max_length=200)
     description: str | None = None
     dataset_id: uuid.UUID
     dataset_version_id: uuid.UUID

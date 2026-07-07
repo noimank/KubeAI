@@ -318,6 +318,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             rules={[
               { required: true, message: '请输入项目名称' },
               { whitespace: true, message: '项目名称不能为空' },
+              { min: 3, message: '项目名称至少 3 个字符' },
             ]}
             style={{ marginBottom: 0 }}
           >
