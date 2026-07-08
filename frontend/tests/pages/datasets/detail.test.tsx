@@ -33,10 +33,10 @@ vi.mock('@/services/datasets', () => ({
   getVersionStats: vi.fn(),
   getFileDownloadUrl: vi.fn(),
   downloadFile: vi.fn(),
-  mountDatasetVersion: vi.fn(),
-  getDatasetMountInfo: vi.fn(),
-  unmountDatasetVersion: vi.fn(),
+  fetchFileBlob: vi.fn(),
+  createBlobUrl: vi.fn(() => 'blob:fake'),
   revokeBlobUrl: vi.fn(),
+  deleteVersionFile: vi.fn(),
 }))
 
 const mockGetDatasetDetail = vi.mocked(await import('@/services/datasets')).getDatasetDetail
@@ -44,6 +44,36 @@ const mockGetVersionFiles = vi.mocked(await import('@/services/datasets')).getVe
 const mockGetVersionStats = vi.mocked(await import('@/services/datasets')).getVersionStats
 const mockGetFileDownloadUrl = vi.mocked(await import('@/services/datasets')).getFileDownloadUrl
 const mockDownloadFile = vi.mocked(await import('@/services/datasets')).downloadFile
+const mockFetchFileBlob = vi.mocked(await import('@/services/datasets')).fetchFileBlob
+
+const FILE_ID_1 = '11111111-1111-1111-1111-111111111111'
+const FILE_ID_2 = '22222222-2222-2222-2222-222222222222'
+
+const mockFilesPage = {
+  items: [
+    {
+      fileId: FILE_ID_1,
+      fileName: 'data.csv',
+      relativePath: 'data.csv',
+      fileSize: 1024,
+      contentType: 'text/csv',
+      uploadedAt: '2026-05-01T00:00:00Z',
+      isAnnotated: false,
+    },
+    {
+      fileId: FILE_ID_2,
+      fileName: 'image.png',
+      relativePath: 'image.png',
+      fileSize: 2048,
+      contentType: 'image/png',
+      uploadedAt: '2026-05-01T00:00:00Z',
+      isAnnotated: false,
+    },
+  ],
+  total: 2,
+  page: 1,
+  pageSize: 50,
+}
 
 const mockDataset = {
   id: 'ds-1',
@@ -104,7 +134,6 @@ function renderPage(datasetId = 'ds-1') {
 
 function waitForDataset() {
   return waitFor(() => {
-    // h2 tag is the page title, distinct from breadcrumb/descriptions
     expect(screen.getByRole('heading', { level: 2 })).toBeTruthy()
   })
 }
@@ -179,7 +208,6 @@ describe('DatasetDetailPage', () => {
 
     await waitForDataset()
 
-    // Breadcrumb should have "数据集" link
     const links = screen.getAllByText('数据集')
     expect(links.length).toBeGreaterThanOrEqual(1)
   })
@@ -202,7 +230,6 @@ describe('DatasetDetailPage', () => {
 
     await waitForDataset()
 
-    // Click versions tab
     const versionsTab = screen.getByText('版本列表')
     await userEvent.click(versionsTab)
 
@@ -222,22 +249,9 @@ describe('DatasetDetailPage', () => {
     expect(screen.getByText('预览')).toBeTruthy()
   })
 
-  it('should show file list when preview tab is active', async () => {
+  it('should show file list when preview tab is active and not eagerly fetch blobs', async () => {
     mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
-    mockGetVersionFiles.mockResolvedValueOnce([
-      {
-        fileName: 'data.csv',
-        sizeBytes: 1024,
-        contentType: 'text/csv',
-        lastModified: '2026-05-01T00:00:00Z',
-      },
-      {
-        fileName: 'image.png',
-        sizeBytes: 2048,
-        contentType: 'image/png',
-        lastModified: '2026-05-01T00:00:00Z',
-      },
-    ])
+    mockGetVersionFiles.mockResolvedValueOnce(mockFilesPage)
     mockGetVersionStats.mockResolvedValueOnce({
       versionId: 'v-2',
       versionNumber: 2,
@@ -261,12 +275,18 @@ describe('DatasetDetailPage', () => {
       expect(screen.getByText('image.png')).toBeTruthy()
     })
 
-    expect(mockGetVersionFiles).toHaveBeenCalledWith('ds-1', 'v-2')
+    expect(mockGetVersionFiles).toHaveBeenCalledWith(
+      'ds-1',
+      'v-2',
+      expect.objectContaining({ page: 1, pageSize: 50 }),
+    )
+    // 关键: 表格渲染不应触 fetchFileBlob
+    expect(mockFetchFileBlob).not.toHaveBeenCalled()
   })
 
   it('should show stats when preview tab is active', async () => {
     mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
-    mockGetVersionFiles.mockResolvedValueOnce([])
+    mockGetVersionFiles.mockResolvedValueOnce({ ...mockFilesPage, items: [] })
     mockGetVersionStats.mockResolvedValueOnce({
       versionId: 'v-2',
       versionNumber: 2,
@@ -293,7 +313,12 @@ describe('DatasetDetailPage', () => {
 
   it('should show empty state when no files', async () => {
     mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
-    mockGetVersionFiles.mockResolvedValueOnce([])
+    mockGetVersionFiles.mockResolvedValueOnce({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+    })
     mockGetVersionStats.mockResolvedValueOnce({
       versionId: 'v-2',
       versionNumber: 2,
@@ -316,14 +341,12 @@ describe('DatasetDetailPage', () => {
 
   it('should call download when download button clicked', async () => {
     mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
-    mockGetVersionFiles.mockResolvedValueOnce([
-      {
-        fileName: 'data.csv',
-        sizeBytes: 1024,
-        contentType: 'text/csv',
-        lastModified: '2026-05-01T00:00:00Z',
-      },
-    ])
+    mockGetVersionFiles.mockResolvedValueOnce({
+      items: [mockFilesPage.items[0]],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+    })
     mockGetVersionStats.mockResolvedValueOnce({
       versionId: 'v-2',
       versionNumber: 2,
@@ -350,5 +373,77 @@ describe('DatasetDetailPage', () => {
     await waitFor(() => {
       expect(mockDownloadFile).toHaveBeenCalledWith('ds-1', 'v-2', 'data.csv')
     })
+  })
+
+  it('should only fetch blob after user clicks preview icon', async () => {
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
+    mockGetVersionFiles.mockResolvedValueOnce(mockFilesPage)
+    mockGetVersionStats.mockResolvedValueOnce({
+      versionId: 'v-2',
+      versionNumber: 2,
+      fileCount: 2,
+      totalSizeBytes: 3072,
+      fileTypeDistribution: [],
+    })
+    mockFetchFileBlob.mockResolvedValueOnce(new Blob(['fake'], { type: 'image/png' }))
+
+    renderPage()
+
+    await waitForDataset()
+
+    const previewTab = screen.getByText('预览')
+    await userEvent.click(previewTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('image.png')).toBeTruthy()
+    })
+
+    // 此时还没点眼睛图标, fetchFileBlob 不应触发
+    expect(mockFetchFileBlob).not.toHaveBeenCalled()
+
+    // 点预览图标 (image.png 行) - 用 icon className 找按钮
+    const imageRow = screen.getByText('image.png').closest('tr')!
+    const previewBtn = imageRow.querySelector('button') as HTMLButtonElement
+    expect(previewBtn).toBeTruthy()
+    await userEvent.click(previewBtn)
+
+    await waitFor(() => {
+      expect(mockFetchFileBlob).toHaveBeenCalledWith('ds-1', 'v-2', 'image.png')
+    })
+  })
+
+  it('should render annotation column from list payload (no per-row fetch)', async () => {
+    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
+    mockGetVersionFiles.mockResolvedValueOnce({
+      ...mockFilesPage,
+      items: [
+        { ...mockFilesPage.items[0], isAnnotated: true },
+        { ...mockFilesPage.items[1], isAnnotated: false },
+      ],
+    })
+    mockGetVersionStats.mockResolvedValueOnce({
+      versionId: 'v-2',
+      versionNumber: 2,
+      fileCount: 2,
+      totalSizeBytes: 3072,
+      fileTypeDistribution: [],
+      annotatedCount: 1,
+    })
+
+    renderPage()
+
+    await waitForDataset()
+
+    const previewTab = screen.getByText('预览')
+    await userEvent.click(previewTab)
+
+    await waitFor(() => {
+      // 第一行已标注 -> Tag
+      const annotatedRows = screen.getAllByText('已标注')
+      expect(annotatedRows.length).toBe(1)
+    })
+
+    // 关键: 列表数据已经带 isAnnotated, 组件不应再调 getFileAnnotation
+    // (该函数已从 services 中删除, 任何调用都会 throw)
   })
 })

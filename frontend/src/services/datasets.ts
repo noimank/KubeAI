@@ -9,6 +9,16 @@ import type {
   VersionStats,
 } from '@/types/dataset'
 
+export type VersionFileSortBy = 'file_name' | 'file_size' | 'uploaded_at'
+export type VersionFileSortDir = 'asc' | 'desc'
+
+export interface GetVersionFilesParams {
+  page?: number
+  pageSize?: number
+  sortBy?: VersionFileSortBy
+  sortDir?: VersionFileSortDir
+}
+
 export async function createDataset(params: DatasetCreateParams): Promise<DatasetDetail> {
   const res = await api.post<BaseResponse<DatasetDetail>>('/datasets', params)
   return res.data.data!
@@ -73,9 +83,12 @@ export async function uploadVersionFiles(
 export async function getVersionFiles(
   datasetId: string,
   versionId: string,
-): Promise<VersionFile[]> {
-  const res = await api.get<BaseResponse<VersionFile[]>>(
+  params: GetVersionFilesParams = {},
+): Promise<PageData<VersionFile>> {
+  const { page = 1, pageSize = 50, sortBy = 'file_name', sortDir = 'asc' } = params
+  const res = await api.get<BaseResponse<PageData<VersionFile>>>(
     `/datasets/${datasetId}/versions/${versionId}/files`,
+    { params: { page, pageSize, sort_by: sortBy, sort_dir: sortDir } },
   )
   return res.data.data!
 }
@@ -128,10 +141,10 @@ export async function downloadFile(
 export async function deleteVersionFile(
   datasetId: string,
   versionId: string,
-  fileName: string,
+  fileId: string,
 ): Promise<BaseResponse<null>> {
   const res = await api.delete<BaseResponse<null>>(
-    `/datasets/${datasetId}/versions/${versionId}/files/${encodeURIComponent(fileName)}`,
+    `/datasets/${datasetId}/versions/${versionId}/files/${fileId}`,
   )
   return res.data
 }

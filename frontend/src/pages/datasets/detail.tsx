@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   Alert,
@@ -7,7 +7,6 @@ import {
   Card,
   Descriptions,
   Empty,
-  Image,
   Input,
   Modal,
   Popconfirm,
@@ -35,8 +34,9 @@ import {
   PlusOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
-import type { ColumnsType } from 'antd/es/table'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
+import type { FilterValue, SorterResult, TableCurrentDataSource } from 'antd/es/table/interface'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useRbacStore } from '@/stores/rbacStore'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { formatDate, formatFileSize } from '@/utils/format'
@@ -91,7 +91,7 @@ function getFileIcon(fileName: string): React.ReactNode {
   return FILE_TYPE_ICONS[ext] || <FileOutlined style={{ color: '#bfbfbf' }} />
 }
 
-function getContentTypeLabel(contentType: string): string {
+function getContentTypeLabel(contentType: string | null): string {
   if (!contentType) return '未知'
   const known: Record<string, string> = {
     'application/octet-stream': '二进制文件',
@@ -128,9 +128,16 @@ export default function DatasetDetailPage() {
   const [uploadingVersionId, setUploadingVersionId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedVersionId, setSelectedVersionId] = useState<string | undefined>()
-  const [imageUrls, setImageUrls] = useState<Record<string, string>>({})
-  const [previewOpen, setPreviewOpen] = useState(false)
-  const [previewImageUrl, setPreviewImageUrl] = useState<string>('')
+  const [previewFile, setPreviewFile] = useState<VersionFile | null>(null)
+
+  // 文件表格受控分页 / 排序
+  const [filePage, setFilePage] = useState(1)
+  const [filePageSize, setFilePageSize] = useState(50)
+  const [fileSortBy, setFileSortBy] = useState<'file_name' | 'file_size' | 'uploaded_at'>(
+    'file_name',
+  )
+  const [fileSortDir, setFileSortDir] = useState<'asc' | 'desc'>('asc')
+  const [sortKey, setSortKey] = useState(0) // bump to force refetch on header click
 
   const {
     data: detailRes,
@@ -140,23 +147,42 @@ export default function DatasetDetailPage() {
     queryKey: ['dataset-detail', id],
     queryFn: () => getDatasetDetail(id!),
     enabled: !!id,
+    staleTime: 30_000,
   })
 
   const dataset = detailRes
 
-  const versions: DatasetVersion[] = useMemo(() => dataset?.versions || [], [dataset])
-
+  const versions: DatasetVersion[] = dataset?.versions ?? []
   const latestVersionId = versions.length > 0 ? versions[versions.length - 1].id : undefined
   const effectiveVersionId = selectedVersionId || latestVersionId
 
+  const filesQueryKey = [
+    'version-files',
+    id,
+    effectiveVersionId,
+    filePage,
+    filePageSize,
+    fileSortBy,
+    fileSortDir,
+    sortKey,
+  ]
+
   const {
-    data: filesData,
+    data: filesPage,
     isLoading: filesLoading,
     error: filesError,
   } = useQuery({
-    queryKey: ['version-files', id, effectiveVersionId],
-    queryFn: () => getVersionFiles(id!, effectiveVersionId!),
+    queryKey: filesQueryKey,
+    queryFn: () =>
+      getVersionFiles(id!, effectiveVersionId!, {
+        page: filePage,
+        pageSize: filePageSize,
+        sortBy: fileSortBy,
+        sortDir: fileSortDir,
+      }),
     enabled: !!effectiveVersionId && activeTab === 'preview',
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
     retry: 1,
   })
 
@@ -164,64 +190,42 @@ export default function DatasetDetailPage() {
     queryKey: ['version-stats', id, effectiveVersionId],
     queryFn: () => getVersionStats(id!, effectiveVersionId!),
     enabled: !!effectiveVersionId && activeTab === 'preview',
+    staleTime: 60_000,
     retry: 1,
   })
 
-  const files: VersionFile[] = useMemo(() => filesData || [], [filesData])
+  const files: VersionFile[] = filesPage?.items ?? []
 
-  // Batch load image thumbnails via authenticated API
-  const blobUrlsRef = useRef<Set<string>>(new Set())
+  // 文件预览 Blob: 仅当 previewFile 存在才 fetch, 关闭 Modal 时清理
+  const {
+    data: previewBlob,
+    isLoading: previewLoading,
+    error: previewError,
+  } = useQuery({
+    queryKey: ['file-blob', id, effectiveVersionId, previewFile?.fileId],
+    queryFn: () => fetchFileBlob(id!, effectiveVersionId!, previewFile!.fileName),
+    enabled: !!previewFile && !!effectiveVersionId,
+    staleTime: 5 * 60_000,
+    retry: 1,
+  })
 
-  // Revoke all blob URLs on unmount
+  const previewSrc = previewBlob ? createBlobUrl(previewBlob) : null
+
   useEffect(() => {
-    const blobUrls = blobUrlsRef.current
     return () => {
-      blobUrls.forEach(revokeBlobUrl)
-      blobUrls.clear()
+      if (previewSrc) revokeBlobUrl(previewSrc)
     }
-  }, [])
+  }, [previewSrc])
 
-  useEffect(() => {
-    if (!files.length || !id || !effectiveVersionId) return
-
-    const imageFiles = files.filter((f) => isImageFile(f.fileName))
-    if (!imageFiles.length) {
-      setImageUrls({})
-      return
+  const closePreview = () => {
+    setPreviewFile(null)
+    if (previewFile) {
+      queryClient.removeQueries({
+        queryKey: ['file-blob', id, effectiveVersionId, previewFile.fileId],
+      })
     }
-
-    const cancelled = { value: false }
-
-    async function loadImages() {
-      const urls: Record<string, string> = {}
-      for (const f of imageFiles) {
-        if (cancelled.value) return
-        try {
-          const blob = await fetchFileBlob(id!, effectiveVersionId!, f.fileName)
-          if (cancelled.value) return
-          const blobUrl = createBlobUrl(blob)
-          blobUrlsRef.current.add(blobUrl)
-          urls[f.fileName] = blobUrl
-        } catch {
-          // skip failed images
-        }
-      }
-      if (!cancelled.value) {
-        setImageUrls((prev) => {
-          Object.values(prev).forEach((u) => {
-            blobUrlsRef.current.delete(u)
-            revokeBlobUrl(u)
-          })
-          return urls
-        })
-      }
-    }
-
-    loadImages()
-    return () => {
-      cancelled.value = true
-    }
-  }, [files, id, effectiveVersionId])
+    if (previewSrc) revokeBlobUrl(previewSrc)
+  }
 
   const deleteDatasetMutation = useMutation({
     mutationFn: () => deleteDataset(id!),
@@ -256,11 +260,13 @@ export default function DatasetDetailPage() {
       getMessageInstance()?.success('文件上传成功')
       setUploadingVersionId(null)
       queryClient.invalidateQueries({ queryKey: ['dataset-detail', id] })
+      queryClient.invalidateQueries({ queryKey: ['version-files', id] })
+      queryClient.invalidateQueries({ queryKey: ['version-stats', id] })
     },
   })
 
   const deleteFileMutation = useMutation({
-    mutationFn: (fileName: string) => deleteVersionFile(id!, effectiveVersionId!, fileName),
+    mutationFn: (fileId: string) => deleteVersionFile(id!, effectiveVersionId!, fileId),
     onSuccess: () => {
       getMessageInstance()?.success('文件删除成功')
       queryClient.invalidateQueries({ queryKey: ['version-files', id, effectiveVersionId] })
@@ -269,11 +275,8 @@ export default function DatasetDetailPage() {
     },
   })
 
-  const handlePreviewImage = async (fileName: string) => {
-    if (imageUrls[fileName]) {
-      setPreviewImageUrl(imageUrls[fileName])
-      setPreviewOpen(true)
-    }
+  const handlePreviewImage = (file: VersionFile) => {
+    setPreviewFile(file)
   }
 
   if (isLoading) {
@@ -371,37 +374,21 @@ export default function DatasetDetailPage() {
     {
       title: '文件名',
       dataIndex: 'fileName',
-      width: 260,
+      width: 280,
       ellipsis: true,
-      render: (val: string) => {
-        if (isImageFile(val) && imageUrls[val]) {
-          return (
-            <Space>
-              <Image
-                src={imageUrls[val]}
-                width={36}
-                height={36}
-                style={{ objectFit: 'cover', borderRadius: 4 }}
-                preview={false}
-                placeholder
-                fallback="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzYiIGhlaWdodD0iMzYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiBmaWxsPSIjZjBmMGYwIi8+PC9zdmc+"
-              />
-              <span>{val}</span>
-            </Space>
-          )
-        }
-        return (
-          <Space>
-            {getFileIcon(val)}
-            <span>{val}</span>
-          </Space>
-        )
-      },
+      sorter: true,
+      render: (val: string) => (
+        <Space>
+          {getFileIcon(val)}
+          <span>{val}</span>
+        </Space>
+      ),
     },
     {
       title: '大小',
-      dataIndex: 'sizeBytes',
-      width: 90,
+      dataIndex: 'fileSize',
+      width: 100,
+      sorter: true,
       render: (val: number) => formatFileSize(val),
     },
     {
@@ -409,21 +396,32 @@ export default function DatasetDetailPage() {
       dataIndex: 'contentType',
       width: 100,
       ellipsis: true,
-      render: (val: string) => (
-        <Tooltip title={val}>
+      render: (val: string | null) => (
+        <Tooltip title={val || ''}>
           <span>{getContentTypeLabel(val)}</span>
         </Tooltip>
       ),
     },
     {
-      title: '最后修改时间',
-      dataIndex: 'lastModified',
+      title: '标注',
+      width: 80,
+      render: (_, record) =>
+        record.isAnnotated ? (
+          <Tag color="success">已标注</Tag>
+        ) : (
+          <span style={{ color: 'var(--text-tertiary)' }}>--</span>
+        ),
+    },
+    {
+      title: '上传时间',
+      dataIndex: 'uploadedAt',
       width: 190,
-      render: (val?: string) => formatDate(val),
+      sorter: true,
+      render: (val: string) => formatDate(val),
     },
     {
       title: '操作',
-      width: 120,
+      width: 130,
       render: (_, record) => (
         <Space size={4}>
           {isImageFile(record.fileName) && (
@@ -432,7 +430,7 @@ export default function DatasetDetailPage() {
                 type="text"
                 size="small"
                 icon={<EyeOutlined />}
-                onClick={() => handlePreviewImage(record.fileName)}
+                onClick={() => handlePreviewImage(record)}
               />
             </Tooltip>
           )}
@@ -449,7 +447,7 @@ export default function DatasetDetailPage() {
             <Popconfirm
               title="确认删除该文件？"
               description="删除后文件将无法恢复。"
-              onConfirm={() => deleteFileMutation.mutate(record.fileName)}
+              onConfirm={() => deleteFileMutation.mutate(record.fileId)}
               okText="确认"
               cancelText="取消"
             >
@@ -462,6 +460,37 @@ export default function DatasetDetailPage() {
       ),
     },
   ]
+
+  const handleTableChange = (
+    pagination: TablePaginationConfig,
+    _filters: Record<string, FilterValue | null>,
+    sorter: SorterResult<VersionFile> | SorterResult<VersionFile>[],
+    _extra: TableCurrentDataSource<VersionFile>,
+  ) => {
+    void _filters
+    void _extra
+    const s = Array.isArray(sorter) ? sorter[0] : sorter
+    if (pagination.current) setFilePage(pagination.current)
+    if (pagination.pageSize) setFilePageSize(pagination.pageSize)
+    if (s && s.field && s.order) {
+      const field = s.field as string
+      const order = s.order === 'descend' ? 'desc' : 'asc'
+      if (field === 'fileName') {
+        setFileSortBy('file_name')
+        setFileSortDir(order)
+      } else if (field === 'fileSize') {
+        setFileSortBy('file_size')
+        setFileSortDir(order)
+      } else if (field === 'uploadedAt') {
+        setFileSortBy('uploaded_at')
+        setFileSortDir(order)
+      } else {
+        return
+      }
+      setSortKey((n) => n + 1)
+      setFilePage(1)
+    }
+  }
 
   return (
     <div style={{ padding: 0 }}>
@@ -600,12 +629,20 @@ export default function DatasetDetailPage() {
                   />
                 ) : (
                   <Spin spinning={filesLoading}>
-                    {files.length > 0 ? (
+                    {files.length > 0 || filesPage?.total ? (
                       <Table<VersionFile>
-                        rowKey="fileName"
+                        rowKey="fileId"
                         columns={fileColumns}
                         dataSource={files}
-                        pagination={false}
+                        onChange={handleTableChange}
+                        pagination={{
+                          current: filePage,
+                          pageSize: filePageSize,
+                          total: filesPage?.total ?? 0,
+                          showSizeChanger: true,
+                          pageSizeOptions: ['20', '50', '100'],
+                          showTotal: (total) => `共 ${total} 条`,
+                        }}
                         size="small"
                       />
                     ) : (
@@ -642,15 +679,24 @@ export default function DatasetDetailPage() {
       </Modal>
 
       <Modal
-        open={previewOpen}
+        title={previewFile?.fileName ?? ''}
+        open={!!previewFile}
         footer={null}
-        onCancel={() => setPreviewOpen(false)}
+        onCancel={closePreview}
         destroyOnHidden
         width="auto"
         style={{ maxWidth: '90vw' }}
         styles={{ body: { display: 'flex', justifyContent: 'center', padding: 0 } }}
       >
-        <img src={previewImageUrl} alt="preview" style={{ maxWidth: '100%', maxHeight: '80vh' }} />
+        {previewLoading && <Spin />}
+        {previewError && <Alert type="error" message="预览加载失败" />}
+        {previewSrc && (
+          <img
+            src={previewSrc}
+            alt={previewFile?.fileName}
+            style={{ maxWidth: '100%', maxHeight: '80vh' }}
+          />
+        )}
       </Modal>
     </div>
   )

@@ -31,10 +31,13 @@ export interface DatasetDetail extends Dataset {
 }
 
 export interface VersionFile {
+  fileId: string
   fileName: string
-  sizeBytes: number
-  contentType: string
-  lastModified?: string
+  relativePath: string
+  fileSize: number
+  contentType: string | null
+  uploadedAt: string
+  isAnnotated: boolean
 }
 
 export interface FileTypeDistribution {

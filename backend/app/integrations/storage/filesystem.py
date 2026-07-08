@@ -58,6 +58,17 @@ class FileSystemStorage:
         dataset_name: str,
         version_number: int,
     ) -> list[dict[str, Any]]:
+        """扫描版本目录, 返回 [{file_name, size_bytes, content_type}]."""
+
+        return await self._scan_disk_files(tenant_name, dataset_name, version_number)
+
+    async def _scan_disk_files(
+        self,
+        tenant_name: str,
+        dataset_name: str,
+        version_number: int,
+    ) -> list[dict[str, Any]]:
+        """私有: 扫盘. 仅 reconcile 之类离线场景使用, 不应在正常 service list 路径调用."""
         dir_path = self._version_dir(tenant_name, dataset_name, version_number)
 
         def _list() -> list[dict[str, Any]]:
@@ -72,7 +83,6 @@ class FileSystemStorage:
                             "file_name": p.name,
                             "size_bytes": stat.st_size,
                             "content_type": self._guess_content_type(p.name),
-                            "last_modified": stat.st_mtime,
                         }
                     )
             return results
@@ -123,17 +133,6 @@ class FileSystemStorage:
     ) -> None:
         dir_path = self._dataset_dir(tenant_name, dataset_name)
         await self._rmtree(dir_path)
-
-    async def copy_file(self, src: Path, dst: Path) -> None:
-        """复制单个文件。"""
-        dst.parent.mkdir(parents=True, exist_ok=True)
-
-        def _copy() -> None:
-            shutil.copy2(str(src), str(dst))
-
-        import asyncio
-
-        await asyncio.to_thread(_copy)
 
     async def get_file_content(self, file_path: Path) -> bytes:
         async with aiofiles.open(file_path, "rb") as f:

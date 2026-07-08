@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, QueryOrHeaderUser, get_db, require_permission
+from app.core.exceptions import NotFoundException
 from app.models.dataset import Dataset
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
@@ -18,8 +19,9 @@ from app.schemas.dataset import (
     DatasetVersionCreateRequest,
     DatasetVersionResponse,
     FileDownloadRequest,
-    FileUploadResponse,
-    FileVersionFileResponse,
+    SortBy,
+    SortDir,
+    VersionFileResponse,
     VersionStatsResponse,
 )
 from app.services.dataset_service import DatasetService
@@ -187,23 +189,27 @@ async def create_version(
     return BaseResponse(data=data, message="版本创建成功")
 
 
-@router.post("/{dataset_id}/versions/{version_id}/upload", response_model=BaseResponse[list[FileUploadResponse]])
+@router.post(
+    "/{dataset_id}/versions/{version_id}/upload",
+    response_model=BaseResponse[list[VersionFileResponse]],
+)
 async def upload_files(
     dataset_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "write"))],
     files: list[UploadFile] = _files_default,
-) -> BaseResponse[list[FileUploadResponse]]:
+) -> BaseResponse[list[VersionFileResponse]]:
     tenant_id = _require_tenant_id(user)
     service = DatasetService(db)
-    results = await service.upload_files_to_version(
+    rows = await service.upload_files_to_version(
         tenant_id=tenant_id,
         dataset_id=dataset_id,
         version_id=version_id,
         files=files,
+        user_id=user.id,
     )
-    data = [FileUploadResponse(**r) for r in results]
+    data = [VersionFileResponse.from_orm_file(r) for r in rows]
     return BaseResponse(data=data, message="文件上传成功")
 
 
@@ -245,19 +251,36 @@ async def delete_dataset(
 
 @router.get(
     "/{dataset_id}/versions/{version_id}/files",
-    response_model=BaseResponse[list[FileVersionFileResponse]],
+    response_model=PageResponse[VersionFileResponse],
 )
 async def list_version_files(
     dataset_id: uuid.UUID,
     version_id: uuid.UUID,
     db: DbDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
-) -> BaseResponse[list[FileVersionFileResponse]]:
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    sort_by: SortBy = "file_name",
+    sort_dir: SortDir = "asc",
+) -> PageResponse[VersionFileResponse]:
     tenant_id = _require_tenant_id(user)
     service = DatasetService(db)
-    files = await service.list_version_files(dataset_id, version_id, tenant_id)
-    data = [FileVersionFileResponse(**f) for f in files]
-    return BaseResponse(data=data, message="查询成功")
+    rows, total, annotated = await service.list_version_files(
+        dataset_id=dataset_id,
+        version_id=version_id,
+        tenant_id=tenant_id,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+    page_data = PageData(
+        items=[VersionFileResponse.from_orm_file(r, is_annotated=r.file_name in annotated) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+    return PageResponse(data=page_data, message="查询成功")
 
 
 @router.get(
@@ -318,17 +341,47 @@ async def download_file(
     return FileResponse(path=str(file_path), filename=file_name)
 
 
-@router.delete("/{dataset_id}/versions/{version_id}/files/{file_name:path}", response_model=BaseResponse[None])
-async def delete_file(
+@router.get(
+    "/{dataset_id}/versions/{version_id}/files/{file_name:path}/annotation",
+    response_model=BaseResponse[dict[str, Any]],
+)
+async def get_file_annotation(
     dataset_id: uuid.UUID,
     version_id: uuid.UUID,
     file_name: str,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("datasets", "read"))],
+) -> BaseResponse[dict[str, Any]]:
+    """Read the per-file annotation JSON for a dataset file (404 if absent)."""
+    import json as _json
+    from pathlib import Path
+
+    tenant_id = _require_tenant_id(user)
+    service = DatasetService(db)
+    annotation_filename = Path(file_name).name + ".json"
+    annotation_path = await service.get_file_path(
+        dataset_id, version_id, f"annotations/{annotation_filename}", tenant_id
+    )
+    if not annotation_path.exists():
+        raise NotFoundException("该文件暂无标注")
+    content = await service.storage.get_file_content(annotation_path)
+    return BaseResponse(data=_json.loads(content.decode("utf-8")), message="获取成功")
+
+
+@router.delete(
+    "/{dataset_id}/versions/{version_id}/files/{file_id}",
+    response_model=BaseResponse[None],
+)
+async def delete_file(
+    dataset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    file_id: uuid.UUID,
     db: DbDep,
     user: Annotated[CurrentUser, Depends(require_permission("datasets", "write"))],
 ) -> BaseResponse[None]:
     tenant_id = _require_tenant_id(user)
     service = DatasetService(db)
-    await service.delete_file(dataset_id, version_id, file_name, tenant_id)
+    await service.delete_file(dataset_id, version_id, file_id, tenant_id)
     return BaseResponse(message="文件删除成功")
 
 

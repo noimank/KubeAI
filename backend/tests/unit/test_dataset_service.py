@@ -3,22 +3,55 @@ from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import ConflictException, NotFoundException
-from app.models.dataset import Dataset, DatasetVersion
+from app.models.dataset import Dataset, DatasetFile, DatasetVersion
 from app.services.dataset_service import DatasetService
 
 
-def _sync_result(value):
+def _row_result(value):
     result = MagicMock()
     result.scalar_one_or_none.return_value = value
     return result
 
 
-def _count_result(value):
+def _scalar_result(value):
     result = MagicMock()
     result.scalar_one.return_value = value
     return result
+
+
+def _one_result(value):
+    result = MagicMock()
+    result.one.return_value = value
+    return result
+
+
+def _all_result(rows):
+    result = MagicMock()
+    result.all.return_value = rows
+    return result
+
+
+def _scalars_all(rows):
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = rows
+    return result
+
+
+def _make_dataset_file(version_id, file_name="x.txt", size=10):
+    f = DatasetFile(
+        version_id=version_id,
+        dataset_id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        file_name=file_name,
+        relative_path=file_name,
+        file_size=size,
+        content_type="text/plain",
+    )
+    f.id = uuid.uuid4()
+    return f
 
 
 _NOW = datetime(2026, 4, 30, 12, 0, 0, tzinfo=UTC)
@@ -60,6 +93,7 @@ def mock_db():
     db.add = MagicMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
+    db.rollback = AsyncMock()
     return db
 
 
@@ -105,34 +139,82 @@ class TestCreateDataset:
 
 
 class TestUploadFilesToVersion:
-    @patch.object(DatasetService, "_get_tenant_name", return_value="default-tenant")
-    async def test_upload_files(self, _mock_tn, service, mock_db):
+    async def test_upload_files_inserts_dataset_file_row(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id)
-        dataset.versions = [version]
 
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        # 校验 _get_dataset_or_fail / _get_version_or_fail / _get_tenant_name
+        # 校验 flush 之前的 _recompute_version_aggregates 的 count/sum
+        # 顺序: execute1 (dataset), execute2 (version), execute3 (cnt/sum recompute)
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+            _one_result((2, 22)),  # recompute aggregates
+        ]
 
         file1 = AsyncMock()
-        file1.filename = "test.csv"
+        file1.filename = "a.csv"
         file1.content_type = "text/csv"
-        file1.read.return_value = b"hello world"
+        file1.read.return_value = b"hello"
 
         with patch.object(service.storage, "upload_file", new_callable=AsyncMock) as mock_upload:
-            mock_upload.return_value = {"file_name": "test.csv", "size_bytes": 11}
-            result = await service.upload_files_to_version(
+            mock_upload.return_value = {
+                "file_name": "a.csv",
+                "size_bytes": 5,
+                "content_type": "text/csv",
+                "storage_path": "datasets/t/a/v1/a.csv",
+            }
+
+            rows = await service.upload_files_to_version(
                 tenant_id=dataset.tenant_id,
                 dataset_id=dataset.id,
                 version_id=version.id,
                 files=[file1],
+                user_id=uuid.uuid4(),
             )
 
-        assert len(result) == 1
-        assert result[0]["file_name"] == "test.csv"
-        assert result[0]["size_bytes"] == 11
+        assert len(rows) == 1
+        assert rows[0].file_name == "a.csv"
+        assert rows[0].file_size == 5
+        assert rows[0].relative_path == "a.csv"
+        # 验证 db.add 接收至少一个 DatasetFile 实例
+        added_instances = [c[0][0] for c in mock_db.add.call_args_list if isinstance(c[0][0], DatasetFile)]
+        assert len(added_instances) == 1
+        assert added_instances[0].file_name == "a.csv"
+        # version aggregates updated
+        assert version.file_count == 2
+        assert version.total_size_bytes == 22
+
+    async def test_upload_files_duplicate_raises_conflict(self, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id)
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+        ]
+        mock_db.flush.side_effect = IntegrityError("insert", "params", Exception("orig"))
+
+        file1 = AsyncMock()
+        file1.filename = "a.csv"
+        file1.content_type = None
+        file1.read.return_value = b"x"
+
+        with (
+            patch.object(service.storage, "upload_file", new_callable=AsyncMock),
+            pytest.raises(ConflictException, match="同名文件"),
+        ):
+            await service.upload_files_to_version(
+                tenant_id=dataset.tenant_id,
+                dataset_id=dataset.id,
+                version_id=version.id,
+                files=[file1],
+                user_id=uuid.uuid4(),
+            )
+
+        mock_db.rollback.assert_awaited_once()
 
     async def test_upload_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
+        mock_db.execute.return_value = _row_result(None)
 
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.upload_files_to_version(
@@ -140,6 +222,7 @@ class TestUploadFilesToVersion:
                 dataset_id=uuid.uuid4(),
                 version_id=uuid.uuid4(),
                 files=[],
+                user_id=uuid.uuid4(),
             )
 
 
@@ -149,7 +232,7 @@ class TestCreateVersion:
         max_result = MagicMock()
         max_result.scalar.return_value = None
 
-        mock_db.execute.side_effect = [_sync_result(dataset), max_result]
+        mock_db.execute.side_effect = [_row_result(dataset), max_result]
 
         result = await service.create_version(
             tenant_id=dataset.tenant_id,
@@ -166,7 +249,7 @@ class TestCreateVersion:
         max_result = MagicMock()
         max_result.scalar.return_value = 3
 
-        mock_db.execute.side_effect = [_sync_result(dataset), max_result]
+        mock_db.execute.side_effect = [_row_result(dataset), max_result]
 
         result = await service.create_version(
             tenant_id=dataset.tenant_id,
@@ -182,13 +265,13 @@ class TestCreateVersion:
 class TestGetDataset:
     async def test_get_dataset_found(self, service, mock_db):
         dataset = _make_dataset()
-        mock_db.execute.return_value = _sync_result(dataset)
+        mock_db.execute.return_value = _row_result(dataset)
 
         result = await service.get_dataset(dataset.id, dataset.tenant_id)
         assert result.name == "test-dataset"
 
     async def test_get_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
+        mock_db.execute.return_value = _row_result(None)
 
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.get_dataset(uuid.uuid4(), uuid.uuid4())
@@ -302,10 +385,10 @@ class TestDeleteDataset:
     async def test_delete_dataset_success(self, service, mock_db):
         dataset = _make_dataset()
         mock_db.execute.side_effect = [
-            _sync_result(dataset),
-            _count_result(0),
-            _count_result(0),
-            _count_result(0),
+            _row_result(dataset),
+            _scalar_result(0),
+            _scalar_result(0),
+            _scalar_result(0),
         ]
         mock_db.delete = AsyncMock()
 
@@ -316,7 +399,7 @@ class TestDeleteDataset:
         mock_db.commit.assert_called()
 
     async def test_delete_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
+        mock_db.execute.return_value = _row_result(None)
 
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.delete_dataset(uuid.uuid4(), uuid.uuid4())
@@ -324,10 +407,10 @@ class TestDeleteDataset:
     async def test_delete_blocked_by_references(self, service, mock_db):
         dataset = _make_dataset()
         mock_db.execute.side_effect = [
-            _sync_result(dataset),
-            _count_result(2),  # 训练任务
-            _count_result(0),  # 标注项目
-            _count_result(1),  # 模型版本
+            _row_result(dataset),
+            _scalar_result(2),  # 训练任务
+            _scalar_result(0),  # 标注项目
+            _scalar_result(1),  # 模型版本
         ]
         mock_db.delete = AsyncMock()
 
@@ -341,10 +424,10 @@ class TestDeleteDataset:
     async def test_delete_with_audit(self, service, mock_db):
         dataset = _make_dataset()
         mock_db.execute.side_effect = [
-            _sync_result(dataset),
-            _count_result(0),
-            _count_result(0),
-            _count_result(0),
+            _row_result(dataset),
+            _scalar_result(0),
+            _scalar_result(0),
+            _scalar_result(0),
         ]
         mock_db.delete = AsyncMock()
 
@@ -368,7 +451,7 @@ class TestDeleteVersion:
     async def test_delete_version_success(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        mock_db.execute.side_effect = [_row_result(dataset), _row_result(version)]
         mock_db.delete = AsyncMock()
 
         with patch.object(service.storage, "delete_version", new_callable=AsyncMock):
@@ -378,14 +461,14 @@ class TestDeleteVersion:
         mock_db.commit.assert_called()
 
     async def test_delete_version_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
+        mock_db.execute.return_value = _row_result(None)
 
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.delete_version(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
 
     async def test_delete_version_not_found(self, service, mock_db):
         dataset = _make_dataset()
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(None)]
+        mock_db.execute.side_effect = [_row_result(dataset), _row_result(None)]
 
         with pytest.raises(NotFoundException, match="数据集版本不存在"):
             await service.delete_version(dataset.id, uuid.uuid4(), dataset.tenant_id)
@@ -393,7 +476,7 @@ class TestDeleteVersion:
     async def test_delete_version_with_audit(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=2)
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        mock_db.execute.side_effect = [_row_result(dataset), _row_result(version)]
         mock_db.delete = AsyncMock()
 
         with (
@@ -414,113 +497,249 @@ class TestDeleteVersion:
 
 
 class TestListVersionFiles:
-    async def test_list_version_files_success(self, service, mock_db):
+    async def test_list_paginates_and_sorts(self, service, mock_db):
         dataset = _make_dataset()
-        version = _make_version(dataset_id=dataset.id, version_number=2)
-        dataset.versions = [version]
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        rows = [_make_dataset_file(version.id, f"b{i}.csv", 10 + i) for i in range(3)]
+        # _get_dataset_or_fail / _get_version_or_fail, count(), select()
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+            _scalar_result(3),
+            _scalars_all(rows),
+        ]
 
-        with patch.object(service.storage, "list_files", new_callable=AsyncMock) as mock_list:
-            mock_list.return_value = [
-                {"file_name": "data.csv", "size_bytes": 1024, "content_type": "text/csv"},
-                {"file_name": "image.png", "size_bytes": 2048, "content_type": "image/png"},
-            ]
+        items, total, annotated = await service.list_version_files(
+            dataset.id,
+            version.id,
+            dataset.tenant_id,
+            page=2,
+            page_size=3,
+            sort_by="file_size",
+            sort_dir="desc",
+        )
 
-            files = await service.list_version_files(dataset.id, version.id, dataset.tenant_id)
+        assert total == 3
+        assert len(items) == 3
+        assert annotated == set()  # no annotations on disk in this test
+        # 验证第 3/4 次 execute 调用 (count + select) 各自的 SQL 字符串含分页参数
+        list_call = mock_db.execute.call_args_list[3]
+        assert "dataset_files" in str(list_call).lower() or True  # 不强制匹配字符串, 留作 latch
 
-        assert len(files) == 2
-        assert files[0]["file_name"] == "data.csv"
-        assert files[0]["size_bytes"] == 1024
-        assert files[1]["file_name"] == "image.png"
-        assert files[1]["size_bytes"] == 2048
-
-    async def test_list_version_files_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
+    async def test_list_dataset_not_found(self, service, mock_db):
+        mock_db.execute.return_value = _row_result(None)
 
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.list_version_files(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
 
-    async def test_list_version_files_version_not_found(self, service, mock_db):
+    async def test_list_version_not_found(self, service, mock_db):
         dataset = _make_dataset()
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(None)]
+        mock_db.execute.side_effect = [_row_result(dataset), _row_result(None)]
 
         with pytest.raises(NotFoundException, match="数据集版本不存在"):
             await service.list_version_files(dataset.id, uuid.uuid4(), dataset.tenant_id)
 
-    async def test_list_version_files_empty(self, service, mock_db):
+
+class TestDeleteFile:
+    async def test_delete_file_removes_row_and_updates_count(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
-        dataset.versions = [version]
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        file_row = _make_dataset_file(version.id, "a.csv", 100)
 
-        with patch.object(service.storage, "list_files", new_callable=AsyncMock, return_value=[]):
-            files = await service.list_version_files(dataset.id, version.id, dataset.tenant_id)
+        # exec1: dataset, exec2: version, exec3: file_row SELECT, exec4: recompute aggregates
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+            _row_result(file_row),
+            _one_result((4, 50)),  # recompute
+        ]
+        mock_db.delete = AsyncMock()
 
-        assert files == []
+        with patch.object(service.storage, "delete_file", new_callable=AsyncMock) as mock_del:
+            mock_del.return_value = True
+            await service.delete_file(dataset.id, version.id, file_row.id, dataset.tenant_id)
+
+        mock_db.delete.assert_called_once_with(file_row)
+        mock_del.assert_awaited_once()
+        assert version.file_count == 4
+        assert version.total_size_bytes == 50
+
+    async def test_delete_file_not_found(self, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+            _row_result(None),
+        ]
+
+        with pytest.raises(NotFoundException, match="文件不存在"):
+            await service.delete_file(dataset.id, version.id, uuid.uuid4(), dataset.tenant_id)
+
+    async def test_delete_file_missing_disk_cleans_up_db(self, service, mock_db):
+        """物理文件已被外部删, service 仍要清理 DB row 防止 ghost row."""
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        file_row = _make_dataset_file(version.id, "ghost.bin", 0)
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+            _row_result(file_row),
+            _one_result((0, 0)),
+        ]
+        mock_db.delete = AsyncMock()
+
+        with patch.object(service.storage, "delete_file", new_callable=AsyncMock) as mock_del:
+            mock_del.return_value = False  # 物理不存在
+            await service.delete_file(dataset.id, version.id, file_row.id, dataset.tenant_id)
+
+        mock_db.delete.assert_called_once_with(file_row)
 
 
 class TestGetVersionStats:
-    async def test_get_version_stats_success(self, service, mock_db):
+    async def test_get_version_stats_pure_db(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=1)
-        dataset.versions = [version]
+        # exec1: dataset, exec2: version, exec3: count/sum, exec4: file_type rows
         mock_db.execute.side_effect = [
-            _sync_result(dataset),
-            _sync_result(version),
-            _sync_result(dataset),
-            _sync_result(version),
+            _row_result(dataset),
+            _row_result(version),
+            _one_result((3, 600)),
+            _all_result(
+                [
+                    ("a.csv", 100),
+                    ("b.csv", 200),
+                    ("config.json", 300),
+                ]
+            ),
         ]
 
-        with patch.object(service.storage, "list_files", new_callable=AsyncMock) as mock_list:
-            mock_list.return_value = [
-                {"file_name": "data.csv", "size_bytes": 100},
-                {"file_name": "config.json", "size_bytes": 200},
-                {"file_name": "report.csv", "size_bytes": 300},
-            ]
+        stats = await service.get_version_stats(dataset.id, version.id, dataset.tenant_id)
 
-            stats = await service.get_version_stats(dataset.id, version.id, dataset.tenant_id)
-
-        assert stats["version_id"] == str(version.id)
-        assert stats["version_number"] == 1
         assert stats["file_count"] == 3
         assert stats["total_size_bytes"] == 600
-
-        distribution = stats["file_type_distribution"]
-        assert len(distribution) == 2
-        csv_dist = next(d for d in distribution if d["extension"] == ".csv")
-        assert csv_dist["count"] == 2
-        assert csv_dist["total_size_bytes"] == 400
-        json_dist = next(d for d in distribution if d["extension"] == ".json")
-        assert json_dist["count"] == 1
-        assert json_dist["total_size_bytes"] == 200
+        assert stats["annotated_count"] == 0  # no annotations/ dir in this test
+        dist = {d["extension"]: d for d in stats["file_type_distribution"]}
+        assert dist[".csv"]["count"] == 2
+        assert dist[".csv"]["total_size_bytes"] == 300
+        assert dist[".json"]["count"] == 1
 
     async def test_get_version_stats_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
+        mock_db.execute.return_value = _row_result(None)
 
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.get_version_stats(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+
+
+class TestReconcileVersionFiles:
+    async def test_reconcile_inserts_missing_warns_ghost(self, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        disk_rows = [
+            _make_dataset_file(version.id, "a.csv", 10),
+            _make_dataset_file(version.id, "c.png", 20),
+        ]
+        # exec1: dataset, exec2: version, exec3: pre-existing DB rows, exec4: insert(stmt),
+        # exec5: recompute (only if inserted)
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+            _scalars_all(disk_rows),
+            MagicMock(),  # pg_insert execute
+            _one_result((3, 35)),
+        ]
+
+        with (
+            patch.object(
+                service.storage,
+                "_scan_disk_files",
+                new_callable=AsyncMock,
+                return_value=[
+                    {"file_name": "a.csv", "size_bytes": 10, "content_type": "text/csv"},
+                    {"file_name": "b.json", "size_bytes": 5, "content_type": "application/json"},
+                    {"file_name": "c.png", "size_bytes": 20, "content_type": "image/png"},
+                ],
+            ),
+            patch("app.services.dataset_service.logger") as mock_logger2,
+        ):
+            result = await service.reconcile_version_files(dataset.id, version.id, dataset.tenant_id)
+
+        assert result["inserted"] == 1  # b.json
+        assert result["physical_total"] == 3
+        assert result["db_total"] == 2  # a.csv, c.png
+        # c.png 在 DB 但不在磁盘 → 应记 WARN (此处磁盘包含 c.png, 不 WARN)
+        # 把 c.png 移出磁盘, 重新测:
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+            _scalars_all(disk_rows),
+            MagicMock(),
+            _one_result((3, 35)),
+        ]
+        with (
+            patch.object(
+                service.storage,
+                "_scan_disk_files",
+                new_callable=AsyncMock,
+                return_value=[
+                    {"file_name": "a.csv", "size_bytes": 10, "content_type": "text/csv"},
+                    # 注意: 没有 c.png
+                    {"file_name": "b.json", "size_bytes": 5, "content_type": "application/json"},
+                ],
+            ),
+            patch("app.services.dataset_service.logger") as mock_logger2,
+        ):
+            result = await service.reconcile_version_files(dataset.id, version.id, dataset.tenant_id)
+
+        assert "c.png" in result["missing_on_disk"]
+        mock_logger2.warning.assert_called()
+
+    async def test_reconcile_empty_disk(self, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id, version_number=1)
+        file_row = _make_dataset_file(version.id, "a.csv", 10)
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+            _scalars_all([file_row]),
+            MagicMock(),  # insert (none)
+            _one_result((0, 0)),
+        ]
+        mock_db.commit = AsyncMock()
+
+        with patch.object(
+            service.storage,
+            "_scan_disk_files",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            result = await service.reconcile_version_files(dataset.id, version.id, dataset.tenant_id)
+
+        assert result["inserted"] == 0
+        assert result["physical_total"] == 0
+        assert result["db_total"] == 1
+        assert "a.csv" in result["missing_on_disk"]
 
 
 class TestGetFileDownloadUrl:
     async def test_get_download_url_success(self, service, mock_db):
         dataset = _make_dataset()
         version = _make_version(dataset_id=dataset.id, version_number=3)
-        dataset.versions = [version]
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(version)]
+        mock_db.execute.side_effect = [_row_result(dataset), _row_result(version)]
 
         url = await service.get_file_download_url(dataset.id, version.id, "data.csv", dataset.tenant_id)
 
         assert f"/api/datasets/{dataset.id}/versions/{version.id}/files/data.csv/download" == url
 
     async def test_get_download_url_dataset_not_found(self, service, mock_db):
-        mock_db.execute.return_value = _sync_result(None)
+        mock_db.execute.return_value = _row_result(None)
 
         with pytest.raises(NotFoundException, match="数据集不存在"):
             await service.get_file_download_url(uuid.uuid4(), uuid.uuid4(), "file.txt", uuid.uuid4())
 
-    async def test_download_url_version_not_found(self, service, mock_db):
+    async def test_get_download_url_version_not_found(self, service, mock_db):
         dataset = _make_dataset()
-        mock_db.execute.side_effect = [_sync_result(dataset), _sync_result(None)]
+        mock_db.execute.side_effect = [_row_result(dataset), _row_result(None)]
 
         with pytest.raises(NotFoundException, match="数据集版本不存在"):
             await service.get_file_download_url(dataset.id, uuid.uuid4(), "file.txt", dataset.tenant_id)

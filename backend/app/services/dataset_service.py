@@ -3,16 +3,18 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import ConflictException, NotFoundException
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.storage.filesystem import FileSystemStorage
 from app.models.annotation import AnnotationProject
-from app.models.dataset import Dataset, DatasetVersion
+from app.models.dataset import Dataset, DatasetFile, DatasetVersion
 from app.models.enums import AuditAction, ResourceType
 from app.models.registered_model import ModelVersion
 from app.models.tenant import Tenant
@@ -25,6 +27,9 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+SortByName = Literal["file_name", "file_size", "uploaded_at"]
+SortDirName = Literal["asc", "desc"]
 
 
 class DatasetService:
@@ -78,14 +83,17 @@ class DatasetService:
         dataset_id: uuid.UUID,
         version_id: uuid.UUID,
         files: list[Any],
-    ) -> list[dict[str, Any]]:
+        user_id: uuid.UUID,
+    ) -> list[DatasetFile]:
+        """写入文件并落 DB 行. 同名重传整体拒绝 (整批不写).
+
+        返回写入的 DatasetFile ORM 行 (前端无需再 list 即可拿到 file_id).
+        """
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
 
-        results: list[dict[str, Any]] = []
-        total_size = 0
-
+        rows: list[DatasetFile] = []
         for file in files:
             content = await file.read()
             info = await self.storage.upload_file(
@@ -96,16 +104,31 @@ class DatasetService:
                 content=content,
                 content_type=file.content_type or "application/octet-stream",
             )
-            results.append(info)
-            total_size += info["size_bytes"]
+            row = DatasetFile(
+                version_id=version.id,
+                dataset_id=dataset.id,
+                tenant_id=tenant_id,
+                file_name=info["file_name"],
+                relative_path=info["file_name"],
+                file_size=info["size_bytes"],
+                content_type=info["content_type"],
+                uploaded_by=user_id,
+            )
+            self.db.add(row)
+            rows.append(row)
 
-        version.file_count += len(files)
-        version.total_size_bytes += total_size
-        await self.db.flush()
-        await self.db.refresh(version)
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException("文件上传失败, 存在同名文件, 请先删除再上传") from exc
+
+        await self._recompute_version_aggregates(version)
         await self.db.commit()
-
-        return results
+        await self.db.refresh(version)
+        for r in rows:
+            await self.db.refresh(r)
+        return rows
 
     async def create_version(
         self,
@@ -223,25 +246,36 @@ class DatasetService:
         self,
         dataset_id: uuid.UUID,
         version_id: uuid.UUID,
-        file_name: str,
+        file_id: uuid.UUID,
         tenant_id: uuid.UUID,
     ) -> None:
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
 
-        file_path = self.storage.get_file_path(tenant_name, dataset.name, version.version_number, file_name)
-        if not file_path.exists():
+        file_row = await self.db.execute(
+            select(DatasetFile).where(
+                DatasetFile.id == file_id,
+                DatasetFile.version_id == version_id,
+                DatasetFile.tenant_id == tenant_id,
+            )
+        )
+        row = file_row.scalar_one_or_none()
+        if not row:
             raise NotFoundException("文件不存在")
 
-        file_size = file_path.stat().st_size
-        deleted = await self.storage.delete_file(tenant_name, dataset.name, version.version_number, file_name)
+        deleted = await self.storage.delete_file(
+            tenant_name=tenant_name,
+            dataset_name=dataset.name,
+            version_number=version.version_number,
+            filename=row.file_name,
+        )
         if not deleted:
-            raise NotFoundException("文件删除失败")
+            # 物理文件已不存在, 但 DB 行仍在. 直接清理 DB 行 (reconcile 时不会再恢复).
+            logger.warning("dataset_files row %s points to missing disk file, cleaning up", row.id)
 
-        version.file_count = max(0, version.file_count - 1)
-        version.total_size_bytes = max(0, version.total_size_bytes - file_size)
-        await self.db.flush()
+        await self.db.delete(row)
+        await self._recompute_version_aggregates(version)
         await self.db.commit()
 
     async def list_version_files(
@@ -249,11 +283,61 @@ class DatasetService:
         dataset_id: uuid.UUID,
         version_id: uuid.UUID,
         tenant_id: uuid.UUID,
-    ) -> list[dict[str, Any]]:
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        sort_by: SortByName = "file_name",
+        sort_dir: SortDirName = "asc",
+    ) -> tuple[list[DatasetFile], int, set[str]]:
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
+
+        sort_col = {
+            "file_name": DatasetFile.file_name,
+            "file_size": DatasetFile.file_size,
+            "uploaded_at": DatasetFile.uploaded_at,
+        }[sort_by]
+        order = sort_col.asc() if sort_dir == "asc" else sort_col.desc()
+
+        # Annotations live under <version_dir>/annotations/<file>.json; filesystem is the
+        # source of truth (AnnotationTask.result was removed for that reason).
         tenant_name = await self._get_tenant_name(tenant_id)
-        return await self.storage.list_files(tenant_name, dataset.name, version.version_number)
+        annotated = await self._scan_annotated_file_names(tenant_name, dataset.name, version.version_number)
+
+        total = (
+            await self.db.execute(
+                select(func.count()).select_from(DatasetFile).where(DatasetFile.version_id == version_id)
+            )
+        ).scalar_one()
+
+        rows = (
+            (
+                await self.db.execute(
+                    select(DatasetFile)
+                    .where(DatasetFile.version_id == version_id)
+                    .order_by(order)
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        return list(rows), total, annotated
+
+    async def _scan_annotated_file_names(self, tenant_name: str, dataset_name: str, version_number: int) -> set[str]:
+        """Return basenames of files that have an annotations/<file>.json sibling."""
+        import asyncio
+
+        ann_dir = self.storage._version_dir(tenant_name, dataset_name, version_number) / "annotations"
+
+        def _scan() -> set[str]:
+            if not ann_dir.exists():
+                return set()
+            return {p.stem for p in ann_dir.iterdir() if p.is_file() and p.suffix == ".json"}
+
+        return await asyncio.to_thread(_scan)
 
     async def get_version_stats(
         self,
@@ -261,16 +345,103 @@ class DatasetService:
         version_id: uuid.UUID,
         tenant_id: uuid.UUID,
     ) -> dict[str, Any]:
-        await self._get_dataset_or_fail(dataset_id, tenant_id)
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
-        files = await self.list_version_files(dataset_id, version_id, tenant_id)
-        distribution = self._compute_file_type_distribution(files)
+
+        cnt, total = (
+            await self.db.execute(
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(DatasetFile.file_size), 0),
+                ).where(DatasetFile.version_id == version_id)
+            )
+        ).one()
+
+        dist_rows = (
+            await self.db.execute(
+                select(
+                    DatasetFile.file_name,
+                    DatasetFile.file_size,
+                ).where(DatasetFile.version_id == version_id)
+            )
+        ).all()
+
+        tenant_name = await self._get_tenant_name(tenant_id)
+        annotated = await self._scan_annotated_file_names(tenant_name, dataset.name, version.version_number)
+
         return {
             "version_id": str(version.id),
             "version_number": version.version_number,
-            "file_count": len(files),
-            "total_size_bytes": sum(f["size_bytes"] for f in files),
-            "file_type_distribution": distribution,
+            "file_count": int(cnt or 0),
+            "total_size_bytes": int(total or 0),
+            "file_type_distribution": self._compute_file_type_distribution(
+                [{"file_name": name, "size_bytes": sz} for name, sz in dist_rows]
+            ),
+            "annotated_count": len(annotated & {name for name, _ in dist_rows}),
+        }
+
+    async def reconcile_version_files(
+        self,
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """扫盘 vs DB 对比. INSERT 缺失, 不 DELETE 物理行 (只 WARN).
+
+        仅供 ad-hoc 排查; 不挂 endpoint 不调度.
+        """
+        dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
+        version = await self._get_version_or_fail(version_id, dataset_id)
+        tenant_name = await self._get_tenant_name(tenant_id)
+
+        on_disk = await self.storage._scan_disk_files(
+            tenant_name=tenant_name,
+            dataset_name=dataset.name,
+            version_number=version.version_number,
+        )
+        disk_by_name = {f["file_name"]: f for f in on_disk}
+
+        rows = (await self.db.execute(select(DatasetFile).where(DatasetFile.version_id == version_id))).scalars().all()
+        db_names = {r.file_name for r in rows}
+
+        missing_in_db: list[dict[str, Any]] = []
+        for name, info in disk_by_name.items():
+            if name in db_names:
+                continue
+            missing_in_db.append(info)
+            stmt = (
+                pg_insert(DatasetFile)
+                .values(
+                    version_id=version_id,
+                    dataset_id=dataset.id,
+                    tenant_id=tenant_id,
+                    file_name=name,
+                    relative_path=name,
+                    file_size=info["size_bytes"],
+                    content_type=info["content_type"],
+                )
+                .on_conflict_do_nothing(index_elements=["version_id", "relative_path"])
+            )
+            await self.db.execute(stmt)
+
+        missing_on_disk = [r.file_name for r in rows if r.file_name not in disk_by_name]
+        for name in missing_on_disk:
+            logger.warning(
+                "dataset_files row %s for %s references missing disk file %s",
+                next(r.id for r in rows if r.file_name == name),
+                version_id,
+                name,
+            )
+
+        if missing_in_db:
+            await self._recompute_version_aggregates(version)
+            await self.db.commit()
+
+        return {
+            "inserted": len(missing_in_db),
+            "missing_on_disk": missing_on_disk,
+            "physical_total": len(on_disk),
+            "db_total": len(rows),
         }
 
     async def get_file_download_url(
@@ -280,7 +451,6 @@ class DatasetService:
         file_name: str,
         tenant_id: uuid.UUID,
     ) -> str:
-        # Validate access
         await self._get_dataset_or_fail(dataset_id, tenant_id)
         await self._get_version_or_fail(version_id, dataset_id)
         return f"/api/datasets/{dataset_id}/versions/{version_id}/files/{file_name}/download"
@@ -307,6 +477,18 @@ class DatasetService:
             ext_counter[ext]["count"] += 1
             ext_counter[ext]["total_size_bytes"] += f["size_bytes"]
         return sorted(ext_counter.values(), key=lambda x: x["count"], reverse=True)
+
+    async def _recompute_version_aggregates(self, version: DatasetVersion) -> None:
+        cnt, total = (
+            await self.db.execute(
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(DatasetFile.file_size), 0),
+                ).where(DatasetFile.version_id == version.id)
+            )
+        ).one()
+        version.file_count = int(cnt or 0)
+        version.total_size_bytes = int(total or 0)
 
     async def _check_dataset_references(self, dataset_id: uuid.UUID) -> None:
         """删除前校验数据集是否仍被其他资源引用, 给出具体引用来源而非内部服务器错误."""

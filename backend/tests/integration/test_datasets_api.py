@@ -293,7 +293,8 @@ async def test_list_version_files_empty(mock_enforce, client, admin_headers):
     assert response.status_code == 200
     body = response.json()
     assert body["success"] is True
-    assert len(body["data"]) == 0
+    assert body["data"]["items"] == []
+    assert body["data"]["total"] == 0
 
 
 @pytest.mark.asyncio(loop_scope="session")

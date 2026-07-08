@@ -2,7 +2,7 @@ from app.models.algorithm import Algorithm
 from app.models.annotation import AnnotationProject
 from app.models.annotation_task import AnnotationTask
 from app.models.audit_log import AuditLog
-from app.models.dataset import Dataset, DatasetVersion
+from app.models.dataset import Dataset, DatasetFile, DatasetVersion
 from app.models.dev_environment import DevEnvironment
 from app.models.dev_environment_image import DevEnvironmentImage
 from app.models.experiment import Experiment
@@ -21,6 +21,7 @@ __all__ = [
     "AnnotationTask",
     "AuditLog",
     "Dataset",
+    "DatasetFile",
     "DatasetVersion",
     "DevEnvironment",
     "DevEnvironmentImage",
