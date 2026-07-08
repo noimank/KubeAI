@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
-import { Button, Empty, Input, Popconfirm, Skeleton, Space, Table, Tag } from 'antd'
+import { Button, Empty, Input, Popconfirm, Skeleton, Space, Table, Tag, Tooltip } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getModels, deleteModel } from '@/services/models'
@@ -10,6 +10,7 @@ import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
 import type { RegisteredModel } from '@/types/model'
 import UploadModal from './upload-modal'
+import DeployModal from './deploy-modal'
 
 function formatHyperparamsShort(params?: Record<string, string> | null): string {
   if (!params || Object.keys(params).length === 0) return '-'
@@ -31,6 +32,9 @@ export default function ModelsPage() {
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const canWrite = hasPermission('models:write')
   const canManage = hasPermission('models:manage')
+  const canDeploy = hasPermission('inference_services:write')
+
+  const [deployModelId, setDeployModelId] = useState<string | null>(null)
 
   const { data, isPending, isFetching } = useQuery({
     queryKey: ['models', page, pageSize, keyword],
@@ -96,30 +100,50 @@ export default function ModelsPage() {
     },
     {
       title: '操作',
-      width: canManage ? 160 : 80,
-      render: (_: unknown, record: RegisteredModel) => (
-        <Space>
-          <Link to={`/models/${record.id}`}>
-            <Button type="link" size="small">
-              查看详情
-            </Button>
-          </Link>
-          {canManage && (
-            <Popconfirm
-              title={`确定删除模型 "${record.name}" 吗？`}
-              description="该模型的所有版本和文件将被永久删除"
-              onConfirm={() => handleDelete(record.id)}
-              okText="确认删除"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-            >
-              <Button type="link" size="small" danger loading={deleteMutation.isPending}>
-                删除
+      width: canManage ? 240 : 160,
+      render: (_: unknown, record: RegisteredModel) => {
+        const deployBtn = (
+          <Button
+            type="link"
+            size="small"
+            icon={<ThunderboltOutlined />}
+            disabled={!canDeploy}
+            onClick={() => setDeployModelId(record.id)}
+          >
+            部署
+          </Button>
+        )
+        return (
+          <Space>
+            <Link to={`/models/${record.id}`}>
+              <Button type="link" size="small">
+                查看详情
               </Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+            </Link>
+            {canDeploy ? (
+              deployBtn
+            ) : (
+              <Tooltip title="需要 inference_services:write 权限">
+                <span>{deployBtn}</span>
+              </Tooltip>
+            )}
+            {canManage && (
+              <Popconfirm
+                title={`确定删除模型 "${record.name}" 吗？`}
+                description="该模型的所有版本和文件将被永久删除"
+                onConfirm={() => handleDelete(record.id)}
+                okText="确认删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+              >
+                <Button type="link" size="small" danger loading={deleteMutation.isPending}>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
+        )
+      },
     },
   ]
 
@@ -179,6 +203,15 @@ export default function ModelsPage() {
           setUploadModalOpen(false)
           queryClient.invalidateQueries({ queryKey: ['models'] })
           navigate(`/models/${version.registeredModelId}`)
+        }}
+      />
+      <DeployModal
+        open={!!deployModelId}
+        modelId={deployModelId ?? ''}
+        onClose={() => setDeployModelId(null)}
+        onSuccess={(result) => {
+          setDeployModelId(null)
+          navigate(`/inference/${result.id}`, { state: { authToken: result.authToken } })
         }}
       />
     </div>

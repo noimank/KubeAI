@@ -12,7 +12,7 @@ import {
   Tag,
   Tooltip,
 } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -27,6 +27,7 @@ import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
 import VersionDetailDrawer from './version-detail'
 import UploadModal from './upload-modal'
+import DeployModal from './deploy-modal'
 import type { ModelVersion, ModelVersionFile } from '@/types/model'
 
 const VERSION_STATUS_MAP: Record<string, { color: string; text: string }> = {
@@ -63,11 +64,13 @@ export default function ModelDetailPage() {
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const canWrite = hasPermission('models:write')
   const canManage = hasPermission('models:manage')
+  const canDeploy = hasPermission('inference_services:write')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [activeVersion, setActiveVersion] = useState<ModelVersion | null>(null)
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState<ModelVersion | null>(null)
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
+  const [deployModalOpen, setDeployModalOpen] = useState(false)
 
   const { data: model, isLoading } = useQuery({
     queryKey: ['model', id],
@@ -265,6 +268,35 @@ export default function ModelDetailPage() {
               </Button>
             </Popconfirm>
           )}
+          {(() => {
+            const latestAvailable = [...(model.versions ?? [])]
+              .reverse()
+              .find((v) => v.status === 'available')
+            const deployBtn = (
+              <Button
+                icon={<ThunderboltOutlined />}
+                disabled={!canDeploy}
+                onClick={() => setDeployModalOpen(true)}
+              >
+                部署为推理服务
+              </Button>
+            )
+            if (!canDeploy) {
+              return (
+                <Tooltip title="需要 inference_services:write 权限">
+                  <span>{deployBtn}</span>
+                </Tooltip>
+              )
+            }
+            if (!latestAvailable) {
+              return (
+                <Tooltip title="模型当前无可用版本，弹窗内将提示无法部署">
+                  <span>{deployBtn}</span>
+                </Tooltip>
+              )
+            }
+            return deployBtn
+          })()}
           {canWrite ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
               上传新版本
@@ -323,6 +355,23 @@ export default function ModelDetailPage() {
           setDetailDrawerOpen(true)
         }}
       />
+      {(() => {
+        const latestAvailable = [...(model.versions ?? [])]
+          .reverse()
+          .find((v) => v.status === 'available')
+        return (
+          <DeployModal
+            open={deployModalOpen}
+            modelId={id!}
+            defaultVersionId={latestAvailable?.id}
+            onClose={() => setDeployModalOpen(false)}
+            onSuccess={(result) => {
+              setDeployModalOpen(false)
+              navigate(`/inference/${result.id}`, { state: { authToken: result.authToken } })
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }
