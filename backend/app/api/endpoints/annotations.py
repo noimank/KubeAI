@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -19,7 +20,6 @@ from app.schemas.annotation import (
     AnnotationTaskSummaryResponse,
     AnnotationTaskUnassignRequest,
     AnnotationTemplateResponse,
-    CallbackRetryResponse,
     SyncTasksResponse,
 )
 from app.schemas.base import BaseResponse, PageData, PageResponse
@@ -77,11 +77,6 @@ def _build_project_response(project: Any) -> AnnotationProjectResponse:
         dataset_name=dataset.name if dataset else None,
         dataset_version_number=version.version_number if version else None,
         progress_percent=progress,
-        callback_status=project.callback_status,
-        callback_error=project.callback_error,
-        callback_progress=project.callback_progress,
-        callback_version_id=project.callback_version_id,
-        callback_at=project.callback_at,
     )
 
 
@@ -180,7 +175,15 @@ async def delete_project(
     return BaseResponse(message="标注项目删除成功")
 
 
-def _build_task_response(task: Any, project: Any | None = None, assignee: Any | None = None) -> AnnotationTaskResponse:
+def _build_task_response(
+    task: Any,
+    project: Any | None = None,
+    assignee: Any | None = None,
+    result: list[dict[str, Any]] | None = None,
+    submitted_at: datetime | None = None,
+    submitted_by: str | None = None,
+    annotation_payload: dict[str, Any] | None = None,
+) -> AnnotationTaskResponse:
     return AnnotationTaskResponse(
         id=task.id,
         project_id=task.project_id,
@@ -191,8 +194,47 @@ def _build_task_response(task: Any, project: Any | None = None, assignee: Any | 
         status=task.status,
         project_name=project.name if project else None,
         annotation_type=project.annotation_type if project else None,
+        result=result,
+        submitted_at=submitted_at,
+        submitted_by=uuid.UUID(submitted_by) if submitted_by else None,
+        annotation_payload=annotation_payload,
         created_at=task.created_at,
         updated_at=task.updated_at,
+    )
+
+
+async def _build_task_response_with_payload(service: AnnotationService, task: Any) -> AnnotationTaskResponse:
+    """Build the response using the verbatim annotation file payload.
+
+    The payload is passed through as ``annotation_payload`` so the client can
+    display the on-disk JSON 1:1; ``result``/``submitted_at``/``submitted_by``
+    are echoed back as first-class fields for convenience but no extra
+    derivation is performed.
+    """
+    payload = await service.load_persisted_annotation(task)
+    if payload is None:
+        return _build_task_response(task, task.project, task.assignee)
+    submitted_by_raw = payload.get("submitted_by")
+    submitted_by = str(submitted_by_raw) if submitted_by_raw is not None else None
+    raw_result = payload.get("result")
+    result_list = raw_result if isinstance(raw_result, list) else None
+
+    submitted_at: datetime | None = None
+    raw_submitted_at = payload.get("submitted_at")
+    if isinstance(raw_submitted_at, str):
+        try:
+            submitted_at = datetime.fromisoformat(raw_submitted_at)
+        except ValueError:
+            submitted_at = None
+
+    return _build_task_response(
+        task,
+        task.project,
+        task.assignee,
+        result=result_list,
+        submitted_at=submitted_at,
+        submitted_by=submitted_by,
+        annotation_payload=payload,
     )
 
 
@@ -217,7 +259,7 @@ async def list_project_tasks(
         status=status,
         assigned_to=assigned_to,
     )
-    task_list = [_build_task_response(t, t.project, t.assignee) for t in tasks]
+    task_list = [await _build_task_response_with_payload(service, t) for t in tasks]
     page_data = PageData(items=task_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
 
@@ -298,7 +340,7 @@ async def list_my_tasks(
         page=page,
         page_size=page_size,
     )
-    task_list = [_build_task_response(t, t.project, t.assignee) for t in tasks]
+    task_list = [await _build_task_response_with_payload(service, t) for t in tasks]
     page_data = PageData(items=task_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
 
@@ -330,7 +372,10 @@ async def start_annotation(
         tenant_id=tenant_id,
         user_id=user.id,
     )
-    return BaseResponse(data=_build_task_response(task, task.project, task.assignee), message="开始标注")
+    return BaseResponse(
+        data=await _build_task_response_with_payload(service, task),
+        message="开始标注",
+    )
 
 
 @router.post("/tasks/{task_id}/submit", response_model=BaseResponse[AnnotationTaskResponse])
@@ -351,7 +396,10 @@ async def submit_annotation(
         result=req.result,
         audit_context=_audit_ctx(request, user),
     )
-    return BaseResponse(data=_build_task_response(task, task.project, task.assignee), message="标注提交成功")
+    return BaseResponse(
+        data=await _build_task_response_with_payload(service, task),
+        message="标注提交成功",
+    )
 
 
 @router.get("/projects/{project_id}/next-task", response_model=BaseResponse[AnnotationTaskResponse | None])
@@ -370,7 +418,10 @@ async def get_next_annotation_task(
     )
     if task is None:
         return BaseResponse(data=None, message="没有更多待标注任务")
-    return BaseResponse(data=_build_task_response(task, task.project, task.assignee), message="获取成功")
+    return BaseResponse(
+        data=await _build_task_response_with_payload(service, task),
+        message="获取成功",
+    )
 
 
 @router.get("/tasks/{task_id}", response_model=BaseResponse[AnnotationTaskResponse])
@@ -386,26 +437,31 @@ async def get_annotation_task_detail(
         task_id=task_id,
         tenant_id=tenant_id,
     )
-    return BaseResponse(data=_build_task_response(task, task.project, task.assignee), message="获取成功")
+    return BaseResponse(
+        data=await _build_task_response_with_payload(service, task),
+        message="获取成功",
+    )
 
 
-@router.post("/projects/{project_id}/retry-callback", response_model=BaseResponse[CallbackRetryResponse])
-async def retry_callback(
-    project_id: uuid.UUID,
+@router.post("/tasks/{task_id}/cancel", response_model=BaseResponse[AnnotationTaskResponse])
+async def cancel_annotation(
+    task_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
-    user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
-) -> BaseResponse[CallbackRetryResponse]:
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("annotations", "write"))],
+) -> BaseResponse[AnnotationTaskResponse]:
     tenant_id = _require_tenant_id(user)
     service = AnnotationService(db, ls)
-    project = await service.retry_callback(
-        project_id=project_id,
+    task = await service.cancel_annotation(
+        task_id=task_id,
         tenant_id=tenant_id,
         user_id=user.id,
+        audit_context=_audit_ctx(request, user),
     )
     return BaseResponse(
-        data=CallbackRetryResponse(callback_status=project.callback_status),
-        message="回流重试已触发",
+        data=await _build_task_response_with_payload(service, task),
+        message="标注已取消",
     )
 
 

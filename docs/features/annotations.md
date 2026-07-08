@@ -102,7 +102,15 @@ sequenceDiagram
 
 ## 标注写回
 
-标注完成后，系统自动将标注结果写回到源数据集版本，更新数据集的标注状态。
+标注员每次 submit 时，结果立即落盘：
+
+- 原始 payload 写入 `AnnotationTask.result`（JSONB）。
+- 包装后的 JSON（包含 task_id、annotation_project_id、annotation_type、submitted_at、submitted_by）写入源数据集版本的 `annotations/<源文件名>.json`，例如 `datasets/<tenant>/<dataset>/v1/annotations/a.jpg.json`。
+- Label Studio 同步收到一份镜像。
+
+数据集预览页对每个有标注的文件显示"已标注 / 查看"徽标。训练 pipeline 通过 hostPath 挂载直接读取 `annotations/<file>.json`，不需要额外的 API。
+
+已完成标注的任务在"我的任务"或详情页中可点击"取消标注"回到 in_progress，删除 `annotations/<file>.json`，清空 `task.result`，已完成的 `project.completed_tasks` 同步递减。
 
 ## 相关 API
 
@@ -114,6 +122,7 @@ sequenceDiagram
 | `/api/annotations/{id}` | DELETE | 删除项目 |
 | `/api/annotations/{id}/tasks` | GET | 列出标注任务 |
 | `/api/annotations/{id}/tasks/{tid}/assign` | POST | 分配任务 |
-| `/api/annotations/{id}/tasks/{tid}/submit` | POST | 提交标注结果 |
+| `/api/annotations/{id}/tasks/{tid}/submit` | POST | 提交标注结果（立即落盘到 `annotations/<file>.json`） |
+| `/api/annotations/{id}/tasks/{tid}/cancel` | POST | 取消标注，回到 in_progress |
+| `/api/datasets/{id}/versions/{vid}/files/{name}/annotation` | GET | 读单文件标注 JSON |
 | `/api/annotations/{id}/export` | POST | 导出标注数据 |
-| `/api/annotations/callback` | POST | Label Studio Webhook 回调 |

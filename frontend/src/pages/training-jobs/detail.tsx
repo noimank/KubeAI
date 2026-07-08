@@ -379,7 +379,7 @@ export default function TrainingJobDetailPage() {
       <Card
         title={
           <Space>
-            初始超参数
+            超参数
             <Tooltip title="这些参数作为环境变量原样注入容器。训练脚本可通过 os.environ 读取，通常用于 mlflow.log_params()。实际记录的超参数请查看实验追踪。">
               <Tag style={{ cursor: 'help' }}>环境变量</Tag>
             </Tooltip>

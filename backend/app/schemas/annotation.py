@@ -31,20 +31,11 @@ class AnnotationProjectResponse(BaseModel):
     dataset_name: str | None = None
     dataset_version_number: int | None = None
     progress_percent: float = 0.0
-    callback_status: str | None = None
-    callback_error: str | None = None
-    callback_progress: int | None = None
-    callback_version_id: uuid.UUID | None = None
-    callback_at: datetime | None = None
 
 
 class AnnotationProjectDetailResponse(AnnotationProjectResponse):
     label_config: str
     labeling_template_description: str | None = None
-
-
-class CallbackRetryResponse(BaseModel):
-    callback_status: str
 
 
 class SyncTasksResponse(BaseModel):
@@ -68,6 +59,10 @@ class AnnotationTaskResponse(BaseModel):
     status: str
     project_name: str | None = None
     annotation_type: str | None = None
+    result: list[dict[str, Any]] | None = None
+    submitted_at: datetime | None = None
+    submitted_by: uuid.UUID | None = None
+    annotation_payload: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 

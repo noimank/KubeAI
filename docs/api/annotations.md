@@ -49,14 +49,14 @@
 }
 ```
 
-## POST /api/annotations/{id}/tasks/{task_id}/submit
+## POST /api/annotations/{id}/tasks/{task_id}/cancel
 
-提交标注结果。
+取消一个已完成的标注。任务回到 in_progress，删除 `annotations/<file>.json`，清空 `task.result`。
 
 ## POST /api/annotations/{id}/export
 
 导出标注数据。
 
-## POST /api/annotations/callback
+## GET /api/datasets/{dataset_id}/versions/{version_id}/files/{file_name}/annotation
 
-Label Studio Webhook 回调端点（内部使用）。
+读单文件标注 JSON（不存在返回 404）。

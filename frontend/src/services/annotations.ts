@@ -133,11 +133,9 @@ export async function getAnnotationTaskDetail(taskId: string): Promise<Annotatio
   return res.data.data!
 }
 
-export async function retryCallback(projectId: string): Promise<BaseResponse<null>> {
-  const res = await api.post<BaseResponse<null>>(
-    `/annotations/projects/${projectId}/retry-callback`,
-  )
-  return res.data
+export async function cancelAnnotation(taskId: string): Promise<AnnotationTask> {
+  const res = await api.post<BaseResponse<AnnotationTask>>(`/annotations/tasks/${taskId}/cancel`)
+  return res.data.data!
 }
 
 export async function syncAnnotationProjectTasks(

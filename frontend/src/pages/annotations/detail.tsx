@@ -1,48 +1,36 @@
 import { useState, useCallback } from 'react'
 import {
-  Alert,
   Breadcrumb,
   Button,
-  Card,
   Descriptions,
-  Image,
   Modal,
   Popconfirm,
-  Progress,
   Select,
   Space,
   Table,
   Tag,
   Typography,
 } from 'antd'
-import { RedoOutlined, SyncOutlined } from '@ant-design/icons'
+import { SyncOutlined } from '@ant-design/icons'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { formatDate } from '@/utils/format'
 import { useRbacStore } from '@/stores/rbacStore'
+import { useAuthStore } from '@/stores/authStore'
 import { getAnnotationProjectDetail } from '@/services/annotations'
 import {
+  cancelAnnotation,
   getAnnotationProjectTasks,
   getAnnotationTaskDetail,
-  retryCallback,
   syncAnnotationProjectTasks,
   unassignAnnotationTasks,
 } from '@/services/annotations'
 import ProjectInfo from './components/ProjectInfo'
 import TaskAssignModal from './components/TaskAssignModal'
-import type { AnnotationTask, AnnotationCallbackStatus } from '@/types/annotation'
+import AnnotationPreview from './components/AnnotationPreview'
+import type { AnnotationTask } from '@/types/annotation'
 import type { ColumnsType } from 'antd/es/table'
-import { appendAuthToken } from '@/utils/constants'
-
-const { Text } = Typography
-
-const CALLBACK_STATUS_MAP: Record<AnnotationCallbackStatus, { label: string; color: string }> = {
-  pending: { label: '等待回流', color: 'processing' },
-  running: { label: '回流中', color: 'processing' },
-  succeeded: { label: '回流成功', color: 'success' },
-  failed: { label: '回流失败', color: 'error' },
-}
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   unassigned: { label: '未分配', color: 'default' },
@@ -59,6 +47,7 @@ function extractTaskFileName(task: AnnotationTask): string {
 export default function AnnotationDetailPage() {
   const { id } = useParams<{ id: string }>()
   const hasPermission = useRbacStore((s) => s.hasPermission)
+  const currentUserId = useAuthStore((s) => s.user?.id)
   const canManage = hasPermission('annotations:manage')
 
   const [page, setPage] = useState(1)
@@ -79,14 +68,6 @@ export default function AnnotationDetailPage() {
   })
 
   const queryClient = useQueryClient()
-
-  const retryMutation = useMutation({
-    mutationFn: () => retryCallback(id!),
-    onSuccess: () => {
-      getMessageInstance()?.success('回流重试已触发')
-      queryClient.invalidateQueries({ queryKey: ['annotationProject', id] })
-    },
-  })
 
   const syncMutation = useMutation({
     mutationFn: () => syncAnnotationProjectTasks(id!),
@@ -139,6 +120,22 @@ export default function AnnotationDetailPage() {
     },
   })
 
+  const cancelMutation = useMutation({
+    mutationFn: (taskId: string) => cancelAnnotation(taskId),
+    onSuccess: () => {
+      getMessageInstance()?.success('标注已取消')
+      queryClient.invalidateQueries({ queryKey: ['annotationProject', id] })
+      queryClient.invalidateQueries({ queryKey: ['annotationProjectTasks', id] })
+      queryClient.invalidateQueries({ queryKey: ['myAnnotationTasks'] })
+      queryClient.invalidateQueries({ queryKey: ['myAnnotationTaskSummary'] })
+      if (project) {
+        queryClient.invalidateQueries({
+          queryKey: ['version-files', project.datasetId, project.datasetVersionId],
+        })
+      }
+    },
+  })
+
   const unassignedCount = tasksData?.items?.filter((t) => t.status === 'unassigned').length ?? 0
   const selectedTasks = tasksData?.items?.filter((task) => selectedRowKeys.includes(task.id)) ?? []
   const selectedAssignedTaskIds = selectedTasks
@@ -185,20 +182,21 @@ export default function AnnotationDetailPage() {
     },
     {
       title: '操作',
-      width: 180,
+      width: 200,
       render: (_: unknown, record) => {
-        if (!canManage) return null
+        const canCancel =
+          record.status === 'completed' && record.assignedTo === currentUserId
         return (
           <Space size="small">
             <Button type="link" size="small" onClick={() => handlePreview(record)}>
               预览
             </Button>
-            {(record.status === 'unassigned' || record.status === 'assigned') && (
+            {canManage && (record.status === 'unassigned' || record.status === 'assigned') && (
               <Button type="link" size="small" onClick={() => handleReassign(record)}>
                 {record.assignedTo ? '改派' : '分配'}
               </Button>
             )}
-            {record.status === 'assigned' && (
+            {canManage && record.status === 'assigned' && (
               <Popconfirm
                 title="确认取消分配该任务？"
                 okText="确认"
@@ -207,6 +205,24 @@ export default function AnnotationDetailPage() {
               >
                 <Button type="link" size="small" danger loading={unassignMutation.isPending}>
                   取消
+                </Button>
+              </Popconfirm>
+            )}
+            {canCancel && (
+              <Popconfirm
+                title="确认取消标注？"
+                description="将删除 annotations/<file>.json 并把任务回到「进行中」"
+                okText="确认"
+                cancelText="取消"
+                onConfirm={() => cancelMutation.mutate(record.id)}
+              >
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  loading={cancelMutation.isPending && cancelMutation.variables === record.id}
+                >
+                  取消标注
                 </Button>
               </Popconfirm>
             )}
@@ -227,18 +243,6 @@ export default function AnnotationDetailPage() {
       </div>
 
       <ProjectInfo project={project} />
-
-      {project.callbackStatus && project.callbackStatus !== 'pending' && (
-        <CallbackStatusCard
-          status={project.callbackStatus}
-          error={project.callbackError}
-          progress={project.callbackProgress}
-          versionId={project.callbackVersionId}
-          datasetId={project.datasetId}
-          onRetry={() => retryMutation.mutate()}
-          retrying={retryMutation.isPending}
-        />
-      )}
 
       <div
         style={{
@@ -361,19 +365,10 @@ function TaskPreviewModal({
   loading: boolean
   onClose: () => void
 }) {
-  const data = task?.data ?? {}
   const fileName = task ? extractTaskFileName(task) : '-'
   const statusInfo = task
     ? STATUS_MAP[task.status] || { label: task.status, color: 'default' }
     : null
-  const imageEntry = Object.entries(data).find(
-    ([key, value]) =>
-      !key.startsWith('kubeai') && typeof value === 'string' && /^(\/|https?:\/\/)/.test(value),
-  )
-  const textEntry = Object.entries(data).find(
-    ([key, value]) =>
-      !key.startsWith('kubeai') && typeof value === 'string' && !/^(\/|https?:\/\/)/.test(value),
-  )
 
   return (
     <Modal
@@ -381,8 +376,9 @@ function TaskPreviewModal({
       open={open}
       onCancel={onClose}
       footer={null}
-      width={820}
+      width={880}
       loading={loading}
+      destroyOnHidden
     >
       {task && (
         <Descriptions size="small" bordered column={2} style={{ marginBottom: 16 }}>
@@ -397,83 +393,19 @@ function TaskPreviewModal({
             {task.labelStudioTaskId}
           </Descriptions.Item>
           <Descriptions.Item label="项目">{task.projectName || '-'}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{formatDate(task.createdAt)}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{formatDate(task.updatedAt)}</Descriptions.Item>
+          <Descriptions.Item label="提交时间">
+            {task.submittedAt ? formatDate(task.submittedAt) : '-'}
+          </Descriptions.Item>
         </Descriptions>
       )}
 
-      {imageEntry && (
-        <div style={{ marginBottom: 16, textAlign: 'center' }}>
-          <Image src={appendAuthToken(imageEntry[1] as string)} style={{ maxHeight: 420 }} />
-        </div>
-      )}
-      {textEntry && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
-            {textEntry[1] as string}
-          </Typography.Paragraph>
-        </Card>
+      {task && (
+        <AnnotationPreview
+          task={task}
+          result={task.result ?? null}
+          annotationPayload={task.annotationPayload ?? null}
+        />
       )}
     </Modal>
-  )
-}
-
-function CallbackStatusCard({
-  status,
-  error,
-  progress,
-  versionId,
-  datasetId,
-  onRetry,
-  retrying,
-}: {
-  status: AnnotationCallbackStatus
-  error?: string
-  progress?: number
-  versionId?: string
-  datasetId: string
-  onRetry: () => void
-  retrying: boolean
-}) {
-  const info = CALLBACK_STATUS_MAP[status] || { label: status, color: 'default' }
-
-  return (
-    <Card style={{ marginBottom: 16 }} size="small">
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <Space>
-          <Text strong>回流状态：</Text>
-          <Tag color={info.color}>{info.label}</Tag>
-          {status === 'running' && progress != null && (
-            <Progress percent={progress} size="small" style={{ width: 200 }} />
-          )}
-        </Space>
-        {status === 'succeeded' && versionId && (
-          <Space>
-            <Text type="secondary">回流版本：</Text>
-            <Link to={`/datasets/${datasetId}`}>查看数据集</Link>
-          </Space>
-        )}
-        {status === 'failed' && error && (
-          <Alert
-            type="error"
-            message="回流失败"
-            description={error}
-            showIcon
-            style={{ marginTop: 4 }}
-          />
-        )}
-        {status === 'failed' && (
-          <Button
-            icon={<RedoOutlined />}
-            onClick={onRetry}
-            loading={retrying}
-            size="small"
-            style={{ marginTop: 4 }}
-          >
-            重试回流
-          </Button>
-        )}
-      </Space>
-    </Card>
   )
 }

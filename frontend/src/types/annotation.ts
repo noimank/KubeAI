@@ -2,8 +2,6 @@ export type AnnotationType = string
 
 export type AnnotationProjectStatus = 'draft' | 'active' | 'completed' | 'archived'
 
-export type AnnotationCallbackStatus = 'pending' | 'running' | 'succeeded' | 'failed'
-
 export interface AnnotationProject {
   id: string
   name: string
@@ -22,11 +20,6 @@ export interface AnnotationProject {
   datasetName?: string
   datasetVersionNumber?: number
   progressPercent: number
-  callbackStatus?: AnnotationCallbackStatus
-  callbackError?: string
-  callbackProgress?: number
-  callbackVersionId?: string
-  callbackAt?: string
 }
 
 export interface AnnotationProjectDetail extends AnnotationProject {
@@ -59,8 +52,12 @@ export interface AnnotationTask {
   assignedTo?: string
   assignedToName?: string
   status: AnnotationTaskStatus
+  result?: AnnotationResultItem[] | null
   projectName?: string
   annotationType?: AnnotationType
+  submittedAt?: string | null
+  submittedBy?: string | null
+  annotationPayload?: Record<string, unknown> | null
   createdAt: string
   updatedAt: string
 }

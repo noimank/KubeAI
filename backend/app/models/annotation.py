@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime  # noqa: TC003
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TenantMixin, TimestampMixin
@@ -31,15 +30,8 @@ class AnnotationProject(Base, TimestampMixin, TenantMixin):
     status: Mapped[str] = mapped_column(String(20), default="active")
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
 
-    callback_status: Mapped[str] = mapped_column(String(20), default="pending")
-    callback_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    callback_progress: Mapped[int] = mapped_column(Integer, default=0)
-    callback_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("dataset_versions.id"), nullable=True)
-    callback_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
     dataset: Mapped[Dataset] = relationship(lazy="selectin")
     dataset_version: Mapped[DatasetVersion] = relationship(lazy="selectin", foreign_keys=[dataset_version_id])
-    callback_version: Mapped[DatasetVersion | None] = relationship(lazy="selectin", foreign_keys=[callback_version_id])
     tasks: Mapped[list[AnnotationTask]] = relationship(back_populates="project", lazy="noload")
 
     def __init__(self, **kwargs: object) -> None:

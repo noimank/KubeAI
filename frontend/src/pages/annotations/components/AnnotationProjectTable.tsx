@@ -1,7 +1,7 @@
 import { Button, Empty, Popconfirm, Progress, Space, Table, Tag } from 'antd'
 import { Link } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
-import type { AnnotationProject, AnnotationCallbackStatus } from '@/types/annotation'
+import type { AnnotationProject } from '@/types/annotation'
 import { formatDate } from '@/utils/format'
 
 const ANNOTATION_TYPE_MAP: Record<string, { label: string; color: string }> = {
@@ -21,13 +21,6 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
   active: { label: '活跃', color: 'processing' },
   completed: { label: '已完成', color: 'success' },
   archived: { label: '已归档', color: 'warning' },
-}
-
-const CALLBACK_STATUS_MAP: Record<AnnotationCallbackStatus, { label: string; color: string }> = {
-  pending: { label: '等待', color: 'processing' },
-  running: { label: '回流中', color: 'processing' },
-  succeeded: { label: '已回流', color: 'success' },
-  failed: { label: '失败', color: 'error' },
 }
 
 interface AnnotationProjectTableProps {
@@ -101,19 +94,6 @@ export default function AnnotationProjectTable({
       width: 100,
       render: (status: string) => {
         const info = STATUS_MAP[status] || { label: status, color: 'default' }
-        return <Tag color={info.color}>{info.label}</Tag>
-      },
-    },
-    {
-      title: '回流',
-      dataIndex: 'callbackStatus',
-      width: 100,
-      render: (callbackStatus: AnnotationCallbackStatus | undefined) => {
-        if (!callbackStatus || callbackStatus === 'pending') return '-'
-        const info = CALLBACK_STATUS_MAP[callbackStatus] || {
-          label: callbackStatus,
-          color: 'default',
-        }
         return <Tag color={info.color}>{info.label}</Tag>
       },
     },

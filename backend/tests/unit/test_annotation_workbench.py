@@ -1,5 +1,7 @@
+import json
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -60,10 +62,18 @@ def _make_project(
     return project
 
 
-def _make_task(project_id=None, tenant_id=None, assigned_to=None, status="assigned", ls_task_id=100):
+def _make_task(
+    project_id=None,
+    tenant_id=None,
+    assigned_to=None,
+    status="assigned",
+    ls_task_id=100,
+    kubeai_object_name="datasets/default-tenant/test-dataset/v1/img.jpg",
+):
     task = AnnotationTask(
         project_id=project_id or uuid.uuid4(),
         label_studio_task_id=ls_task_id,
+        kubeai_object_name=kubeai_object_name,
         data={"image": "/data/kubeai/datasets/test-tenant/test-dataset/v1/img.jpg"},
         assigned_to=assigned_to,
         status=status,
@@ -95,8 +105,6 @@ def mock_db():
 def mock_ls():
     ls = MagicMock()
     ls.create_annotation = AsyncMock(return_value={"id": 1})
-    ls.list_annotations = AsyncMock(return_value=[])
-    ls.delete_annotation = AsyncMock()
     return ls
 
 
@@ -104,6 +112,10 @@ def mock_ls():
 def service(mock_db, mock_ls):
     svc = AnnotationService(mock_db, mock_ls)
     svc._get_tenant_name = AsyncMock(return_value="default-tenant")
+    svc.storage = MagicMock()
+    svc.storage.write_file = AsyncMock()
+    svc.storage.delete_file = AsyncMock(return_value=True)
+    svc.storage.get_file_path = MagicMock(side_effect=lambda tn, dn, vn, fn: Path(f"/fake/{tn}/{dn}/v{vn}/{fn}"))
     return svc
 
 
@@ -185,16 +197,47 @@ class TestSubmitAnnotation:
 
         mock_db.execute = AsyncMock(return_value=_sync_result(task))
 
+        result_payload = [{"from_name": "choice", "to_name": "image", "type": "choices", "value": {"choices": ["cat"]}}]
         result = await service.submit_annotation(
             task.id,
             tenant_id,
             user_id,
-            result=[{"from_name": "choice", "to_name": "image", "type": "choices", "value": {"choices": ["cat"]}}],
+            result=result_payload,
         )
 
         assert result.status == "completed"
         assert project.completed_tasks == 1
         mock_ls.create_annotation.assert_called_once()
+
+        # Per-file JSON write assertions
+        assert service.storage.write_file.await_count == 1
+        path_arg, bytes_arg = service.storage.write_file.call_args.args
+        path_str = str(path_arg).replace("\\", "/")
+        assert path_str.endswith("annotations/img.jpg.json")
+        written = json.loads(bytes_arg.decode("utf-8"))
+        assert written["task_id"] == str(task.id)
+        assert written["annotation_project_id"] == str(project.id)
+        assert written["result"] == result_payload
+
+    async def test_submit_annotation_completes_project(self, service, mock_db):
+        """Last task submission flips project.status to 'completed'."""
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        project = _make_project(tenant_id=tenant_id)
+        project.completed_tasks = 9  # total_tasks=10 in _make_project
+        task = _make_task(
+            project_id=project.id,
+            tenant_id=tenant_id,
+            assigned_to=user_id,
+            status="in_progress",
+        )
+        task.project = project
+        mock_db.execute = AsyncMock(return_value=_sync_result(task))
+
+        await service.submit_annotation(task.id, tenant_id, user_id, result=[])
+
+        assert project.completed_tasks == 10
+        assert project.status == "completed"
 
     async def test_submit_annotation_not_in_progress(self, service, mock_db):
         tenant_id = uuid.uuid4()
@@ -212,6 +255,100 @@ class TestSubmitAnnotation:
 
         with pytest.raises(ForbiddenException, match="进行中"):
             await service.submit_annotation(task.id, tenant_id, user_id, result=[])
+
+
+class TestCancelAnnotation:
+    async def test_cancel_by_non_assignee_forbidden(self, service, mock_db):
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        project = _make_project(tenant_id=tenant_id)
+        task = _make_task(
+            project_id=project.id,
+            tenant_id=tenant_id,
+            assigned_to=uuid.uuid4(),  # not user_id
+            status="completed",
+        )
+        task.project = project
+        mock_db.execute = AsyncMock(return_value=_sync_result(task))
+
+        with pytest.raises(ForbiddenException, match="分配给自己"):
+            await service.cancel_annotation(task.id, tenant_id, user_id)
+
+    async def test_cancel_in_progress_forbidden(self, service, mock_db):
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        project = _make_project(tenant_id=tenant_id)
+        task = _make_task(
+            project_id=project.id,
+            tenant_id=tenant_id,
+            assigned_to=user_id,
+            status="in_progress",
+        )
+        task.project = project
+        mock_db.execute = AsyncMock(return_value=_sync_result(task))
+
+        with pytest.raises(ForbiddenException, match="已完成"):
+            await service.cancel_annotation(task.id, tenant_id, user_id)
+
+    async def test_cancel_completed_succeeds_and_decrements_counter(self, service, mock_db):
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        project = _make_project(tenant_id=tenant_id)
+        project.completed_tasks = 5
+        task = _make_task(
+            project_id=project.id,
+            tenant_id=tenant_id,
+            assigned_to=user_id,
+            status="completed",
+        )
+        task.project = project
+        mock_db.execute = AsyncMock(return_value=_sync_result(task))
+
+        result = await service.cancel_annotation(task.id, tenant_id, user_id)
+
+        assert result.status == "in_progress"
+        assert project.completed_tasks == 4
+        service.storage.delete_file.assert_called_once()
+        delete_path = service.storage.delete_file.call_args.args[3]
+        assert delete_path == "annotations/img.jpg.json"
+
+    async def test_cancel_last_completed_un_completes_project(self, service, mock_db):
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        project = _make_project(tenant_id=tenant_id)
+        project.status = "completed"
+        project.completed_tasks = 10
+        task = _make_task(
+            project_id=project.id,
+            tenant_id=tenant_id,
+            assigned_to=user_id,
+            status="completed",
+        )
+        task.project = project
+        mock_db.execute = AsyncMock(return_value=_sync_result(task))
+
+        await service.cancel_annotation(task.id, tenant_id, user_id)
+
+        assert project.status == "active"
+        assert project.completed_tasks == 9
+
+    async def test_cancel_missing_file_is_idempotent(self, service, mock_db):
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        project = _make_project(tenant_id=tenant_id)
+        task = _make_task(
+            project_id=project.id,
+            tenant_id=tenant_id,
+            assigned_to=user_id,
+            status="completed",
+        )
+        task.project = project
+        mock_db.execute = AsyncMock(return_value=_sync_result(task))
+        service.storage.delete_file = AsyncMock(return_value=False)
+
+        # Should not raise even though file doesn't exist
+        result = await service.cancel_annotation(task.id, tenant_id, user_id)
+        assert result.status == "in_progress"
 
 
 class TestGetNextTask:

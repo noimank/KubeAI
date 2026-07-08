@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import case, func, select
@@ -40,6 +41,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _LS_BATCH_SIZE = 250
+
+
+def _annotation_filename(kubeai_object_name: str) -> str:
+    """kubeai_object_name 形如 'datasets/<tenant>/<dataset>/v<n>/a.jpg' -> 'a.jpg.json'."""
+    return Path(kubeai_object_name).name + ".json"
+
+
+async def _load_annotation_result(
+    storage: FileSystemStorage, tenant_name: str, dataset_name: str, version_number: int, kubeai_object_name: str
+) -> dict[str, Any] | None:
+    """Load the full annotation payload written to annotations/<file>.json verbatim.
+
+    Returns None when the task has not yet been submitted or the file is missing/unreadable.
+    The returned dict matches the on-disk JSON exactly — no field is rewritten.
+    """
+    annotation_filename = _annotation_filename(kubeai_object_name)
+    annotation_path = storage.get_file_path(
+        tenant_name, dataset_name, version_number, f"annotations/{annotation_filename}"
+    )
+    if not annotation_path.exists():
+        return None
+    try:
+        raw = await storage.get_file_content(annotation_path)
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("annotation_result_load_failed path=%s: %s", annotation_path, e)
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
 
 
 class AnnotationService:
@@ -679,13 +710,43 @@ class AnnotationService:
         if task.status != "in_progress":
             raise ForbiddenException("任务状态不是「进行中」，无法提交")  # noqa: RUF001
 
+        # 1. Mirror to Label Studio.
         if task.label_studio_task_id:
             await self.ls_client.create_annotation(task.label_studio_task_id, result)
 
-        task.status = "completed"
-
+        # 2. Write per-file JSON into the source dataset version's annotations/ dir.
         project = task.project
+        dataset = project.dataset
+        version = project.dataset_version
+        if not (dataset and version and task.kubeai_object_name):
+            raise NotFoundException("标注任务缺少关联数据集版本")
+        tenant_name = await self._get_tenant_name(tenant_id)
+
+        annotation_filename = _annotation_filename(task.kubeai_object_name)
+        annotation_path = self.storage.get_file_path(
+            tenant_name,
+            dataset.name,
+            version.version_number,
+            f"annotations/{annotation_filename}",
+        )
+        payload = {
+            "task_id": str(task_id),
+            "annotation_project_id": str(project.id),
+            "annotation_type": project.annotation_type,
+            "result": result,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
+            "submitted_by": str(user_id),
+        }
+        await self.storage.write_file(
+            annotation_path,
+            json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+        )
+
+        # 4. Update task + project counters.
+        task.status = "completed"
         project.completed_tasks = (project.completed_tasks or 0) + 1
+        if project.total_tasks > 0 and project.completed_tasks >= project.total_tasks and project.status == "active":
+            project.status = "completed"
 
         if audit_context:
             await self._log_audit(
@@ -698,22 +759,55 @@ class AnnotationService:
             )
 
         await self.db.flush()
-
-        # Auto-trigger callback when all tasks completed (async via Taskiq)
-        should_callback = (
-            project.total_tasks > 0
-            and project.completed_tasks >= project.total_tasks
-            and project.callback_status == "pending"
-        )
-
         task = await self._reload_task_for_response(task.id, tenant_id)
         await self.db.commit()
+        return task
 
-        if should_callback:
-            from app.tasks.annotation_tasks import enqueue_annotation_callback
+    async def cancel_annotation(
+        self,
+        task_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        audit_context: dict[str, Any] | None = None,
+    ) -> AnnotationTask:
+        task = await self._get_task_with_project(task_id, tenant_id)
+        if task.assigned_to != user_id:
+            raise ForbiddenException("只能取消分配给自己的任务")
+        if task.status != "completed":
+            raise ForbiddenException("只能取消已完成的标注")
 
-            await enqueue_annotation_callback(project.id, tenant_id)
+        project = task.project
+        dataset = project.dataset
+        version = project.dataset_version
+        tenant_name = await self._get_tenant_name(tenant_id)
+        annotation_filename = _annotation_filename(task.kubeai_object_name)
+        deleted = await self.storage.delete_file(
+            tenant_name,
+            dataset.name,
+            version.version_number,
+            f"annotations/{annotation_filename}",
+        )
+        if not deleted:
+            logger.warning("annotation_file_missing_on_cancel task=%s", task.id)
 
+        task.status = "in_progress"
+        project.completed_tasks = max(0, (project.completed_tasks or 0) - 1)
+        if project.completed_tasks < project.total_tasks and project.status == "completed":
+            project.status = "active"
+
+        if audit_context:
+            await self._log_audit(
+                action=AuditAction.UPDATE,
+                resource_type=ResourceType.ANNOTATION_PROJECT,
+                resource_id=str(task.project_id),
+                detail={"action": "cancel_annotation", "task_id": str(task_id)},
+                tenant_id=tenant_id,
+                **audit_context,
+            )
+
+        await self.db.flush()
+        task = await self._reload_task_for_response(task.id, tenant_id)
+        await self.db.commit()
         return task
 
     async def get_next_task(
@@ -752,158 +846,30 @@ class AnnotationService:
         task = await self._get_task_with_project(task_id, tenant_id)
         return await self._refresh_download_url(task)
 
-    async def retry_callback(
-        self, project_id: uuid.UUID, tenant_id: uuid.UUID, user_id: uuid.UUID
-    ) -> AnnotationProject:
-        result = await self.db.execute(
-            select(AnnotationProject)
-            .options(selectinload(AnnotationProject.dataset), selectinload(AnnotationProject.dataset_version))
-            .where(AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id)
-        )
-        project = result.scalar_one_or_none()
-        if not project:
-            raise NotFoundException("标注项目不存在")
-        if project.callback_status != "failed":
-            raise ForbiddenException("只能重试失败的回流任务")
+    async def load_persisted_annotation(self, task: AnnotationTask) -> dict[str, Any] | None:
+        """Return the verbatim annotation payload for a completed task, None otherwise.
 
-        project.callback_status = "pending"
-        project.callback_error = None
-        project.callback_progress = 0
-        await self.db.flush()
-        await self.db.commit()
-
-        # Enqueue callback as async task instead of running synchronously
-        from app.tasks.annotation_tasks import enqueue_annotation_callback
-
-        await enqueue_annotation_callback(project.id, tenant_id)
-        return project
-
-    async def execute_callback(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """执行标注回流 (幂等, 可由 Taskiq worker 异步调用).
-
-        步骤: 导出 LabelStudio 标注 → 创建新数据集版本 → 复制原始文件 → 写入 annotations.json.
-        支持 Taskiq 重试: 若前次尝试已创建版本, 则跳过版本创建步骤继续后续流程.
+        The returned dict is exactly the JSON written to
+        ``annotations/<file>.json`` — no field is rewritten or dropped.
         """
-        # Load project with relationships
-        result = await self.db.execute(
-            select(AnnotationProject)
-            .options(selectinload(AnnotationProject.dataset), selectinload(AnnotationProject.dataset_version))
-            .where(AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id)
-        )
-        project = result.scalar_one_or_none()
-        if not project:
-            raise NotFoundException("标注项目不存在")
-
-        # Idempotency: already succeeded → no-op
-        if project.callback_status == "succeeded":
-            return
-
-        # Taskiq retry: previous attempt failed → reset and retry
-        if project.callback_status == "failed":
-            project.callback_error = None
-
-        # Validate
-        if project.status != "active":
-            raise ForbiddenException("项目状态不是活跃, 无法触发回流")
-        if project.total_tasks <= 0 or project.completed_tasks < project.total_tasks:
-            raise ForbiddenException("标注任务尚未全部完成")
-
-        project.callback_status = "running"
-        project.callback_progress = 0
-        await self.db.flush()
-
+        if task.status != "completed":
+            return None
+        project = task.project
+        dataset = project.dataset if project else None
+        version = project.dataset_version if project else None
+        if not (dataset and version and task.tenant_id and task.kubeai_object_name):
+            return None
         try:
-            # 1. Export annotations from LabelStudio
-            if project.label_studio_project_id is None:
-                raise ExternalServiceException("LabelStudio 项目 ID 不存在")
-            annotations = await self.ls_client.export_project_annotations(project.label_studio_project_id)
-            project.callback_progress = 10
-            await self.db.flush()
-
-            # 2. Get source dataset/version info
-            dataset = project.dataset
-            source_version = project.dataset_version
-            tenant_name = await self._get_tenant_name(tenant_id)
-
-            # 3. Create new dataset version (skip if already created on retry)
-            new_version: DatasetVersion
-            if project.callback_version_id is None:
-                from app.services.dataset_service import DatasetService
-
-                ds_service = DatasetService(self.db)
-                description = f"v{source_version.version_number}-annotated"
-                new_version = await ds_service.create_version(
-                    tenant_id=tenant_id,
-                    dataset_id=dataset.id,
-                    user_id=project.created_by,
-                    description=description,
-                )
-                project.callback_version_id = new_version.id
-            else:
-                # Retry: reload the partially-created version
-                new_version_result = await self.db.execute(
-                    select(DatasetVersion).where(DatasetVersion.id == project.callback_version_id)
-                )
-                loaded = new_version_result.scalar_one_or_none()
-                if loaded is None:
-                    raise ExternalServiceException("回流目标版本不存在, 无法继续")
-                new_version = loaded
-
-            project.callback_progress = 20
-            await self.db.flush()
-
-            # 4. Copy original files from source version to new version
-            src_files = await self.storage.list_files(tenant_name, dataset.name, source_version.version_number)
-            total_files = len(src_files)
-            for i, f in enumerate(src_files):
-                file_name = f["file_name"]
-                if not file_name:
-                    continue
-                src_path = self.storage.get_file_path(
-                    tenant_name, dataset.name, source_version.version_number, file_name
-                )
-                dst_path = self.storage.get_file_path(tenant_name, dataset.name, new_version.version_number, file_name)
-                await self.storage.copy_file(src_path, dst_path)
-                progress = 20 + int((i + 1) / max(total_files, 1) * 70)
-                project.callback_progress = min(progress, 90)
-                await self.db.flush()
-
-            # 5. Write annotations.json
-            export_data = {
-                "project_name": project.name,
-                "annotation_type": project.annotation_type,
-                "source_dataset_id": str(dataset.id),
-                "source_version_id": str(source_version.id),
-                "exported_at": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
-                "total_tasks": project.total_tasks,
-                "annotations": annotations,
-            }
-            annotations_bytes = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
-            annotations_path = self.storage.get_file_path(
-                tenant_name, dataset.name, new_version.version_number, "annotations.json"
-            )
-            await self.storage.write_file(annotations_path, annotations_bytes)
-
-            # 6. Update new version file count and size
-            new_files = await self.storage.list_files(tenant_name, dataset.name, new_version.version_number)
-            new_version.file_count = len(new_files)
-            new_version.total_size_bytes = sum(f.get("size_bytes", 0) for f in new_files)
-
-            # 7. Mark callback succeeded
-            project.callback_status = "succeeded"
-            project.callback_progress = 100
-            project.callback_at = datetime.now(timezone.utc)  # noqa: UP017
-            project.status = "completed"
-            await self.db.flush()
-            await self.db.commit()
-
-        except Exception as e:
-            project.callback_status = "failed"
-            project.callback_error = str(e)
-            logger.error("标注回流失败 project=%s: %s", project.id, e, exc_info=True)
-            await self.db.flush()
-            await self.db.commit()
-            raise
+            tenant_name = await self._get_tenant_name(task.tenant_id)
+        except NotFoundException:
+            return None
+        return await _load_annotation_result(
+            self.storage,
+            tenant_name,
+            dataset.name,
+            version.version_number,
+            task.kubeai_object_name,
+        )
 
     async def _refresh_download_url(self, task: AnnotationTask) -> AnnotationTask:
         """Refresh download URLs in task data for URL-based annotation types."""

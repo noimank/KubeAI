@@ -29,6 +29,7 @@ vi.mock('@/services/annotations', () => ({
   getAnnotationTemplates: vi.fn(),
   getMyAnnotationTasks: vi.fn(),
   getMyAnnotationTaskSummary: vi.fn(),
+  cancelAnnotation: vi.fn(),
 }))
 
 vi.mock('@/services/datasets', () => ({
@@ -70,7 +71,6 @@ const mockProject = {
   datasetName: '测试数据集',
   datasetVersionNumber: 1,
   progressPercent: 30,
-  callbackStatus: 'pending' as const,
 }
 
 const mockTask = {

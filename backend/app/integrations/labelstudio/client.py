@@ -134,41 +134,5 @@ class LabelStudioClient:
         except Exception as e:
             raise self._wrap_error("create_annotation", e) from e
 
-    async def list_annotations(self, task_id: int) -> list[Annotation]:
-        try:
-            annotations = await self._sdk.annotations.list(id=task_id)
-            return cast("list[Annotation]", annotations)
-        except ExternalServiceException:
-            raise
-        except Exception as e:
-            raise self._wrap_error("list_annotations", e) from e
-
-    async def delete_annotation(self, annotation_id: int) -> None:
-        try:
-            await self._sdk.annotations.delete(id=annotation_id)
-            logger.info("labelstudio_annotation_deleted id=%s", annotation_id)
-        except ExternalServiceException:
-            raise
-        except Exception as e:
-            raise self._wrap_error("delete_annotation", e) from e
-
-    async def export_project_annotations(self, project_id: int) -> list[dict[str, Any]]:
-        """Export all annotations from a LabelStudio project via the SDK's authenticated export path."""
-        try:
-            data = await self._sdk.projects.exports.as_json(project_id)
-            if not isinstance(data, list):
-                raise ExternalServiceException("LabelStudio 导出结果格式无效")
-            annotations: list[dict[str, Any]] = []
-            for item in data:
-                if not isinstance(item, dict):
-                    raise ExternalServiceException("LabelStudio 导出结果格式无效")
-                annotations.append(item)
-            logger.info("labelstudio_export_annotations project=%s count=%s", project_id, len(data))
-            return annotations
-        except ExternalServiceException:
-            raise
-        except Exception as e:
-            raise self._wrap_error("export_project_annotations", e) from e
-
     async def close(self) -> None:
         await self._httpx.aclose()
