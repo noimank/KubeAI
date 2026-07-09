@@ -12,14 +12,6 @@ import type { RegisteredModel } from '@/types/model'
 import UploadModal from './upload-modal'
 import DeployModal from './deploy-modal'
 
-function formatHyperparamsShort(params?: Record<string, string> | null): string {
-  if (!params || Object.keys(params).length === 0) return '-'
-  const entries = Object.entries(params).slice(0, 3)
-  const text = entries.map(([k, v]) => `${k}=${v}`).join(', ')
-  const remaining = Object.keys(params).length - 3
-  return remaining > 0 ? `${text}, +${remaining} 项` : text
-}
-
 export default function ModelsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -83,10 +75,9 @@ export default function ModelsPage() {
       render: (count: number) => <Tag>{count}</Tag>,
     },
     {
-      title: '最新指标',
-      width: 200,
-      render: (_: unknown, record: RegisteredModel) =>
-        formatHyperparamsShort(record.latestVersion?.hyperparameters),
+      title: '模型描述',
+      ellipsis: true,
+      render: (_: unknown, record: RegisteredModel) => record.description || '-',
     },
     {
       title: '最新版本时间',
