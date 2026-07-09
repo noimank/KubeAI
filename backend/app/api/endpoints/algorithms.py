@@ -7,12 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, BadRequestException
 from app.models.algorithm import Algorithm
 from app.models.enums import AuditAction, ResourceType, UserRole
 from app.models.user import User
 from app.schemas.algorithm import (
     AlgorithmDetailResponse,
+    AlgorithmRegisterRequest,
     AlgorithmResponse,
     AlgorithmUpdateRequest,
     AlgorithmUploaderResponse,
@@ -120,6 +121,43 @@ async def create_algorithm(
     )
     data = await _build_detail_response(db, algo)
     return BaseResponse(data=data, message="算法上传成功")
+
+
+# ------------------------------------------------------------------
+# POST /register
+# ------------------------------------------------------------------
+@router.post("/register", response_model=BaseResponse[AlgorithmDetailResponse])
+async def register_algorithm_from_browser(
+    req: AlgorithmRegisterRequest,
+    request: Request,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("algorithms", "write"))],
+) -> BaseResponse[AlgorithmDetailResponse]:
+    """从文件浏览器勾选的文件/目录注册为算法.
+
+    复用 :class:`FilesystemBrowserSecurity` 校验身份首段与防 ``..``/symlink 逃逸;
+    通过后复制到临时目录并打成 ``algorithm.zip`` 落盘 — 存储布局与本地 zip 上传一致.
+    """
+    file_paths = [p.strip() for p in (req.file_paths or []) if p and p.strip()]
+    if not file_paths:
+        raise BadRequestException("file_paths 不可为空")
+    if not req.name.strip():
+        raise BadRequestException("算法名称不可为空")
+
+    tenant_id = _require_tenant_id(user)
+    service = AlgorithmService(db)
+    algo = await service.create_algorithm_from_paths(
+        tenant_id=tenant_id,
+        user_id=user.id,
+        username=user.username,
+        name=req.name.strip(),
+        description=req.description,
+        tags=req.tags,
+        file_paths=file_paths,
+        audit_context=_audit_ctx(request, user),
+    )
+    data = await _build_detail_response(db, algo)
+    return BaseResponse(data=data, message="算法注册成功")
 
 
 # ------------------------------------------------------------------

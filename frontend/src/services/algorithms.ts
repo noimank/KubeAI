@@ -1,6 +1,11 @@
 import { api } from './api'
 import type { BaseResponse, PageData } from '@/types/api'
-import type { Algorithm, AlgorithmDetail, AlgorithmUpdateParams } from '@/types/algorithm'
+import type {
+  Algorithm,
+  AlgorithmDetail,
+  AlgorithmRegisterParams,
+  AlgorithmUpdateParams,
+} from '@/types/algorithm'
 
 export async function getAlgorithms(params: {
   current: number
@@ -39,6 +44,16 @@ export async function createAlgorithm(params: {
       description: params.description || undefined,
       tags: params.tags || undefined,
     },
+  })
+  return res.data.data!
+}
+
+export async function registerAlgorithm(params: AlgorithmRegisterParams): Promise<AlgorithmDetail> {
+  const res = await api.post<BaseResponse<AlgorithmDetail>>('/algorithms/register', {
+    name: params.name,
+    description: params.description ?? null,
+    tags: params.tags ?? [],
+    file_paths: params.filePaths,
   })
   return res.data.data!
 }

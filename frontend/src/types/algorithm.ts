@@ -26,6 +26,13 @@ export interface AlgorithmCreateParams {
   file: File
 }
 
+export interface AlgorithmRegisterParams {
+  name: string
+  description?: string
+  tags?: string[]
+  filePaths: string[]
+}
+
 export interface AlgorithmUpdateParams {
   name?: string
   description?: string

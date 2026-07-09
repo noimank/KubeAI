@@ -1,15 +1,25 @@
-import { useState, useCallback } from 'react'
-import { Button, Input, Modal, Popconfirm, Space, Table, Tag, Upload } from 'antd'
+import { useMemo, useState, useCallback } from 'react'
+import { Button, Input, Modal, Popconfirm, Space, Table, Tabs, Tag, Typography, Upload } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
 import { PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
-import { createAlgorithm, deleteAlgorithm, getAlgorithms } from '@/services/algorithms'
+import { useAuthStore } from '@/stores/authStore'
+import { useTenantStore } from '@/stores/tenantStore'
+import FileBrowser from '@/components/FileBrowser'
+import {
+  createAlgorithm,
+  deleteAlgorithm,
+  getAlgorithms,
+  registerAlgorithm,
+} from '@/services/algorithms'
 import { formatDate, formatFileSize } from '@/utils/format'
 import type { Algorithm } from '@/types/algorithm'
 import type { RcFile, UploadChangeParam } from 'antd/es/upload/interface'
+
+type UploadTab = 'local' | 'browser'
 
 export default function AlgorithmsPage() {
   const navigate = useNavigate()
@@ -20,14 +30,23 @@ export default function AlgorithmsPage() {
   const [searchText, setSearchText] = useState('')
 
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
+  const [uploadTab, setUploadTab] = useState<UploadTab>('local')
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [newTags, setNewTags] = useState('')
   const [selectedFile, setSelectedFile] = useState<RcFile | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([])
 
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const canWrite = hasPermission('algorithms:write')
   const canManage = hasPermission('algorithms:manage')
+
+  const authUser = useAuthStore((s) => s.user)
+  const currentTenant = useTenantStore((s) => s.currentTenant)
+  const browserRoots = useMemo<string[]>(() => {
+    if (!authUser || !currentTenant) return []
+    return [`/kubeai/home/${authUser.username}`, `/kubeai/workspace/${currentTenant.name}`]
+  }, [authUser, currentTenant])
 
   const { data, isLoading } = useQuery({
     queryKey: ['algorithms', page, pageSize, keyword],
@@ -39,23 +58,37 @@ export default function AlgorithmsPage() {
       }),
   })
 
-  const uploadMutation = useMutation({
-    mutationFn: createAlgorithm,
-    onSuccess: (detail) => {
-      getMessageInstance()?.success('算法上传成功')
-      setUploadModalOpen(false)
-      resetUpload()
-      queryClient.invalidateQueries({ queryKey: ['algorithms'] })
-      navigate(`/algorithms/${detail.id}`)
-    },
-  })
-
   const resetUpload = () => {
     setNewName('')
     setNewDesc('')
     setNewTags('')
     setSelectedFile(null)
+    setSelectedPaths([])
+    setUploadTab('local')
   }
+
+  const handleSuccess = useCallback(
+    (detail: { id: string }, msg: string) => {
+      getMessageInstance()?.success(msg)
+      setUploadModalOpen(false)
+      resetUpload()
+      queryClient.invalidateQueries({ queryKey: ['algorithms'] })
+      navigate(`/algorithms/${detail.id}`)
+    },
+    [queryClient, navigate],
+  )
+
+  const uploadMutation = useMutation({
+    mutationFn: createAlgorithm,
+    onSuccess: (detail) => handleSuccess(detail, '算法上传成功'),
+  })
+
+  const registerMutation = useMutation({
+    mutationFn: registerAlgorithm,
+    onSuccess: (detail) => handleSuccess(detail, '算法注册成功'),
+  })
+
+  const isSubmitting = uploadMutation.isPending || registerMutation.isPending
 
   const handleSearch = useCallback((value: string) => {
     setKeyword(value || undefined)
@@ -87,16 +120,33 @@ export default function AlgorithmsPage() {
       getMessageInstance()?.warning('请输入算法名称')
       return
     }
-    if (!selectedFile) {
-      getMessageInstance()?.warning('请选择算法文件')
-      return
+    if (uploadTab === 'local') {
+      if (!selectedFile) {
+        getMessageInstance()?.warning('请选择算法文件')
+        return
+      }
+      uploadMutation.mutate({
+        name: newName.trim(),
+        description: newDesc.trim() || undefined,
+        tags: newTags.trim() || undefined,
+        file: selectedFile,
+      })
+    } else {
+      if (selectedPaths.length === 0) {
+        getMessageInstance()?.warning('请至少勾选一个文件或目录')
+        return
+      }
+      const tagList = newTags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
+      registerMutation.mutate({
+        name: newName.trim(),
+        description: newDesc.trim() || undefined,
+        tags: tagList.length > 0 ? tagList : undefined,
+        filePaths: selectedPaths,
+      })
     }
-    uploadMutation.mutate({
-      name: newName.trim(),
-      description: newDesc.trim() || undefined,
-      tags: newTags.trim() || undefined,
-      file: selectedFile,
-    })
   }
 
   const columns: ColumnsType<Algorithm> = [
@@ -218,51 +268,122 @@ export default function AlgorithmsPage() {
           setUploadModalOpen(false)
           resetUpload()
         }}
-        confirmLoading={uploadMutation.isPending}
+        confirmLoading={isSubmitting}
         okText="上传"
         cancelText="取消"
+        width={680}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>算法名称 *</label>
-            <Input
-              placeholder="输入算法名称"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              maxLength={200}
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>描述</label>
-            <Input.TextArea
-              placeholder="算法描述（可选）"
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
-              rows={3}
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>
-              标签（逗号分隔）
-            </label>
-            <Input
-              placeholder="如: 图像分割, 优化算法"
-              value={newTags}
-              onChange={(e) => setNewTags(e.target.value)}
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>算法文件 *</label>
-            <Upload
-              maxCount={1}
-              beforeUpload={() => false}
-              onChange={handleFileSelect}
-              onRemove={() => setSelectedFile(null)}
-            >
-              <Button icon={<UploadOutlined />}>选择文件（目录请先打包为 zip）</Button>
-            </Upload>
-          </div>
-        </div>
+        <Tabs
+          activeKey={uploadTab}
+          onChange={(key) => setUploadTab(key as UploadTab)}
+          items={[
+            {
+              key: 'local',
+              label: '本地上传',
+              children: (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>
+                      算法名称 *
+                    </label>
+                    <Input
+                      placeholder="输入算法名称"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      maxLength={200}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>
+                      描述
+                    </label>
+                    <Input.TextArea
+                      placeholder="算法描述（可选）"
+                      value={newDesc}
+                      onChange={(e) => setNewDesc(e.target.value)}
+                      rows={3}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>
+                      标签（逗号分隔）
+                    </label>
+                    <Input
+                      placeholder="如: 图像分割, 优化算法"
+                      value={newTags}
+                      onChange={(e) => setNewTags(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>
+                      算法文件 *
+                    </label>
+                    <Upload
+                      maxCount={1}
+                      beforeUpload={() => false}
+                      onChange={handleFileSelect}
+                      onRemove={() => setSelectedFile(null)}
+                    >
+                      <Button icon={<UploadOutlined />}>选择文件（目录请先打包为 zip）</Button>
+                    </Upload>
+                  </div>
+                </div>
+              ),
+            },
+            {
+              key: 'browser',
+              label: '从文件浏览器选择',
+              children: (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+                  <div>
+                    <Typography.Text strong>算法名称 *</Typography.Text>
+                    <Input
+                      placeholder="输入算法名称"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      maxLength={200}
+                      style={{ marginTop: 4 }}
+                    />
+                  </div>
+                  <div>
+                    <Typography.Text strong>描述</Typography.Text>
+                    <Input.TextArea
+                      placeholder="算法描述（可选）"
+                      value={newDesc}
+                      onChange={(e) => setNewDesc(e.target.value)}
+                      rows={2}
+                      style={{ marginTop: 4 }}
+                    />
+                  </div>
+                  <div>
+                    <Typography.Text strong>标签（逗号分隔）</Typography.Text>
+                    <Input
+                      placeholder="如: 图像分割, 优化算法"
+                      value={newTags}
+                      onChange={(e) => setNewTags(e.target.value)}
+                      style={{ marginTop: 4 }}
+                    />
+                  </div>
+                  <div>
+                    <Typography.Text strong>选择算法文件或目录 *</Typography.Text>
+                    <div style={{ marginTop: 4 }}>
+                      <FileBrowser
+                        value={selectedPaths}
+                        onChange={setSelectedPaths}
+                        roots={browserRoots}
+                      />
+                    </div>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      仅允许浏览个人目录 <code>/kubeai/home/&lt;自己&gt;</code> 与当前租户工作空间{' '}
+                      <code>/kubeai/workspace/&lt;当前租户&gt;</code>; 注册时目录会按子树整体打包为
+                      zip。
+                    </Typography.Text>
+                  </div>
+                </div>
+              ),
+            },
+          ]}
+        />
       </Modal>
     </div>
   )
