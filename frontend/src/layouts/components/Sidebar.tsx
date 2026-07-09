@@ -70,6 +70,12 @@ const MENU_CONFIG: MenuEntry[] = [
     name: '开发与训练',
     children: [
       {
+        path: '/dev-environments',
+        name: '开发环境',
+        icon: <CodeOutlined />,
+        permission: 'dev_environments:read',
+      },
+      {
         path: '/training-jobs',
         name: '训练任务',
         icon: <ExperimentOutlined />,
@@ -86,12 +92,6 @@ const MENU_CONFIG: MenuEntry[] = [
         name: '算法管理',
         icon: <FolderOpenOutlined />,
         permission: 'algorithms:read',
-      },
-      {
-        path: '/dev-environments',
-        name: '开发环境',
-        icon: <CodeOutlined />,
-        permission: 'dev_environments:read',
       },
       { path: '/images', name: '镜像管理', icon: <AppstoreOutlined />, permission: 'images:read' },
     ],
