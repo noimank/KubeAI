@@ -163,3 +163,29 @@ body {
   background: var(--notification-scroll-thumb);
   border-radius: 999px;
 }
+
+/* 文件浏览器 (FileBrowser) — 训练任务注册模型等场景 */
+.file-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-browser-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.file-browser .ant-tree {
+  padding-block: 4px;
+  padding-inline: 4px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 6px;
+  background: var(--ant-color-bg-container);
+}
+
+.file-browser-entry {
+  font-size: 13px;
+}

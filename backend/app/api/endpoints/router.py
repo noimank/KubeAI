@@ -11,6 +11,7 @@ from app.api.endpoints.datasets import router as datasets_router
 from app.api.endpoints.dev_environment_images import router as dev_environment_images_router
 from app.api.endpoints.dev_environments import router as dev_environments_router
 from app.api.endpoints.experiments import router as experiments_router
+from app.api.endpoints.filesystem import router as filesystem_router
 from app.api.endpoints.images import router as images_router
 from app.api.endpoints.inference_services import router as inference_services_router
 from app.api.endpoints.model_registry import router as model_registry_router
@@ -41,6 +42,7 @@ api_router.include_router(datasets_router)
 api_router.include_router(dev_environments_router)
 api_router.include_router(dev_environment_images_router)
 api_router.include_router(experiments_router)
+api_router.include_router(filesystem_router)
 api_router.include_router(images_router)
 api_router.include_router(inference_services_router)
 api_router.include_router(model_registry_router)

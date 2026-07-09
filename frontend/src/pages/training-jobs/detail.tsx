@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Alert,
   Breadcrumb,
@@ -32,6 +32,9 @@ import LogStream from '@/components/LogStream'
 import GpuMetricsChart from '@/components/GpuMetricsChart'
 import { useGpuAlerts } from '@/hooks/useGpuAlerts'
 import { useRbacStore } from '@/stores/rbacStore'
+import { useAuthStore } from '@/stores/authStore'
+import { useTenantStore } from '@/stores/tenantStore'
+import FileBrowser from '@/components/FileBrowser'
 import {
   buildLogStreamWsUrl,
   getTrainingJob,
@@ -110,12 +113,20 @@ export default function TrainingJobDetailPage() {
   const [registerModalOpen, setRegisterModalOpen] = useState(false)
   const [modelName, setModelName] = useState('')
   const [modelDesc, setModelDesc] = useState('')
-  const [modelFilePaths, setModelFilePaths] = useState('')
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([])
   const queryClient = useQueryClient()
 
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const canWrite = hasPermission('training_jobs:write')
   const canWriteModels = hasPermission('models:write')
+
+  // 文件浏览器的虚拟根 — 限制在自身 home + 当前租户 workspace.
+  const authUser = useAuthStore((s) => s.user)
+  const currentTenant = useTenantStore((s) => s.currentTenant)
+  const browserRoots = useMemo<string[]>(() => {
+    if (!authUser || !currentTenant) return []
+    return [`/kubeai/home/${authUser.username}`, `/kubeai/workspace/${currentTenant.name}`]
+  }, [authUser, currentTenant])
 
   const {
     data: job,
@@ -164,7 +175,7 @@ export default function TrainingJobDetailPage() {
       setRegisterModalOpen(false)
       setModelName('')
       setModelDesc('')
-      setModelFilePaths('')
+      setSelectedPaths([])
     },
   })
 
@@ -743,24 +754,21 @@ export default function TrainingJobDetailPage() {
         open={registerModalOpen}
         onCancel={() => setRegisterModalOpen(false)}
         onOk={() => {
-          const filePaths = modelFilePaths
-            .split('\n')
-            .map((p) => p.trim())
-            .filter(Boolean)
-          if (!filePaths.length) {
-            getMessageInstance()?.warning('请输入至少一个文件路径')
+          if (!selectedPaths.length) {
+            getMessageInstance()?.warning('请至少勾选一个文件或目录')
             return
           }
           registerMutation.mutate({
             name: modelName,
             description: modelDesc || undefined,
-            filePaths,
+            filePaths: selectedPaths,
             trainingJobId: id,
           })
         }}
         confirmLoading={registerMutation.isPending}
         okText="确认注册"
         cancelText="取消"
+        width={680}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
@@ -782,19 +790,13 @@ export default function TrainingJobDetailPage() {
             />
           </div>
           <div>
-            <Typography.Text strong>模型文件路径（每行一个）</Typography.Text>
-            <Input.TextArea
-              value={modelFilePaths}
-              onChange={(e) => setModelFilePaths(e.target.value)}
-              placeholder={
-                '/kubeai/workspace/exp-1/model.pth\n/kubeai/home/mycode/config.yaml\nexp-1/model.pth'
-              }
-              rows={4}
-              style={{ marginTop: 4, fontFamily: 'monospace' }}
-            />
+            <Typography.Text strong>选择模型文件或目录</Typography.Text>
+            <div style={{ marginTop: 4 }}>
+              <FileBrowser value={selectedPaths} onChange={setSelectedPaths} roots={browserRoots} />
+            </div>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              支持绝对路径 /kubeai/home/...（个人目录）与
-              /kubeai/workspace/...（租户工作空间）；相对路径默认基于工作空间。注册前会校验文件是否存在。
+              仅允许浏览个人目录 <code>/kubeai/home/&lt;自己&gt;</code> 与当前租户工作空间{' '}
+              <code>/kubeai/workspace/&lt;当前租户&gt;</code>; 注册时目录会按子树整体复制。
             </Typography.Text>
           </div>
           <div>

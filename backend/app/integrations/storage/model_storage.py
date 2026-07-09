@@ -85,38 +85,39 @@ class ModelStorage:
         home_root: str,
         workspace_root: str,
     ) -> tuple[int, int]:
-        """把用户指定的模型源文件/目录硬链接 (失败回退复制) 到版本目录. 路径 A 使用.
+        """把用户指定的模型源文件/目录硬链接 (失败回退复制) 到版本目录.
 
-        每个 source 可为:
-          * ``/kubeai/home/<rel>``      → 解析到 ``home_root`` (用户个人目录)
-          * ``/kubeai/workspace/<rel>`` → 解析到 ``workspace_root`` (租户工作空间)
-          * 相对路径 (不以 ``/`` 开头)   → 视为相对 ``workspace_root`` (向后兼容)
+        每个 source 必须为 canonical 容器路径:
+          * ``/kubeai/home/<self-user>/<rel>``
+          * ``/kubeai/workspace/<self-tenant>/<rel>``
+        ``<self-user>`` = ``sanitize_k8s_name(Path(home_root).name)``,
+        ``<self-tenant>`` = ``sanitize_k8s_name(Path(workspace_root).name)``.
+        身份首段必须等于自身 sanitize 结果, 防跨用户 / 跨租户访问;
+        ``Path.resolve()`` 阻断 ``..`` 与符号链接逃逸.
 
-        其它绝对路径一律拒绝 — 仅允许访问用户目录与租户工作空间.
-        ``Path.resolve()`` 后校验源在允许根内, 防 ``..`` 与符号链接逃逸.
-
-        注册前先逐一预校验源存在, 任一不存在或目标冲突立即整体失败 (不落任何文件);
-        全部通过后再硬链接/复制, 保留相对层级到版本目录 (如 ``/kubeai/home/a/b.pth``
-        与相对 ``a/b.pth`` 都落到 ``version_dir/a/b.pth``).
+        注册前预校验: 源存在性 + 目标去重; 任一失败整体回滚, 不留半截版本目录;
+        保留相对层级到版本目录 (含目录递归 os.walk).
         返回 (file_count, total_size_bytes).
         """
         version_dir = await self.ensure_version_dir(tenant_name, storage_path)
         home = Path(home_root).resolve()
         workspace = Path(workspace_root).resolve()
+        self_user = sanitize_k8s_name(home.name)
+        self_tenant = sanitize_k8s_name(workspace.parent.name)
 
         def _resolve_source(raw: str) -> tuple[Path, str]:
-            """返回 (源绝对路径, 版本目录内相对层级). 非法路径抛 ``ValueError``."""
+            """(源绝对路径, 版本目录内相对层级). 非法路径抛 ``ValueError``."""
             s = raw.strip()
             if s.startswith(f"{HOME_PREFIX}/"):
-                root, rel = home, s[len(HOME_PREFIX) :].lstrip("/")
+                root, prefix_label, identity = home, HOME_PREFIX, self_user
             elif s.startswith(f"{WORKSPACE_PREFIX}/"):
-                root, rel = workspace, s[len(WORKSPACE_PREFIX) :].lstrip("/")
-            elif s.startswith("/"):
-                raise ValueError(f"仅支持访问 {HOME_PREFIX} 与 {WORKSPACE_PREFIX} 目录: {raw}")
+                root, prefix_label, identity = workspace, WORKSPACE_PREFIX, self_tenant
             else:
-                root, rel = workspace, s
-            if not rel:
-                raise ValueError("请指定具体的文件或子目录路径, 不能注册整个根目录")
+                raise ValueError(f"仅支持访问 {HOME_PREFIX} 与 {WORKSPACE_PREFIX} 目录: {raw}")
+            # canonical 必须含身份首段: /kubeai/home/<self-user>/<rel>
+            if not s.startswith(f"{prefix_label}/{identity}/"):
+                raise ValueError(f"路径必须含身份首段 {prefix_label}/{identity}/<rel>: {raw}")
+            rel = s[len(f"{prefix_label}/{identity}/") :]
             src = (root / rel).resolve()
             if src != root and root not in src.parents:
                 raise ValueError(f"非法路径 (逃逸允许目录): {raw}")

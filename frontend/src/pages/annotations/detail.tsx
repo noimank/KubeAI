@@ -184,8 +184,7 @@ export default function AnnotationDetailPage() {
       title: '操作',
       width: 200,
       render: (_: unknown, record) => {
-        const canCancel =
-          record.status === 'completed' && record.assignedTo === currentUserId
+        const canCancel = record.status === 'completed' && record.assignedTo === currentUserId
         return (
           <Space size="small">
             <Button type="link" size="small" onClick={() => handlePreview(record)}>
