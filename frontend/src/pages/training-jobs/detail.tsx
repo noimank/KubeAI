@@ -596,7 +596,7 @@ export default function TrainingJobDetailPage() {
                     <Space>
                       <Tag color="green">个人目录</Tag>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        跨租户共享
+                        仅本人可见
                       </Typography.Text>
                     </Space>
                   </Descriptions.Item>
