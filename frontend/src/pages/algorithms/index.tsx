@@ -43,10 +43,11 @@ export default function AlgorithmsPage() {
 
   const authUser = useAuthStore((s) => s.user)
   const currentTenant = useTenantStore((s) => s.currentTenant)
-  const browserRoots = useMemo<string[]>(() => {
-    if (!authUser || !currentTenant) return []
-    return [`/kubeai/home/${authUser.username}`, `/kubeai/workspace/${currentTenant.name}`]
-  }, [authUser, currentTenant])
+  const browserRoots = useMemo<string[]>(
+    // 裸前缀由后端 filesystem_browser 自动绑定到当前用户 / 租户 (canonicalize 到带后缀的 canonical 路径).
+    () => (authUser && currentTenant ? ['/kubeai/home', '/kubeai/workspace'] : []),
+    [authUser, currentTenant],
+  )
 
   const { data, isLoading } = useQuery({
     queryKey: ['algorithms', page, pageSize, keyword],
@@ -374,9 +375,8 @@ export default function AlgorithmsPage() {
                       />
                     </div>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      仅允许浏览个人目录 <code>/kubeai/home/&lt;自己&gt;</code> 与当前租户工作空间{' '}
-                      <code>/kubeai/workspace/&lt;当前租户&gt;</code>; 注册时目录会按子树整体打包为
-                      zip。
+                      仅允许浏览个人目录 <code>/kubeai/home</code> 与当前租户工作空间{' '}
+                      <code>/kubeai/workspace</code>; 注册时目录会按子树整体打包为 zip。
                     </Typography.Text>
                   </div>
                 </div>

@@ -11,7 +11,7 @@ export interface FileBrowserProps {
   /** 受控: 已勾选的 canonical 容器路径 (绝对路径), 与 ModelVersionCreate.filePaths 入参一致. */
   value: string[]
   onChange: (paths: string[]) => void
-  /** 虚拟根节点列表. 通常 = ``[`/kubeai/home/${user.username}`, `/kubeai/workspace/${tenant.name}`]``. */
+  /** 虚拟根节点列表. 通常 = ``['/kubeai/home', '/kubeai/workspace']``, 后端自动 canoncialize 到当前用户/租户. */
   roots: string[]
   disabled?: boolean
   /** 树容器高度, 默认 360. */

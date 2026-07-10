@@ -163,7 +163,7 @@ export default function ModelsPage() {
         />
         {canWrite && (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
-            本地上传
+            上传模型
           </Button>
         )}
       </div>

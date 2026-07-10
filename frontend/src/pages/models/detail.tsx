@@ -299,12 +299,12 @@ export default function ModelDetailPage() {
           })()}
           {canWrite ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
-              上传新版本
+              上传模型
             </Button>
           ) : (
             <Tooltip title="需要 models:write 权限（mlops 及以上角色）">
               <Button type="primary" icon={<PlusOutlined />} disabled>
-                上传新版本
+                上传模型
               </Button>
             </Tooltip>
           )}

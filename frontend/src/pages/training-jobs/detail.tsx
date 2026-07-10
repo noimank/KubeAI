@@ -120,13 +120,13 @@ export default function TrainingJobDetailPage() {
   const canWrite = hasPermission('training_jobs:write')
   const canWriteModels = hasPermission('models:write')
 
-  // 文件浏览器的虚拟根 — 限制在自身 home + 当前租户 workspace.
+  // 文件浏览器的虚拟根 — 裸前缀由后端 filesystem_browser 自动绑定到当前用户 / 租户.
   const authUser = useAuthStore((s) => s.user)
   const currentTenant = useTenantStore((s) => s.currentTenant)
-  const browserRoots = useMemo<string[]>(() => {
-    if (!authUser || !currentTenant) return []
-    return [`/kubeai/home/${authUser.username}`, `/kubeai/workspace/${currentTenant.name}`]
-  }, [authUser, currentTenant])
+  const browserRoots = useMemo<string[]>(
+    () => (authUser && currentTenant ? ['/kubeai/home', '/kubeai/workspace'] : []),
+    [authUser, currentTenant],
+  )
 
   const {
     data: job,
