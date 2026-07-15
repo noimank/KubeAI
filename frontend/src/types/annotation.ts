@@ -1,5 +1,3 @@
-export type AnnotationType = string
-
 export type AnnotationProjectStatus = 'draft' | 'active' | 'completed' | 'archived'
 
 export interface AnnotationProject {
@@ -8,7 +6,8 @@ export interface AnnotationProject {
   description?: string
   datasetId: string
   datasetVersionId: string
-  annotationType: AnnotationType
+  templateId?: string | null
+  templateName?: string | null
   labelStudioProjectId?: number
   totalTasks: number
   completedTasks: number
@@ -23,15 +22,8 @@ export interface AnnotationProject {
 }
 
 export interface AnnotationProjectDetail extends AnnotationProject {
-  labelConfig: string
+  labelConfig?: string | null
   labelingTemplateDescription?: string
-}
-
-export interface AnnotationTemplate {
-  key: string
-  label: string
-  description: string
-  config: string
 }
 
 export interface AnnotationProjectCreateRequest {
@@ -39,7 +31,7 @@ export interface AnnotationProjectCreateRequest {
   description?: string
   datasetId: string
   datasetVersionId: string
-  labelConfig: string
+  templateId: string
 }
 
 export type AnnotationTaskStatus = 'unassigned' | 'assigned' | 'in_progress' | 'completed'
@@ -54,7 +46,7 @@ export interface AnnotationTask {
   status: AnnotationTaskStatus
   result?: AnnotationResultItem[] | null
   projectName?: string
-  annotationType?: AnnotationType
+  templateName?: string | null
   submittedAt?: string | null
   submittedBy?: string | null
   annotationPayload?: Record<string, unknown> | null
@@ -79,13 +71,15 @@ export interface AnnotationBatchAssignRequest {
 export interface AnnotationTaskSummary {
   projectId: string
   projectName: string
-  annotationType: AnnotationType
+  templateName: string
   totalTasks: number
   assignedTasks: number
   completedTasks: number
 }
 
 export interface AnnotationResultItem {
+  /** 区域 ID（多个 result 共享同一 ID 表示属于同一空间区域） */
+  id?: string
   from_name: string
   to_name: string
   type: string

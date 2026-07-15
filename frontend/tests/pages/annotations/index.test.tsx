@@ -60,7 +60,7 @@ const mockProject = {
   description: 'test project',
   datasetId: 'ds-1',
   datasetVersionId: 'dv-1',
-  annotationType: 'image_classification' as const,
+  templateName: '车辆检测模板',
   totalTasks: 10,
   completedTasks: 3,
   status: 'active' as const,
@@ -80,7 +80,7 @@ const mockTask = {
   data: {},
   status: 'assigned' as const,
   projectName: '测试标注项目',
-  annotationType: 'image_classification' as const,
+  templateName: '车辆检测模板',
   createdAt: '2026-05-01T12:00:00Z',
   updatedAt: '2026-05-01T12:00:00Z',
 }

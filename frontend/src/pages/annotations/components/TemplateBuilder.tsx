@@ -93,11 +93,7 @@ export default function TemplateBuilder({ templateId, onSaved }: TemplateBuilder
   const groupOptions = (existingGroups ?? []).map((g) => ({ value: g, label: g }))
 
   return (
-    <Form
-      form={form}
-      layout="vertical"
-      initialValues={{ group: '其他', tags: [] }}
-    >
+    <Form form={form} layout="vertical" initialValues={{ group: '其他', tags: [] }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* 左侧: 基本字段 + XML 编辑 */}
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -129,11 +125,7 @@ export default function TemplateBuilder({ templateId, onSaved }: TemplateBuilder
             />
           </Form.Item>
 
-          <Form.Item
-            label="标签"
-            name="tags"
-            tooltip="便于搜索，如: 图像, 检测"
-          >
+          <Form.Item label="标签" name="tags" tooltip="便于搜索，如: 图像, 检测">
             <Select mode="tags" placeholder="回车添加标签" />
           </Form.Item>
 
@@ -188,10 +180,7 @@ export default function TemplateBuilder({ templateId, onSaved }: TemplateBuilder
                   数据标签: {preview.objects.map((o) => o.tag).join(', ') || '-'}
                 </Typography.Text>
                 <Typography.Text type="secondary">
-                  控件:{' '}
-                  {preview.controls
-                    .map((c) => `${c.tag} → ${c.toName}`)
-                    .join(', ') || '-'}
+                  控件: {preview.controls.map((c) => `${c.tag} → ${c.toName}`).join(', ') || '-'}
                 </Typography.Text>
                 <Typography.Text type="secondary">
                   标注类型: {preview.controls[0]?.type ?? '-'}
@@ -201,10 +190,7 @@ export default function TemplateBuilder({ templateId, onSaved }: TemplateBuilder
                     c.choices.length > 0 ? (
                       <Space key={c.name} wrap style={{ marginTop: 8 }}>
                         {c.choices.map((choice) => (
-                          <Tag
-                            key={choice.value}
-                            color={choice.background || 'blue'}
-                          >
+                          <Tag key={choice.value} color={choice.background || 'blue'}>
                             {choice.value}
                           </Tag>
                         ))}

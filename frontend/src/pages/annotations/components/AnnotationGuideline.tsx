@@ -1,21 +1,12 @@
 import { Card, Tag, Typography, Button } from 'antd'
 import { DoubleRightOutlined, DoubleLeftOutlined } from '@ant-design/icons'
-import type { AnnotationProjectDetail } from '@/types/annotation'
-
-const TYPE_LABELS: Record<string, string> = {
-  image_classification: '图像分类',
-  object_detection: '目标检测',
-  image_segmentation: '图像分割',
-  text_classification: '文本分类',
-  choices: '分类选择',
-  rectanglelabels: '矩形框',
-  polygonlabels: '多边形',
-  textarea: '文本填写',
-  rating: '评分',
-}
 
 interface AnnotationGuidelineProps {
-  project: AnnotationProjectDetail
+  project: {
+    templateName?: string | null
+    description?: string | null
+    labelingTemplateDescription?: string | null
+  }
   labels: string[]
   collapsed: boolean
   onToggle: () => void
@@ -66,9 +57,9 @@ export default function AnnotationGuideline({
       </div>
 
       <Card size="small" style={{ marginBottom: 12 }}>
-        <Typography.Text type="secondary">标注类型</Typography.Text>
+        <Typography.Text type="secondary">标注模板</Typography.Text>
         <div style={{ marginTop: 4 }}>
-          <Tag color="blue">{TYPE_LABELS[project.annotationType] || project.annotationType}</Tag>
+          <Tag color="blue">{project.templateName || '—'}</Tag>
         </div>
       </Card>
 

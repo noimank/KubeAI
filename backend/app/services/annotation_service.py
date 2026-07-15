@@ -97,23 +97,36 @@ class AnnotationService:
         description: str | None,
         dataset_id: uuid.UUID,
         dataset_version_id: uuid.UUID,
-        label_config: str,
+        template_id: uuid.UUID,
         audit_context: dict[str, Any] | None = None,
     ) -> AnnotationProject:
         """创建标注项目 DB 记录 (仅验证 + 记录, LabelStudio 交互由 Taskiq worker 异步执行)."""
         await self._get_dataset_or_fail(dataset_id, tenant_id)
         await self._get_version_or_fail(dataset_version_id, dataset_id)
 
-        config_info = parse_label_config(label_config)
+        from app.models.annotation_template import AnnotationTemplate
+
+        result = await self.db.execute(
+            select(AnnotationTemplate).where(
+                AnnotationTemplate.id == template_id,
+                AnnotationTemplate.tenant_id == tenant_id,
+            )
+        )
+        tpl = result.scalar_one_or_none()
+        if tpl is None:
+            raise NotFoundException("标注模板不存在")
+
+        # 双保险: 即使模板创建时已校验过, 项目创建时再解析一次防止 XML 被中途篡改
+        parse_label_config(tpl.label_config)
 
         project = AnnotationProject(
             name=name,
             description=description,
             dataset_id=dataset_id,
             dataset_version_id=dataset_version_id,
-            annotation_type=config_info.annotation_type,
+            template_id=tpl.id,
             label_studio_project_id=None,
-            label_config=label_config,
+            label_config=tpl.label_config,  # 拍快照, 模板后续编辑不影响该项目
             total_tasks=0,
             completed_tasks=0,
             status="pending",
@@ -129,7 +142,7 @@ class AnnotationService:
                 action=AuditAction.CREATE,
                 resource_type=ResourceType.ANNOTATION_PROJECT,
                 resource_id=str(project.id),
-                detail={"name": name, "annotation_type": config_info.annotation_type},
+                detail={"name": name, "template_name": tpl.name},
                 tenant_id=tenant_id,
                 **audit_context,
             )
@@ -149,6 +162,7 @@ class AnnotationService:
         project = result.scalar_one_or_none()
         if not project:
             return
+        assert project.label_config is not None, "execute_project_setup requires label_config snapshot"
 
         dataset = project.dataset
         version = project.dataset_version
@@ -178,7 +192,7 @@ class AnnotationService:
             ls_project_id = await self.ls_client.create_project(
                 project.name,
                 project.description or "",
-                project.label_config,
+                project.label_config or "",
             )
         except ExternalServiceException:
             project.status = "failed"
@@ -236,6 +250,7 @@ class AnnotationService:
         ls_project_id = project.label_studio_project_id
         if ls_project_id is None:
             return 0
+        assert project.label_config is not None, "execute_sync_tasks requires label_config snapshot"
 
         dataset = project.dataset
         version = project.dataset_version
@@ -338,7 +353,11 @@ class AnnotationService:
     ) -> tuple[list[AnnotationProject], int]:
         query = (
             select(AnnotationProject)
-            .options(selectinload(AnnotationProject.dataset), selectinload(AnnotationProject.dataset_version))
+            .options(
+                selectinload(AnnotationProject.dataset),
+                selectinload(AnnotationProject.dataset_version),
+                selectinload(AnnotationProject.template),
+            )
             .where(AnnotationProject.tenant_id == tenant_id)
         )
         if keyword:
@@ -355,7 +374,11 @@ class AnnotationService:
     async def get_project(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> AnnotationProject:
         result = await self.db.execute(
             select(AnnotationProject)
-            .options(selectinload(AnnotationProject.dataset), selectinload(AnnotationProject.dataset_version))
+            .options(
+                selectinload(AnnotationProject.dataset),
+                selectinload(AnnotationProject.dataset_version),
+                selectinload(AnnotationProject.template),
+            )
             .where(AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id)
         )
         project = result.scalar_one_or_none()
@@ -425,7 +448,10 @@ class AnnotationService:
 
         query = (
             select(AnnotationTask)
-            .options(selectinload(AnnotationTask.project), selectinload(AnnotationTask.assignee))
+            .options(
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.template),
+                selectinload(AnnotationTask.assignee),
+            )
             .where(
                 AnnotationTask.project_id == project_id,
                 AnnotationTask.tenant_id == tenant_id,
@@ -632,7 +658,10 @@ class AnnotationService:
     ) -> tuple[list[AnnotationTask], int]:
         query = (
             select(AnnotationTask)
-            .options(selectinload(AnnotationTask.project), selectinload(AnnotationTask.assignee))
+            .options(
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.template),
+                selectinload(AnnotationTask.assignee),
+            )
             .where(
                 AnnotationTask.tenant_id == tenant_id,
                 AnnotationTask.assigned_to == user_id,
@@ -646,29 +675,51 @@ class AnnotationService:
         result = await self.db.execute(query.offset((page - 1) * page_size).limit(page_size))
         return list(result.scalars().all()), total
 
+    async def list_my_task_ids(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> list[uuid.UUID]:
+        """按创建时间升序返回当前用户在项目内被分配的所有任务 ID,用于工作台前后跳转。"""
+        await self._validate_project_membership(project_id, tenant_id)
+        result = await self.db.execute(
+            select(AnnotationTask.id)
+            .where(
+                AnnotationTask.project_id == project_id,
+                AnnotationTask.tenant_id == tenant_id,
+                AnnotationTask.assigned_to == user_id,
+            )
+            .order_by(AnnotationTask.created_at)
+        )
+        return list(result.scalars().all())
+
     async def get_my_task_summary(self, tenant_id: uuid.UUID, user_id: uuid.UUID) -> list[dict[str, Any]]:
+        from app.models.annotation_template import AnnotationTemplate
+
         result = await self.db.execute(
             select(
                 AnnotationTask.project_id,
                 AnnotationProject.name.label("project_name"),
-                AnnotationProject.annotation_type,
+                AnnotationTemplate.name.label("template_name"),
                 func.count().label("total_tasks"),
                 func.count().filter(AnnotationTask.status == "assigned").label("assigned_tasks"),
                 func.count().filter(AnnotationTask.status == "completed").label("completed_tasks"),
             )
             .join(AnnotationProject, AnnotationTask.project_id == AnnotationProject.id)
+            .outerjoin(AnnotationTemplate, AnnotationProject.template_id == AnnotationTemplate.id)
             .where(
                 AnnotationTask.tenant_id == tenant_id,
                 AnnotationTask.assigned_to == user_id,
             )
-            .group_by(AnnotationTask.project_id, AnnotationProject.name, AnnotationProject.annotation_type)
+            .group_by(AnnotationTask.project_id, AnnotationProject.name, AnnotationTemplate.name)
         )
         rows = result.all()
         return [
             {
                 "project_id": row.project_id,
                 "project_name": row.project_name,
-                "annotation_type": row.annotation_type,
+                "template_name": row.template_name or "—",
                 "total_tasks": row.total_tasks,
                 "assigned_tasks": row.assigned_tasks,
                 "completed_tasks": row.completed_tasks,
@@ -707,8 +758,8 @@ class AnnotationService:
         task = await self._get_task_with_project(task_id, tenant_id)
         if task.assigned_to != user_id:
             raise ForbiddenException("只能提交分配给自己的任务")
-        if task.status != "in_progress":
-            raise ForbiddenException("任务状态不是「进行中」，无法提交")  # noqa: RUF001
+        if task.status not in ("assigned", "in_progress"):
+            raise ForbiddenException("任务状态不是「已分配」或「进行中」，无法提交")  # noqa: RUF001
 
         # 1. Mirror to Label Studio.
         if task.label_studio_task_id:
@@ -732,7 +783,6 @@ class AnnotationService:
         payload = {
             "task_id": str(task_id),
             "annotation_project_id": str(project.id),
-            "annotation_type": project.annotation_type,
             "result": result,
             "submitted_at": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
             "submitted_by": str(user_id),
@@ -822,6 +872,7 @@ class AnnotationService:
             .options(
                 selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset),
                 selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset_version),
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.template),
                 selectinload(AnnotationTask.assignee),
             )
             .where(
@@ -874,7 +925,7 @@ class AnnotationService:
     async def _refresh_download_url(self, task: AnnotationTask) -> AnnotationTask:
         """Refresh download URLs in task data for URL-based annotation types."""
         project = task.project
-        if not project or not project.dataset or not project.dataset_version:
+        if not project or not project.dataset or not project.dataset_version or not project.label_config:
             return task
 
         config_info = parse_label_config(project.label_config)
@@ -899,7 +950,7 @@ class AnnotationService:
             .options(
                 selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset),
                 selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset_version),
-                selectinload(AnnotationTask.project),
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.template),
                 selectinload(AnnotationTask.assignee),
             )
             .where(AnnotationTask.id == task_id, AnnotationTask.tenant_id == tenant_id)
@@ -915,6 +966,7 @@ class AnnotationService:
             .options(
                 selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset),
                 selectinload(AnnotationTask.project).selectinload(AnnotationProject.dataset_version),
+                selectinload(AnnotationTask.project).selectinload(AnnotationProject.template),
                 selectinload(AnnotationTask.assignee),
             )
             .where(AnnotationTask.id == task_id, AnnotationTask.tenant_id == tenant_id)

@@ -130,7 +130,10 @@ describe('AnnotationTemplatesPage', () => {
     const deleteBtn = screen.getByText('删除')
     expect(deleteBtn).toBeTruthy()
     // 按钮被 Popconfirm 包裹（点击会触发 Popconfirm）
-    expect(deleteBtn.closest('.ant-popconfirm-wrapper, [class*="popconfirm"]') ?? deleteBtn.parentElement).toBeTruthy()
+    expect(
+      deleteBtn.closest('.ant-popconfirm-wrapper, [class*="popconfirm"]') ??
+        deleteBtn.parentElement,
+    ).toBeTruthy()
   })
 
   it('delete flow calls service API and shows success', async () => {

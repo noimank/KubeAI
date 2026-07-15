@@ -3,28 +3,11 @@ import type { AnnotationProjectDetail } from '@/types/annotation'
 
 const { Text } = Typography
 
-const ANNOTATION_TYPE_MAP: Record<string, { label: string; color: string }> = {
-  image_classification: { label: '图像分类', color: 'blue' },
-  object_detection: { label: '目标检测', color: 'green' },
-  image_segmentation: { label: '图像分割', color: 'purple' },
-  text_classification: { label: '文本分类', color: 'orange' },
-  choices: { label: '分类选择', color: 'blue' },
-  rectanglelabels: { label: '矩形框', color: 'green' },
-  polygonlabels: { label: '多边形', color: 'purple' },
-  textarea: { label: '文本填写', color: 'orange' },
-  rating: { label: '评分', color: 'gold' },
-}
-
 interface ProjectInfoProps {
   project: AnnotationProjectDetail
 }
 
 export default function ProjectInfo({ project }: ProjectInfoProps) {
-  const typeInfo = ANNOTATION_TYPE_MAP[project.annotationType] || {
-    label: project.annotationType,
-    color: 'default',
-  }
-
   return (
     <Card style={{ marginBottom: 16 }}>
       <Row gutter={[24, 12]} align="middle">
@@ -37,9 +20,9 @@ export default function ProjectInfo({ project }: ProjectInfoProps) {
           </Text>
         </Col>
         <Col>
-          <Text type="secondary">标注类型</Text>
+          <Text type="secondary">标注模板</Text>
           <br />
-          <Tag color={typeInfo.color}>{typeInfo.label}</Tag>
+          <Tag color="blue">{project.templateName || '—'}</Tag>
         </Col>
         <Col flex="auto">
           <Text type="secondary">进度</Text>

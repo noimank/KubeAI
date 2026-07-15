@@ -16,27 +16,21 @@ export async function listAnnotationTemplates(params: {
   group?: string
 }): Promise<PageData<AnnotationTemplate>> {
   const { current, pageSize, ...rest } = params
-  const res = await api.get<BaseResponse<PageData<AnnotationTemplate>>>(
-    '/annotation-templates',
-    { params: { page: current, pageSize, ...rest } },
-  )
+  const res = await api.get<BaseResponse<PageData<AnnotationTemplate>>>('/annotation-templates', {
+    params: { page: current, pageSize, ...rest },
+  })
   return res.data.data!
 }
 
 export async function getAnnotationTemplate(id: string): Promise<AnnotationTemplateDetail> {
-  const res = await api.get<BaseResponse<AnnotationTemplateDetail>>(
-    `/annotation-templates/${id}`,
-  )
+  const res = await api.get<BaseResponse<AnnotationTemplateDetail>>(`/annotation-templates/${id}`)
   return res.data.data!
 }
 
 export async function createAnnotationTemplate(
   data: AnnotationTemplateCreateRequest,
 ): Promise<AnnotationTemplateDetail> {
-  const res = await api.post<BaseResponse<AnnotationTemplateDetail>>(
-    '/annotation-templates',
-    data,
-  )
+  const res = await api.post<BaseResponse<AnnotationTemplateDetail>>('/annotation-templates', data)
   return res.data.data!
 }
 
@@ -44,10 +38,7 @@ export async function updateAnnotationTemplate(
   id: string,
   data: AnnotationTemplateUpdateRequest,
 ): Promise<AnnotationTemplate> {
-  const res = await api.patch<BaseResponse<AnnotationTemplate>>(
-    `/annotation-templates/${id}`,
-    data,
-  )
+  const res = await api.patch<BaseResponse<AnnotationTemplate>>(`/annotation-templates/${id}`, data)
   return res.data.data!
 }
 

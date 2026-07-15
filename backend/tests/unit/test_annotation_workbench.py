@@ -16,14 +16,12 @@ _NOW = datetime(2026, 5, 19, 12, 0, 0, tzinfo=UTC)
 
 
 def _make_project(
-    annotation_type="image_classification",
     tenant_id=None,
     dataset_id=None,
     version_id=None,
 ):
     project = AnnotationProject(
         name="test-project",
-        annotation_type=annotation_type,
         label_config="""<View>
   <Image name="image" value="$image"/>
   <Choices name="choice" toName="image">
@@ -117,6 +115,31 @@ def service(mock_db, mock_ls):
     svc.storage.delete_file = AsyncMock(return_value=True)
     svc.storage.get_file_path = MagicMock(side_effect=lambda tn, dn, vn, fn: Path(f"/fake/{tn}/{dn}/v{vn}/{fn}"))
     return svc
+
+
+class TestListMyTaskIds:
+    async def test_returns_ordered_user_owned_ids(self, service, mock_db):
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        other_user = uuid.uuid4()
+        project = _make_project(tenant_id=tenant_id)
+        service._validate_project_membership = AsyncMock()
+
+        t1 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id)
+        t2 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=other_user)
+        t3 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id)
+        # 模拟按 created_at 排序后由 service 返回
+        service.db.execute = AsyncMock(return_value=_sync_result([t1, t2, t3]))
+
+        ids = await service.list_my_task_ids(project_id=project.id, tenant_id=tenant_id, user_id=user_id)
+        # 服务只信任 db 返回的列表;这里断言 db.execute 被以期望的过滤调用
+        called_stmt = service.db.execute.await_args.args[0]
+        compiled = str(called_stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "annotation_tasks" in compiled
+        assert "project_id" in compiled
+        assert "assigned_to" in compiled
+        assert "created_at" in compiled  # order_by
+        assert isinstance(ids, list)
 
 
 class TestStartAnnotation:
@@ -239,7 +262,8 @@ class TestSubmitAnnotation:
         assert project.completed_tasks == 10
         assert project.status == "completed"
 
-    async def test_submit_annotation_not_in_progress(self, service, mock_db):
+    async def test_submit_annotation_from_assigned_status(self, service, mock_db):
+        """提交 assigned 状态的任务能隐式 start 后提交成功。"""
         tenant_id = uuid.uuid4()
         user_id = uuid.uuid4()
         project = _make_project(tenant_id=tenant_id)
@@ -253,8 +277,10 @@ class TestSubmitAnnotation:
 
         mock_db.execute = AsyncMock(return_value=_sync_result(task))
 
-        with pytest.raises(ForbiddenException, match="进行中"):
-            await service.submit_annotation(task.id, tenant_id, user_id, result=[])
+        result = await service.submit_annotation(task.id, tenant_id, user_id, result=[])
+
+        assert result.status == "completed"
+        assert project.completed_tasks == 1
 
 
 class TestCancelAnnotation:

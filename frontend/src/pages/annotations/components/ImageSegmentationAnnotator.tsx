@@ -1,296 +1,320 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { Button, Space, Select, List, Tag, Popconfirm } from 'antd'
-import { DeleteOutlined, BorderOutlined, SelectOutlined } from '@ant-design/icons'
-import { Stage, Layer, Image as KonvaImage, Line } from 'react-konva'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button, List, Space, Tag, Typography } from 'antd'
+import { BorderOutlined, DeleteOutlined, SelectOutlined, UndoOutlined } from '@ant-design/icons'
+import { Line } from 'react-konva'
 import type Konva from 'konva'
-import type { AnnotationTask, AnnotationProjectDetail } from '@/types/annotation'
-import type { AnnotationResultItem } from '@/types/annotation'
 import { getMessageInstance } from '@/utils/messageHolder'
-import { appendAuthToken } from '@/utils/constants'
-import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
+import { useZoomPan } from './useZoomPan'
+import ZoomPanImageStage from './ZoomPanImageStage'
+import LabelPalette from './LabelPalette'
+import { labelColor } from './annotationColors'
+import type { AnnotationRegion } from '../hooks/useAnnotationRegions'
+import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
 
-interface Polygon {
-  id: string
-  points: number[]
-  label: string
-  closed: boolean
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Flatten polygon points to Konva flat array format [x0,y0,x1,y1,...] */
+function toFlatPoints(pts: [number, number][]): number[] {
+  return pts.flat()
 }
 
-interface ImageSegmentationAnnotatorProps {
-  task: AnnotationTask
-  project: AnnotationProjectDetail
-  labels: string[]
-  objectConfig?: LabelStudioObjectConfig
-  controlConfig?: LabelStudioControlConfig
-  onSubmit: (result: AnnotationResultItem[]) => void
-  submitting: boolean
-}
-
-type ToolMode = 'select' | 'draw'
+// ── Component ───────────────────────────────────────────────────────────────
 
 export default function ImageSegmentationAnnotator({
   task,
-  labels,
   objectConfig,
   controlConfig,
-  onSubmit,
-  submitting,
-}: ImageSegmentationAnnotatorProps) {
+  readOnly = false,
+  regions,
+  selectedRegionId,
+  imageDimensions,
+  onAddRegion,
+  onUpdateRegion,
+  onDeleteRegion,
+  onSelectRegion,
+  onImageDimensionsChange,
+}: SpatialAnnotatorProps) {
+  const hasLabels = controlConfig.type === 'polygonlabels'
   const imageField = objectConfig?.field || 'image'
   const imageUrl = task.data?.[imageField] as string | undefined
-  const [image, setImage] = useState<HTMLImageElement | null>(null)
-  const [polygons, setPolygons] = useState<Polygon[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [toolMode, setToolMode] = useState<ToolMode>('draw')
-  const [currentPoints, setCurrentPoints] = useState<number[]>([])
-  const [pendingLabelPoints, setPendingLabelPoints] = useState<number[] | null>(null)
-  const stageRef = useRef<Konva.Stage>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [stageSize, setStageSize] = useState({ width: 600, height: 400 })
+  const zp = useZoomPan(imageUrl)
 
+  type ToolMode = 'select' | 'draw'
+  const [toolMode, setToolMode] = useState<ToolMode>('draw')
+  const [activeLabel, setActiveLabel] = useState<string | null>(
+    hasLabels ? controlConfig.choices[0]?.value ?? null : null,
+  )
+  const [currentPoints, setCurrentPoints] = useState<[number, number][]>([])
+
+  // Reset tool state on task change
   useEffect(() => {
-    setPolygons([])
-    setSelectedId(null)
     setToolMode('draw')
     setCurrentPoints([])
-    setPendingLabelPoints(null)
-    setImage(null)
-  }, [task.id])
+    if (hasLabels) setActiveLabel(controlConfig.choices[0]?.value ?? null)
+  }, [task.id, hasLabels, controlConfig.choices])
 
+  // Track image dimensions
   useEffect(() => {
-    if (!imageUrl) return
-    let cancelled = false
-    const img = new window.Image()
-    img.crossOrigin = 'anonymous'
-    img.src = appendAuthToken(imageUrl)
-    img.onload = () => {
-      if (!cancelled) setImage(img)
+    if (zp.image && !imageDimensions) {
+      onImageDimensionsChange({ width: zp.image.width, height: zp.image.height })
     }
-    return () => {
-      cancelled = true
-    }
-  }, [imageUrl])
+  }, [zp.image, imageDimensions, onImageDimensionsChange])
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setStageSize({
-          width: entry.contentRect.width,
-          height: Math.max(400, entry.contentRect.height),
-        })
-      }
-    })
-    observer.observe(container)
-    return () => observer.disconnect()
+  const handleUndoPoint = useCallback(() => {
+    setCurrentPoints((prev) => prev.slice(0, -1))
   }, [])
 
-  const scale = image ? Math.min(stageSize.width / image.width, stageSize.height / image.height) : 1
-  const offsetX = image ? (stageSize.width - image.width * scale) / 2 : 0
-  const offsetY = image ? (stageSize.height - image.height * scale) / 2 : 0
+  // Stable refs to avoid re-registering the Ctrl+Z listener on every point/region change
+  const currentPointsRef = useRef(currentPoints)
+  currentPointsRef.current = currentPoints
+  const regionsRef = useRef(regions)
+  regionsRef.current = regions
 
-  const handleStageClick = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (toolMode !== 'draw') return
-      const stage = e.target.getStage()
-      if (!stage) return
-      const pos = stage.getPointerPosition()
-      if (!pos) return
-      setCurrentPoints((prev) => [...prev, pos.x, pos.y])
-    },
-    [toolMode],
+  // Ctrl+Z
+  useEffect(() => {
+    if (readOnly) return
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault()
+        if (currentPointsRef.current.length > 0) handleUndoPoint()
+        else {
+          const regs = regionsRef.current
+          const last = regs[regs.length - 1]
+          if (last) onDeleteRegion(last.id)
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [readOnly, handleUndoPoint, onDeleteRegion])
+
+  // Filter to only polygon regions from this control
+  const polyRegions = useMemo(
+    () => regions.filter((r) => r.sourceControlName === controlConfig.name && r.type === 'polygon'),
+    [regions, controlConfig.name],
   )
 
-  const handleDoubleClick = useCallback(() => {
-    if (currentPoints.length < 6) return
-    if (labels.length === 1) {
-      setPolygons((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), points: [...currentPoints], label: labels[0], closed: true },
-      ])
-    } else {
-      setPendingLabelPoints([...currentPoints])
-    }
-    setCurrentPoints([])
-  }, [currentPoints, labels])
-
-  const handleLabelSelect = (label: string) => {
-    if (!pendingLabelPoints) return
-    setPolygons((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), points: [...pendingLabelPoints], label, closed: true },
-    ])
-    setPendingLabelPoints(null)
-  }
-
-  const handleDelete = (id: string) => {
-    setPolygons((prev) => prev.filter((p) => p.id !== id))
-    if (selectedId === id) setSelectedId(null)
-  }
-
-  const handleUndoPoint = () => {
-    setCurrentPoints((prev) => prev.slice(0, -2))
-  }
-
-  const handleSubmit = () => {
-    if (polygons.length === 0) {
-      getMessageInstance()?.warning('请至少绘制一个标注区域')
+  const finishPolygon = useCallback(() => {
+    if (currentPoints.length < 3) return
+    if (hasLabels && !activeLabel) {
+      getMessageInstance()?.warning('请先选择标签(点击或按数字键 1-9)')
       return
     }
-    const imgW = image?.width || 1
-    const imgH = image?.height || 1
-
-    const result: AnnotationResultItem[] = polygons.map((poly) => {
-      const points: number[][] = []
-      for (let i = 0; i < poly.points.length; i += 2) {
-        points.push([
-          ((poly.points[i] - offsetX) / scale / imgW) * 100,
-          ((poly.points[i + 1] - offsetY) / scale / imgH) * 100,
-        ])
-      }
-      return {
-        from_name: controlConfig?.name || 'label',
-        to_name: controlConfig?.toName || objectConfig?.name || 'image',
-        type: 'polygonlabels',
-        value: { points, polygonlabels: [poly.label] },
-      }
+    // Compute bounding box from points
+    const xs = currentPoints.map((p) => p[0])
+    const ys = currentPoints.map((p) => p[1])
+    const minX = Math.min(...xs)
+    const minY = Math.min(...ys)
+    onAddRegion({
+      id: crypto.randomUUID(),
+      type: 'polygon',
+      label: activeLabel ?? undefined,
+      spatial: {
+        x: minX,
+        y: minY,
+        width: Math.max(...xs) - minX,
+        height: Math.max(...ys) - minY,
+        points: [...currentPoints],
+      },
+      sourceControlName: controlConfig.name,
+      perRegionResults: {},
     })
-    onSubmit(result)
-  }
+    setCurrentPoints([])
+  }, [currentPoints, hasLabels, activeLabel, controlConfig.name, onAddRegion])
 
-  const COLORS = ['#1677FF', '#52C41A', '#FAAD14', '#FF4D4F', '#722ED1', '#13C2C2', '#EB2F96']
+  // Stage handlers
+  const onStageClick = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (readOnly || zp.panEffective || toolMode !== 'draw') return
+      if (e.evt.button !== 0) return
+      // Only add vertex on empty canvas, not when clicking on existing polygons
+      if (e.target !== e.target.getStage()) return
+      const p = zp.pointerToImage()
+      if (!p) return
+      setCurrentPoints((prev) => [...prev, [p.x, p.y]])
+    },
+    [readOnly, zp, toolMode],
+  )
+
+  const onStageDblClick = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (readOnly || zp.panEffective || toolMode !== 'draw') return
+      e.evt.preventDefault()
+      finishPolygon()
+    },
+    [readOnly, zp, toolMode, finishPolygon],
+  )
+
+  const handleDelete = useCallback(
+    (id: string) => {
+      onDeleteRegion(id)
+    },
+    [onDeleteRegion],
+  )
+
+  const toolbar = readOnly ? null : (
+    <Space.Compact>
+      <Button
+        type={toolMode === 'draw' ? 'primary' : 'default'}
+        icon={<BorderOutlined />}
+        onClick={() => { setToolMode('draw'); onSelectRegion(null) }}
+      >
+        绘制
+      </Button>
+      <Button
+        type={toolMode === 'select' ? 'primary' : 'default'}
+        icon={<SelectOutlined />}
+        onClick={() => { setToolMode('select'); setCurrentPoints([]) }}
+      >
+        选择
+      </Button>
+    </Space.Compact>
+  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%' }}>
-      <Space>
-        <Button
-          type={toolMode === 'draw' ? 'primary' : 'default'}
-          icon={<BorderOutlined />}
-          onClick={() => {
-            setToolMode('draw')
-            setCurrentPoints([])
-            setSelectedId(null)
-          }}
-        >
-          绘制多边形
-        </Button>
-        <Button
-          type={toolMode === 'select' ? 'primary' : 'default'}
-          icon={<SelectOutlined />}
-          onClick={() => {
-            setToolMode('select')
-            setCurrentPoints([])
-          }}
-        >
-          选择
-        </Button>
-        {toolMode === 'draw' && currentPoints.length > 0 && (
-          <Button onClick={handleUndoPoint}>撤销顶点</Button>
-        )}
-        <Popconfirm
-          title="确认删除?"
-          onConfirm={() => selectedId && handleDelete(selectedId)}
-          disabled={!selectedId}
-        >
-          <Button icon={<DeleteOutlined />} disabled={!selectedId}>
-            删除选中
-          </Button>
-        </Popconfirm>
-        <Button
-          type="primary"
-          onClick={handleSubmit}
-          disabled={submitting || polygons.length === 0}
-        >
-          {submitting ? '提交中...' : `提交 (${polygons.length})`}
-        </Button>
-      </Space>
-
-      <div
-        ref={containerRef}
-        style={{
-          flex: 1,
-          border: '1px solid var(--ant-color-border)',
-          borderRadius: 6,
-          overflow: 'hidden',
-        }}
-      >
-        <Stage
-          ref={stageRef}
-          width={stageSize.width}
-          height={stageSize.height}
-          onClick={handleStageClick}
-          onDblClick={handleDoubleClick}
-        >
-          <Layer>
-            {image && (
-              <KonvaImage image={image} x={offsetX} y={offsetY} scaleX={scale} scaleY={scale} />
-            )}
-            {polygons.map((poly, i) => (
-              <Line
-                key={poly.id}
-                points={poly.points}
-                closed={poly.closed}
-                fill={`${COLORS[i % COLORS.length]}30`}
-                stroke={COLORS[i % COLORS.length]}
-                strokeWidth={2}
-                onClick={() => {
-                  if (toolMode === 'select') setSelectedId(poly.id)
-                }}
-              />
-            ))}
-            {currentPoints.length > 0 && (
-              <Line points={currentPoints} stroke="#1677FF" strokeWidth={2} dash={[4, 4]} />
-            )}
-          </Layer>
-        </Stage>
-      </div>
-
-      {toolMode === 'draw' && currentPoints.length > 0 && (
-        <div style={{ padding: 4, color: 'var(--ant-color-text-secondary)', fontSize: 12 }}>
-          点击添加顶点，双击闭合多边形。已有 {currentPoints.length / 2} 个顶点。
-        </div>
+      {!readOnly && hasLabels && (
+        <LabelPalette
+          labels={controlConfig.choices.map((c) => c.value)}
+          activeLabel={activeLabel}
+          onChange={setActiveLabel}
+        />
       )}
 
-      {pendingLabelPoints && (
-        <div style={{ padding: 8, background: 'var(--ant-color-bg-layout)', borderRadius: 6 }}>
-          <span style={{ marginRight: 8 }}>选择标签:</span>
-          <Select
-            placeholder="选择标签"
-            style={{ width: 200 }}
-            onSelect={handleLabelSelect}
-            autoFocus
-            options={labels.map((l) => ({ label: l, value: l }))}
+      <div style={{ flex: 1, position: 'relative', minHeight: 400 }}>
+        <ZoomPanImageStage
+          controller={zp}
+          toolbarExtra={
+            <Space>
+              {toolbar}
+              {!readOnly && (
+                <>
+                  {toolMode === 'draw' && currentPoints.length >= 3 && (
+                    <Button type="dashed" onClick={finishPolygon}>
+                      闭合 ({currentPoints.length} 点)
+                    </Button>
+                  )}
+                  {toolMode === 'draw' && currentPoints.length > 0 && (
+                    <Button icon={<UndoOutlined />} onClick={handleUndoPoint}>
+                      撤销顶点
+                    </Button>
+                  )}
+                  <Button
+                    icon={<DeleteOutlined />}
+                    disabled={!selectedRegionId}
+                    onClick={() => selectedRegionId && onDeleteRegion(selectedRegionId)}
+                  >
+                    删除选中
+                  </Button>
+                  <Tag>{polyRegions.length} 个区域</Tag>
+                </>
+              )}
+            </Space>
+          }
+          onStageClick={onStageClick}
+          onStageDblClick={onStageDblClick}
+          renderContent={({ visibleStrokeWidth }) => (
+            <>
+              {polyRegions.map((region, i) => {
+                const pts = region.spatial.points ?? []
+                return (
+                  <Line
+                    key={region.id}
+                    id={region.id}
+                    points={toFlatPoints(pts)}
+                    closed
+                    stroke={labelColor(i)}
+                    strokeWidth={visibleStrokeWidth(2)}
+                    fill={`${labelColor(i)}30`}
+                    draggable={!readOnly && toolMode === 'select' && !zp.panEffective}
+                    onClick={() => {
+                      if (!readOnly) onSelectRegion(selectedRegionId === region.id ? null : region.id)
+                    }}
+                    onContextMenu={(e) => {
+                      e.evt.preventDefault()
+                      if (!readOnly) onSelectRegion(region.id)
+                    }}
+                    onDragEnd={(e) => {
+                      const node = e.target
+                      const dx = node.x()
+                      const dy = node.y()
+                      const newPoints: [number, number][] = pts.map(
+                        ([px, py]) => [px + dx, py + dy],
+                      )
+                      const xs = newPoints.map((p) => p[0])
+                      const ys = newPoints.map((p) => p[1])
+                      onUpdateRegion(region.id, {
+                        spatial: {
+                          ...region.spatial,
+                          x: Math.min(...xs),
+                          y: Math.min(...ys),
+                          width: Math.max(...xs) - Math.min(...xs),
+                          height: Math.max(...ys) - Math.min(...ys),
+                          points: newPoints,
+                        },
+                      })
+                      node.position({ x: 0, y: 0 })
+                    }}
+                  />
+                )
+              })}
+              {currentPoints.length > 0 && (
+                <Line
+                  points={toFlatPoints(currentPoints)}
+                  stroke="#1677FF"
+                  strokeWidth={visibleStrokeWidth(2)}
+                  dash={[4, 4]}
+                />
+              )}
+            </>
+          )}
+        />
+
+      </div>
+      {/* Region list — placed below canvas to avoid occluding the image */}
+      {polyRegions.length > 0 && (
+        <div style={{
+          maxHeight: 120,
+          overflowY: 'auto',
+          background: 'var(--ant-color-bg-container)',
+          border: '1px solid var(--ant-color-border)',
+          borderRadius: 6,
+          flexShrink: 0,
+        }}>
+          <List
+            size="small"
+            dataSource={polyRegions}
+            renderItem={(region: AnnotationRegion, i: number) => (
+              <List.Item
+                style={{
+                  padding: '4px 12px',
+                  cursor: 'pointer',
+                  background: selectedRegionId === region.id ? 'var(--ant-color-primary-bg)' : undefined,
+                }}
+                onClick={() => onSelectRegion(region.id)}
+              >
+                <Space>
+                  <Tag color={labelColor(i)}>{i + 1}</Tag>
+                  <span>{region.label || `区域 ${i + 1}`}</span>
+                </Space>
+                {!readOnly && (
+                  <Button
+                    type="text" size="small" icon={<DeleteOutlined />}
+                    onClick={(e) => { e.stopPropagation(); handleDelete(region.id) }}
+                  />
+                )}
+              </List.Item>
+            )}
           />
         </div>
       )}
 
-      {polygons.length > 0 && (
-        <List
-          size="small"
-          dataSource={polygons}
-          style={{ maxHeight: 150, overflowY: 'auto' }}
-          renderItem={(poly, i) => (
-            <List.Item
-              style={{ padding: '4px 12px', cursor: 'pointer' }}
-              onClick={() => setSelectedId(poly.id)}
-            >
-              <Space>
-                <Tag color={COLORS[i % COLORS.length]}>{i + 1}</Tag>
-                <span>{poly.label}</span>
-              </Space>
-              <Button
-                type="text"
-                size="small"
-                icon={<DeleteOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleDelete(poly.id)
-                }}
-              />
-            </List.Item>
-          )}
-        />
+      {!readOnly && toolMode === 'draw' && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          点击添加顶点，双击或点「闭合」结束多边形（至少 3 个顶点）。
+        </Typography.Text>
       )}
     </div>
   )

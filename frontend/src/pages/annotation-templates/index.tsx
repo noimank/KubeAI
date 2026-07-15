@@ -71,10 +71,7 @@ export default function AnnotationTemplatesPage() {
       width: 80,
       render: (_: unknown, record: AnnotationTemplate) =>
         canWrite ? (
-          <Popconfirm
-            title="确认删除模板?"
-            onConfirm={() => handleDelete(record.id)}
-          >
+          <Popconfirm title="确认删除模板?" onConfirm={() => handleDelete(record.id)}>
             <Button type="text" danger icon={<DeleteOutlined />}>
               删除
             </Button>

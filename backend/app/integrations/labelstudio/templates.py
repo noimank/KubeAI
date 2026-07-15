@@ -3,71 +3,22 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import Any
 
 from app.core.exceptions import BadRequestException
-
-COMMUNITY_LABEL_CONFIG_PRESETS: dict[str, dict[str, str]] = {
-    "image_choices": {
-        "key": "image_choices",
-        "label": "图像分类",
-        "description": "基于 Label Studio Choices 控件的图像分类配置，可按业务类别修改 Choice。",  # noqa: RUF001
-        "config": """<View>
-  <Image name="image" value="$image"/>
-  <Choices name="choice" toName="image" choice="single-radio">
-    <Choice value="类别1"/>
-    <Choice value="类别2"/>
-  </Choices>
-</View>""",
-    },
-    "object_detection": {
-        "key": "object_detection",
-        "label": "目标检测",
-        "description": "基于 Label Studio RectangleLabels 控件的图像矩形框标注配置。",
-        "config": """<View>
-  <Image name="image" value="$image"/>
-  <RectangleLabels name="label" toName="image">
-    <Label value="目标1" background="#1677FF"/>
-    <Label value="目标2" background="#52C41A"/>
-  </RectangleLabels>
-</View>""",
-    },
-    "image_segmentation": {
-        "key": "image_segmentation",
-        "label": "图像分割",
-        "description": "基于 Label Studio PolygonLabels 控件的图像多边形标注配置。",
-        "config": """<View>
-  <Image name="image" value="$image"/>
-  <PolygonLabels name="label" toName="image">
-    <Label value="区域1" background="#1677FF"/>
-    <Label value="区域2" background="#52C41A"/>
-  </PolygonLabels>
-</View>""",
-    },
-    "text_choices": {
-        "key": "text_choices",
-        "label": "文本分类",
-        "description": "基于 Label Studio Text + Choices 控件的文本分类配置。",
-        "config": """<View>
-  <Text name="text" value="$text"/>
-  <Choices name="sentiment" toName="text" choice="single-radio">
-    <Choice value="正面"/>
-    <Choice value="负面"/>
-    <Choice value="中性"/>
-  </Choices>
-</View>""",
-    },
-}
-
-LABELING_TEMPLATES = COMMUNITY_LABEL_CONFIG_PRESETS
 
 OBJECT_TAGS = {"Image", "Text", "Audio", "Video", "HyperText", "PDF"}
 CONTROL_TAGS = {
     "Choices",
     "RectangleLabels",
+    "Rectangle",
     "PolygonLabels",
+    "Polygon",
     "BrushLabels",
+    "Brush",
     "KeyPointLabels",
+    "KeyPoint",
+    "EllipseLabels",
+    "Ellipse",
     "Labels",
     "TextArea",
     "Rating",
@@ -79,15 +30,28 @@ TEXT_OBJECT_TAGS = {"Text", "HyperText"}
 CONTROL_TYPE_BY_TAG = {
     "Choices": "choices",
     "RectangleLabels": "rectanglelabels",
+    "Rectangle": "rectangle",
     "PolygonLabels": "polygonlabels",
+    "Polygon": "polygon",
     "BrushLabels": "brushlabels",
+    "Brush": "brush",
     "KeyPointLabels": "keypointlabels",
+    "KeyPoint": "keypoint",
+    "EllipseLabels": "ellipselabels",
+    "Ellipse": "ellipse",
     "Labels": "labels",
     "TextArea": "textarea",
     "Rating": "rating",
     "Number": "number",
     "Taxonomy": "taxonomy",
 }
+
+# Spatial control tags that create geometry regions (no embedded labels)
+SPATIAL_BARE_TAGS = {"Rectangle", "Polygon", "KeyPoint", "Ellipse", "Brush"}
+# Spatial control tags that include embedded labels
+SPATIAL_LABELED_TAGS = {"RectangleLabels", "PolygonLabels", "KeyPointLabels", "EllipseLabels", "BrushLabels"}
+# Tags that support perRegion classification
+PER_REGION_CAPABLE_TAGS = {"TextArea", "Choices", "Rating", "Number", "Taxonomy"}
 
 
 @dataclass(frozen=True)
@@ -111,13 +75,15 @@ class LabelControl:
     control_type: str
     choices: list[LabelChoice]
     choice_mode: str | None = None
+    per_region: bool = False
+    when_label_value: str | None = None
+    display_mode: str | None = None
 
 
 @dataclass(frozen=True)
 class LabelConfigInfo:
     objects: list[LabelObject]
     controls: list[LabelControl]
-    annotation_type: str
 
 
 def _field_from_value(value: str | None) -> str | None:
@@ -162,6 +128,9 @@ def parse_label_config(label_config: str) -> LabelConfigInfo:
                     control_type=CONTROL_TYPE_BY_TAG[elem.tag],
                     choices=choices,
                     choice_mode=elem.attrib.get("choice"),
+                    per_region=elem.attrib.get("perRegion", "").lower() == "true",
+                    when_label_value=elem.attrib.get("whenLabelValue"),
+                    display_mode=elem.attrib.get("displayMode"),
                 )
             )
 
@@ -177,7 +146,6 @@ def parse_label_config(label_config: str) -> LabelConfigInfo:
     return LabelConfigInfo(
         objects=objects,
         controls=controls,
-        annotation_type=controls[0].control_type,
     )
 
 
@@ -187,33 +155,3 @@ def get_primary_data_object(info: LabelConfigInfo) -> LabelObject:
         if obj.name == first_control.to_name:
             return obj
     return info.objects[0]
-
-
-def get_annotation_result_template(annotation_type: str) -> dict[str, Any]:
-    templates: dict[str, dict[str, Any]] = {
-        "image_classification": {
-            "from_name": "choice",
-            "to_name": "image",
-            "type": "choices",
-            "value_key": "choices",
-        },
-        "text_classification": {
-            "from_name": "sentiment",
-            "to_name": "text",
-            "type": "choices",
-            "value_key": "choices",
-        },
-        "object_detection": {
-            "type": "rectanglelabels",
-            "value_keys": ["x", "y", "width", "height", "rectanglelabels"],
-        },
-        "image_segmentation": {"type": "polygonlabels", "value_keys": ["points", "polygonlabels"]},
-        "choices": {"type": "choices", "value_key": "choices"},
-        "rectanglelabels": {"type": "rectanglelabels", "value_keys": ["x", "y", "width", "height", "rectanglelabels"]},
-        "polygonlabels": {"type": "polygonlabels", "value_keys": ["points", "polygonlabels"]},
-        "textarea": {"type": "textarea", "value_key": "text"},
-        "rating": {"type": "rating", "value_key": "rating"},
-        "number": {"type": "number", "value_key": "number"},
-        "taxonomy": {"type": "taxonomy", "value_key": "taxonomy"},
-    }
-    return templates.get(annotation_type, {})

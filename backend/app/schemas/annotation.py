@@ -10,7 +10,7 @@ class AnnotationProjectCreateRequest(BaseModel):
     description: str | None = None
     dataset_id: uuid.UUID
     dataset_version_id: uuid.UUID
-    label_config: str = Field(min_length=1)
+    template_id: uuid.UUID
 
 
 class AnnotationProjectResponse(BaseModel):
@@ -19,7 +19,8 @@ class AnnotationProjectResponse(BaseModel):
     description: str | None
     dataset_id: uuid.UUID
     dataset_version_id: uuid.UUID
-    annotation_type: str
+    template_id: uuid.UUID | None
+    template_name: str | None = None
     label_studio_project_id: int | None
     total_tasks: int
     completed_tasks: int
@@ -34,19 +35,12 @@ class AnnotationProjectResponse(BaseModel):
 
 
 class AnnotationProjectDetailResponse(AnnotationProjectResponse):
-    label_config: str
+    label_config: str | None
     labeling_template_description: str | None = None
 
 
 class SyncTasksResponse(BaseModel):
     synced_count: int
-
-
-class AnnotationTemplateResponse(BaseModel):
-    key: str
-    label: str
-    description: str
-    config: str
 
 
 class AnnotationTaskResponse(BaseModel):
@@ -58,7 +52,7 @@ class AnnotationTaskResponse(BaseModel):
     assigned_to_name: str | None = None
     status: str
     project_name: str | None = None
-    annotation_type: str | None = None
+    template_name: str | None = None
     result: list[dict[str, Any]] | None = None
     submitted_at: datetime | None = None
     submitted_by: uuid.UUID | None = None
@@ -88,7 +82,7 @@ class AnnotationSubmitRequest(BaseModel):
 class AnnotationTaskSummaryResponse(BaseModel):
     project_id: uuid.UUID
     project_name: str
-    annotation_type: str
+    template_name: str
     total_tasks: int
     assigned_tasks: int
     completed_tasks: int

@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.clients import get_labelstudio_client
 from app.integrations.labelstudio.client import LabelStudioClient
-from app.integrations.labelstudio.templates import LABELING_TEMPLATES
 from app.schemas.annotation import (
     AnnotationBatchAssignRequest,
     AnnotationProjectCreateRequest,
@@ -19,7 +18,6 @@ from app.schemas.annotation import (
     AnnotationTaskResponse,
     AnnotationTaskSummaryResponse,
     AnnotationTaskUnassignRequest,
-    AnnotationTemplateResponse,
     SyncTasksResponse,
 )
 from app.schemas.base import BaseResponse, PageData, PageResponse
@@ -55,6 +53,7 @@ def _require_tenant_id(user: Any) -> uuid.UUID:
 def _build_project_response(project: Any) -> AnnotationProjectResponse:
     dataset = project.dataset
     version = project.dataset_version
+    template = project.template
     total = project.total_tasks or 0
     completed = project.completed_tasks or 0
     progress = round((completed / total * 100) if total > 0 else 0, 1)
@@ -65,7 +64,8 @@ def _build_project_response(project: Any) -> AnnotationProjectResponse:
         description=project.description,
         dataset_id=project.dataset_id,
         dataset_version_id=project.dataset_version_id,
-        annotation_type=project.annotation_type,
+        template_id=project.template_id,
+        template_name=template.name if template else None,
         label_studio_project_id=project.label_studio_project_id,
         total_tasks=total,
         completed_tasks=completed,
@@ -78,17 +78,6 @@ def _build_project_response(project: Any) -> AnnotationProjectResponse:
         dataset_version_number=version.version_number if version else None,
         progress_percent=progress,
     )
-
-
-@router.get("/templates", response_model=BaseResponse[list[AnnotationTemplateResponse]])
-async def get_templates(
-    user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
-) -> BaseResponse[list[AnnotationTemplateResponse]]:
-    templates = [
-        AnnotationTemplateResponse(key=t["key"], label=t["label"], description=t["description"], config=t["config"])
-        for t in LABELING_TEMPLATES.values()
-    ]
-    return BaseResponse(data=templates, message="获取成功")
 
 
 @router.post("/projects", response_model=BaseResponse[AnnotationProjectDetailResponse])
@@ -108,7 +97,7 @@ async def create_project(
         description=req.description,
         dataset_id=req.dataset_id,
         dataset_version_id=req.dataset_version_id,
-        label_config=req.label_config,
+        template_id=req.template_id,
         audit_context=_audit_ctx(request, user),
     )
     await enqueue_annotation_project_create(project.id, tenant_id)
@@ -127,7 +116,7 @@ async def list_projects(
     ls: LabelStudioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
     keyword: str | None = _keyword_query,
 ) -> PageResponse[AnnotationProjectResponse]:
     tenant_id = _require_tenant_id(user)
@@ -184,6 +173,7 @@ def _build_task_response(
     submitted_by: str | None = None,
     annotation_payload: dict[str, Any] | None = None,
 ) -> AnnotationTaskResponse:
+    template = project.template if project else None
     return AnnotationTaskResponse(
         id=task.id,
         project_id=task.project_id,
@@ -193,7 +183,7 @@ def _build_task_response(
         assigned_to_name=assignee.username if assignee else None,
         status=task.status,
         project_name=project.name if project else None,
-        annotation_type=project.annotation_type if project else None,
+        template_name=template.name if template else None,
         result=result,
         submitted_at=submitted_at,
         submitted_by=uuid.UUID(submitted_by) if submitted_by else None,
@@ -245,7 +235,7 @@ async def list_project_tasks(
     ls: LabelStudioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
     status: str | None = _status_query,
     assigned_to: uuid.UUID | None = _assigned_to_query,
 ) -> PageResponse[AnnotationTaskResponse]:
@@ -330,7 +320,7 @@ async def list_my_tasks(
     ls: LabelStudioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
 ) -> PageResponse[AnnotationTaskResponse]:
     tenant_id = _require_tenant_id(user)
     service = AnnotationService(db, ls)
@@ -400,6 +390,23 @@ async def submit_annotation(
         data=await _build_task_response_with_payload(service, task),
         message="标注提交成功",
     )
+
+
+@router.get("/projects/{project_id}/my-task-ids", response_model=BaseResponse[list[str]])
+async def list_my_project_task_ids(
+    project_id: uuid.UUID,
+    db: DbDep,
+    ls: LabelStudioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
+) -> BaseResponse[list[str]]:
+    tenant_id = _require_tenant_id(user)
+    service = AnnotationService(db, ls)
+    task_ids = await service.list_my_task_ids(
+        project_id=project_id,
+        tenant_id=tenant_id,
+        user_id=user.id,
+    )
+    return BaseResponse(data=[str(tid) for tid in task_ids], message="获取成功")
 
 
 @router.get("/projects/{project_id}/next-task", response_model=BaseResponse[AnnotationTaskResponse | None])

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, Image, Rate, Space, Tag, Typography } from 'antd'
-import { Stage, Layer, Image as KonvaImage, Rect, Line } from 'react-konva'
+import { Stage, Layer, Image as KonvaImage, Rect, Line, Ellipse, Circle } from 'react-konva'
 import type { AnnotationResultItem } from '@/types/annotation'
 import { appendAuthToken } from '@/utils/constants'
 
@@ -46,6 +46,7 @@ function pickLabels(item: AnnotationResultItem): string[] {
     'polygonlabels',
     'brushlabels',
     'keypointlabels',
+    'ellipselabels',
     'labels',
     'choices',
   ]) {
@@ -167,7 +168,7 @@ function ImageOverlay({ imageUrl, entries }: { imageUrl: string; entries: Entry[
           {entries.map((entry) => {
             const v = entry.item.value as Record<string, unknown>
             const color = entry.color
-            if (entry.item.type === 'rectanglelabels') {
+            if (entry.item.type === 'rectanglelabels' || entry.item.type === 'rectangle') {
               const x = (Number(v.x) / 100) * image.width * scale + offsetX
               const y = (Number(v.y) / 100) * image.height * scale + offsetY
               const w = (Number(v.width) / 100) * image.width * scale
@@ -185,7 +186,7 @@ function ImageOverlay({ imageUrl, entries }: { imageUrl: string; entries: Entry[
                 />
               )
             }
-            if (entry.item.type === 'polygonlabels') {
+            if (entry.item.type === 'polygonlabels' || entry.item.type === 'polygon') {
               const points = (Array.isArray(v.points) ? v.points : [])
                 .filter((p): p is number[] => Array.isArray(p) && p.length >= 2)
                 .flatMap((p) => [
@@ -203,6 +204,40 @@ function ImageOverlay({ imageUrl, entries }: { imageUrl: string; entries: Entry[
                 />
               )
             }
+            if (entry.item.type === 'keypointlabels' || entry.item.type === 'keypoint') {
+              const kpX = (Number(v.x) / 100) * image.width * scale + offsetX
+              const kpY = (Number(v.y) / 100) * image.height * scale + offsetY
+              return (
+                <Circle
+                  key={entry.index}
+                  x={kpX}
+                  y={kpY}
+                  radius={6}
+                  fill={color}
+                  stroke="#fff"
+                  strokeWidth={2}
+                />
+              )
+            }
+            if (entry.item.type === 'ellipselabels' || entry.item.type === 'ellipse') {
+              const cx = (Number(v.x) / 100) * image.width * scale + offsetX
+              const cy = (Number(v.y) / 100) * image.height * scale + offsetY
+              const rx = (Number(v.radiusX || (Number(v.width) / 2)) / 100) * image.width * scale
+              const ry = (Number(v.radiusY || (Number(v.height) / 2)) / 100) * image.height * scale
+              return (
+                <Ellipse
+                  key={entry.index}
+                  x={cx}
+                  y={cy}
+                  radiusX={rx}
+                  radiusY={ry}
+                  stroke={color}
+                  strokeWidth={2}
+                  fill={`${color}20`}
+                  rotation={Number(v.rotation) || 0}
+                />
+              )
+            }
             return null
           })}
         </Layer>
@@ -212,12 +247,15 @@ function ImageOverlay({ imageUrl, entries }: { imageUrl: string; entries: Entry[
 }
 
 function imageEntries(entries: Entry[]): Entry[] {
-  return entries.filter((e) => ['rectanglelabels', 'polygonlabels'].includes(e.item.type))
+  return entries.filter((e) =>
+    ['rectanglelabels', 'rectangle', 'polygonlabels', 'polygon',
+     'keypointlabels', 'keypoint', 'ellipselabels', 'ellipse'].includes(e.item.type),
+  )
 }
 
 function shapeListGroups(entries: Entry[]) {
   return entries.filter((e) =>
-    ['rectanglelabels', 'polygonlabels', 'brushlabels', 'keypointlabels', 'labels'].includes(
+    ['rectanglelabels', 'rectangle', 'polygonlabels', 'polygon', 'brushlabels', 'keypointlabels', 'labels'].includes(
       e.item.type,
     ),
   )
@@ -229,6 +267,11 @@ function choicesEntries(entries: Entry[]): Entry[] {
 
 function textareaEntries(entries: Entry[]): Entry[] {
   return entries.filter((e) => e.item.type === 'textarea')
+}
+
+/** 检查是否有 perRegion textarea（即 textarea 带有 area id） */
+function hasPerRegionTextareas(entries: Entry[]): boolean {
+  return entries.some((e) => e.item.type === 'textarea' && !!e.item.id)
 }
 
 function ratingEntries(entries: Entry[]): Entry[] {
@@ -324,16 +367,36 @@ export default function AnnotationPreview({
       {shapes.length > 0 && (
         <Card size="small" title={`区域标注 (${shapes.length})`} style={{ marginBottom: 12 }}>
           <Space direction="vertical" style={{ width: '100%' }}>
-            {shapes.map((entry) => (
-              <div key={entry.index}>
-                <EntryHead entry={entry} />
-              </div>
-            ))}
+            {shapes.map((entry) => {
+              // perRegion 关联的 textarea
+              const regionTextareas = hasPerRegionTextareas(entries)
+                ? entries.filter(
+                    (e) => e.item.type === 'textarea' && e.item.id === entry.item.id,
+                  )
+                : []
+              return (
+                <div key={entry.index}>
+                  <EntryHead entry={entry} />
+                  {regionTextareas.map((ta) => {
+                    const tv = ta.item.value as Record<string, unknown>
+                    return (
+                      <Text
+                        key={ta.index}
+                        type="secondary"
+                        style={{ fontSize: 12, display: 'block', marginLeft: 8 }}
+                      >
+                        📝 {String((tv.text as unknown[])?.[0] ?? '')}
+                      </Text>
+                    )
+                  })}
+                </div>
+              )
+            })}
           </Space>
         </Card>
       )}
 
-      {textareas.length > 0 && (
+      {!hasPerRegionTextareas(entries) && textareas.length > 0 && (
         <Card size="small" title="文本标注" style={{ marginBottom: 12 }}>
           {textareas.map((entry) => {
             const v = entry.item.value as Record<string, unknown>

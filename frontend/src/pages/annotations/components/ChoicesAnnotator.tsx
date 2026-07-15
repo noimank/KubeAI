@@ -1,21 +1,30 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button, Card, Checkbox, Image, Radio, Space, Typography } from 'antd'
-import type {
-  AnnotationProjectDetail,
-  AnnotationResultItem,
-  AnnotationTask,
-} from '@/types/annotation'
+import type { AnnotationResultItem, AnnotationTask } from '@/types/annotation'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
+import type { AnnotationRegion, ImageDimensions } from '../hooks/useAnnotationRegions'
+import RegionCropPreview from './RegionCropPreview'
 import { appendAuthToken } from '@/utils/constants'
 
 interface ChoicesAnnotatorProps {
   task: AnnotationTask
-  project: AnnotationProjectDetail
   labels: string[]
   objectConfig?: LabelStudioObjectConfig
   controlConfig?: LabelStudioControlConfig
   onSubmit: (result: AnnotationResultItem[]) => void
   submitting: boolean
+  readOnly?: boolean
+  // perRegion 支持
+  perRegion?: boolean
+  selectedRegionId?: string | null
+  /** 当前选中区域的已有选中值（回显用） */
+  currentRegionChoices?: string[] | null
+  /** perRegion 结果通过回调通知父组件 */
+  onPerRegionResult?: (regionId: string, result: AnnotationResultItem | null) => void
+  /** Selected region for crop preview */
+  selectedRegion?: AnnotationRegion | null
+  imageDimensions?: ImageDimensions | null
+  imageUrl?: string
 }
 
 export default function ChoicesAnnotator({
@@ -25,6 +34,14 @@ export default function ChoicesAnnotator({
   controlConfig,
   onSubmit,
   submitting,
+  readOnly = false,
+  perRegion = false,
+  selectedRegionId,
+  currentRegionChoices,
+  onPerRegionResult,
+  selectedRegion,
+  imageDimensions,
+  imageUrl,
 }: ChoicesAnnotatorProps) {
   const [selected, setSelected] = useState<string[]>([])
   const objectValue = objectConfig
@@ -32,30 +49,73 @@ export default function ChoicesAnnotator({
     : undefined
   const multiple = controlConfig?.choice?.includes('multiple')
 
+  // Reset on task change
   useEffect(() => {
     setSelected([])
   }, [task.id])
 
-  const submitChoices = (choices: string[]) => {
-    onSubmit([
-      {
+  // 当选中区域变化时，回显已有选择
+  useEffect(() => {
+    if (perRegion && selectedRegionId && currentRegionChoices !== undefined && currentRegionChoices !== null) {
+      setSelected(currentRegionChoices)
+    } else if (perRegion && !selectedRegionId) {
+      setSelected([])
+    }
+  }, [perRegion, selectedRegionId, currentRegionChoices])
+
+  const submitChoices = useCallback(
+    (choices: string[]) => {
+      const result: AnnotationResultItem = {
         from_name: controlConfig?.name || 'choice',
         to_name: controlConfig?.toName || objectConfig?.name || 'data',
         type: 'choices',
         value: { choices },
-      },
-    ])
+      }
+      if (perRegion && selectedRegionId && onPerRegionResult) {
+        onPerRegionResult(selectedRegionId, result)
+      } else if (!perRegion) {
+        onSubmit([result])
+      }
+    },
+    [perRegion, selectedRegionId, onPerRegionResult, onSubmit, controlConfig, objectConfig],
+  )
+
+  // perRegion 模式下，无选中区域时显示提示
+  if (perRegion && !selectedRegionId) {
+    return (
+      <Card size="small" style={{ opacity: 0.5 }}>
+        <Typography.Text type="secondary">请先在画布上选中一个标注区域</Typography.Text>
+      </Card>
+    )
   }
+
+  const showCrop = perRegion && selectedRegion && imageDimensions && imageUrl
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-      <ObjectPreview objectConfig={objectConfig} value={objectValue} />
+      {/* Per-region crop preview */}
+      {showCrop ? (
+        <RegionCropPreview
+          imageUrl={imageUrl}
+          spatial={selectedRegion.spatial}
+          imageWidth={imageDimensions.width}
+          imageHeight={imageDimensions.height}
+          height={120}
+        />
+      ) : (
+        <ObjectPreview objectConfig={objectConfig} value={objectValue} />
+      )}
+
       {multiple ? (
         <>
           <Checkbox.Group
             value={selected}
-            disabled={submitting}
-            onChange={(values) => setSelected(values as string[])}
+            disabled={submitting || readOnly}
+            onChange={(values) => {
+              const next = values as string[]
+              setSelected(next)
+              if (perRegion) submitChoices(next)
+            }}
           >
             <Space direction="vertical">
               {labels.map((label) => (
@@ -65,19 +125,21 @@ export default function ChoicesAnnotator({
               ))}
             </Space>
           </Checkbox.Group>
-          <Button
-            type="primary"
-            loading={submitting}
-            disabled={selected.length === 0}
-            onClick={() => submitChoices(selected)}
-          >
-            提交
-          </Button>
+          {!perRegion && (
+            <Button
+              type="primary"
+              loading={submitting}
+              disabled={selected.length === 0 || readOnly}
+              onClick={() => submitChoices(selected)}
+            >
+              提交
+            </Button>
+          )}
         </>
       ) : (
         <Radio.Group
           value={selected[0]}
-          disabled={submitting}
+          disabled={submitting || readOnly}
           onChange={(event) => {
             const value = event.target.value
             setSelected([value])
@@ -107,7 +169,7 @@ function ObjectPreview({
   if (objectConfig?.tag === 'Image' && value) {
     return (
       <div style={{ textAlign: 'center' }}>
-        <Image src={appendAuthToken(value)} style={{ maxHeight: 520 }} />
+        <Image src={appendAuthToken(value)} style={{ maxHeight: 160 }} />
       </div>
     )
   }

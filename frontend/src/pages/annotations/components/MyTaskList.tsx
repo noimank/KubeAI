@@ -5,18 +5,6 @@ import { getMyAnnotationTasks, getMyAnnotationTaskSummary } from '@/services/ann
 import type { AnnotationTaskSummary } from '@/types/annotation'
 import { formatDate } from '@/utils/format'
 
-const ANNOTATION_TYPE_MAP: Record<string, { label: string; color: string }> = {
-  image_classification: { label: '图像分类', color: 'blue' },
-  object_detection: { label: '目标检测', color: 'green' },
-  image_segmentation: { label: '图像分割', color: 'purple' },
-  text_classification: { label: '文本分类', color: 'orange' },
-  choices: { label: '分类选择', color: 'blue' },
-  rectanglelabels: { label: '矩形框', color: 'green' },
-  polygonlabels: { label: '多边形', color: 'purple' },
-  textarea: { label: '文本填写', color: 'orange' },
-  rating: { label: '评分', color: 'gold' },
-}
-
 interface MyTaskListProps {
   page: number
   pageSize: number
@@ -88,13 +76,12 @@ export default function MyTaskList({ page, pageSize, onPageChange }: MyTaskListP
             ),
           },
           {
-            title: '标注类型',
-            dataIndex: 'annotationType',
-            width: 120,
-            render: (type: string) => {
-              const info = ANNOTATION_TYPE_MAP[type] || { label: type, color: 'default' }
-              return <Tag color={info.color}>{info.label}</Tag>
-            },
+            title: '标注模板',
+            dataIndex: 'templateName',
+            width: 140,
+            render: (name: string | null | undefined) => (
+              <Tag color="blue">{name || '—'}</Tag>
+            ),
           },
           {
             title: '状态',

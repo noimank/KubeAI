@@ -10,13 +10,7 @@ import type {
   AnnotationTaskAssignRequest,
   AnnotationTaskSummary,
   AnnotationTaskUnassignRequest,
-  AnnotationTemplate,
 } from '@/types/annotation'
-
-export async function getAnnotationTemplates(): Promise<AnnotationTemplate[]> {
-  const res = await api.get<BaseResponse<AnnotationTemplate[]>>('/annotations/templates')
-  return res.data.data!
-}
 
 export async function createAnnotationProject(
   data: AnnotationProjectCreateRequest,
@@ -126,6 +120,13 @@ export async function getNextAnnotationTask(projectId: string): Promise<Annotati
     `/annotations/projects/${projectId}/next-task`,
   )
   return res.data.data ?? null
+}
+
+export async function getMyProjectTaskIds(projectId: string): Promise<string[]> {
+  const res = await api.get<BaseResponse<string[]>>(
+    `/annotations/projects/${projectId}/my-task-ids`,
+  )
+  return res.data.data ?? []
 }
 
 export async function getAnnotationTaskDetail(taskId: string): Promise<AnnotationTask> {

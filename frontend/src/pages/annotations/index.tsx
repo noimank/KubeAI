@@ -6,6 +6,7 @@ import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
 import { deleteAnnotationProject, getAnnotationProjects } from '@/services/annotations'
 import AnnotationProjectTable from './components/AnnotationProjectTable'
+import AnnotationTemplatesTab from './components/AnnotationTemplatesTab'
 import CreateProjectModal from './components/CreateProjectModal'
 import MyTaskList from './components/MyTaskList'
 
@@ -24,6 +25,8 @@ export default function AnnotationsPage() {
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const canManage = hasPermission('annotations:manage')
   const isAnnotator = hasPermission('annotations:read') && !canManage
+  const canReadTemplates = hasPermission('annotation_templates:read')
+  const canWriteTemplates = hasPermission('annotation_templates:write') || canManage
 
   const { data, isLoading } = useQuery({
     queryKey: ['annotationProjects', page, pageSize, keyword],
@@ -64,68 +67,75 @@ export default function AnnotationsPage() {
     )
   }
 
-  // Admin/MLOps view: Tabs with "项目列表" and "我的任务"
+  const tabItems = [
+    {
+      key: 'projects',
+      label: '项目列表',
+      children: (
+        <>
+          <div
+            style={{
+              marginBottom: 16,
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
+            <Input.Search
+              placeholder="搜索标注项目名称"
+              allowClear
+              style={{ width: 280 }}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onSearch={handleSearch}
+              prefix={<SearchOutlined />}
+            />
+            {canManage && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => setCreateModalOpen(true)}
+              >
+                创建标注项目
+              </Button>
+            )}
+          </div>
+
+          <AnnotationProjectTable
+            data={data?.items}
+            loading={isLoading}
+            total={data?.total ?? 0}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={handlePageChange}
+            onDelete={handleDelete}
+            canManage={canManage}
+            onCreateClick={() => setCreateModalOpen(true)}
+          />
+        </>
+      ),
+    },
+    {
+      key: 'my-tasks',
+      label: '我的任务',
+      children: (
+        <MyTaskList page={myPage} pageSize={myPageSize} onPageChange={handleMyPageChange} />
+      ),
+    },
+  ]
+
+  if (canReadTemplates) {
+    tabItems.push({
+      key: 'templates',
+      label: '标注模板',
+      children: <AnnotationTemplatesTab canWrite={canWriteTemplates} />,
+    })
+  }
+
+  // Admin/MLOps view: Tabs with "项目列表", "我的任务", and (gated) "标注模板"
   return (
     <div style={{ padding: 0 }}>
-      <Tabs
-        defaultActiveKey="projects"
-        items={[
-          {
-            key: 'projects',
-            label: '项目列表',
-            children: (
-              <>
-                <div
-                  style={{
-                    marginBottom: 16,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                  }}
-                >
-                  <Input.Search
-                    placeholder="搜索标注项目名称"
-                    allowClear
-                    style={{ width: 280 }}
-                    value={searchText}
-                    onChange={(e) => setSearchText(e.target.value)}
-                    onSearch={handleSearch}
-                    prefix={<SearchOutlined />}
-                  />
-                  {canManage && (
-                    <Button
-                      type="primary"
-                      icon={<PlusOutlined />}
-                      onClick={() => setCreateModalOpen(true)}
-                    >
-                      创建标注项目
-                    </Button>
-                  )}
-                </div>
-
-                <AnnotationProjectTable
-                  data={data?.items}
-                  loading={isLoading}
-                  total={data?.total ?? 0}
-                  page={page}
-                  pageSize={pageSize}
-                  onPageChange={handlePageChange}
-                  onDelete={handleDelete}
-                  canManage={canManage}
-                  onCreateClick={() => setCreateModalOpen(true)}
-                />
-              </>
-            ),
-          },
-          {
-            key: 'my-tasks',
-            label: '我的任务',
-            children: (
-              <MyTaskList page={myPage} pageSize={myPageSize} onPageChange={handleMyPageChange} />
-            ),
-          },
-        ]}
-      />
+      <Tabs defaultActiveKey="projects" items={tabItems} />
 
       <CreateProjectModal open={createModalOpen} onClose={() => setCreateModalOpen(false)} />
     </div>

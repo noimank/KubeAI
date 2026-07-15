@@ -1,15 +1,42 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { Button, Space, Select, List, Tag, Popconfirm } from 'antd'
-import { DeleteOutlined, DragOutlined, SelectOutlined } from '@ant-design/icons'
-import { Stage, Layer, Image as KonvaImage, Rect, Transformer } from 'react-konva'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button, List, Popconfirm, Space, Tag } from 'antd'
+import { DeleteOutlined, DragOutlined, SelectOutlined, UndoOutlined } from '@ant-design/icons'
+import { Rect, Transformer, Arrow } from 'react-konva'
 import type Konva from 'konva'
-import type { AnnotationTask, AnnotationProjectDetail } from '@/types/annotation'
-import type { AnnotationResultItem } from '@/types/annotation'
+import type { AnnotationTask } from '@/types/annotation'
 import { getMessageInstance } from '@/utils/messageHolder'
-import { appendAuthToken } from '@/utils/constants'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
+import { useZoomPan } from './useZoomPan'
+import ZoomPanImageStage from './ZoomPanImageStage'
+import LabelPalette from './LabelPalette'
+import { labelColor } from './annotationColors'
+import type { AnnotationRegion, ImageDimensions } from '../hooks/useAnnotationRegions'
 
-interface BBox {
+// ── Props ───────────────────────────────────────────────────────────────────
+
+interface ObjectDetectionAnnotatorProps {
+  task: AnnotationTask
+  objectConfig?: LabelStudioObjectConfig
+  controlConfig: LabelStudioControlConfig
+  readOnly?: boolean
+  /** 共享区域状态 */
+  regions: AnnotationRegion[]
+  selectedRegionId: string | null
+  imageDimensions: ImageDimensions | null
+  onAddRegion: (region: AnnotationRegion) => void
+  onUpdateRegion: (id: string, updates: Partial<Pick<AnnotationRegion, 'spatial' | 'label'>>) => void
+  onDeleteRegion: (id: string) => void
+  onSelectRegion: (id: string | null) => void
+  onImageDimensionsChange: (dims: ImageDimensions) => void
+  /** Relation arrows to render */
+  relations?: Array<{ id: string; fromRegionId: string; toRegionId: string; label?: string }>
+}
+
+type ToolMode = 'select' | 'draw'
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+interface LocalBBox {
   id: string
   x: number
   y: number
@@ -18,352 +45,344 @@ interface BBox {
   label: string
 }
 
-interface ObjectDetectionAnnotatorProps {
-  task: AnnotationTask
-  project: AnnotationProjectDetail
-  labels: string[]
-  objectConfig?: LabelStudioObjectConfig
-  controlConfig?: LabelStudioControlConfig
-  onSubmit: (result: AnnotationResultItem[]) => void
-  submitting: boolean
+function regionToBBox(r: AnnotationRegion): LocalBBox {
+  return {
+    id: r.id, x: r.spatial.x, y: r.spatial.y,
+    width: r.spatial.width, height: r.spatial.height,
+    label: r.label ?? '',
+  }
 }
 
-type ToolMode = 'select' | 'draw'
+/** Stable serialization of regions for effect dependency comparison */
+function regionIds(regions: AnnotationRegion[]): string {
+  return regions.map((r) => r.id).join(',')
+}
+
+// ── Component ───────────────────────────────────────────────────────────────
 
 export default function ObjectDetectionAnnotator({
   task,
-  labels,
   objectConfig,
   controlConfig,
-  onSubmit,
-  submitting,
+  readOnly = false,
+  regions,
+  selectedRegionId,
+  imageDimensions,
+  onAddRegion,
+  onUpdateRegion,
+  onDeleteRegion,
+  onSelectRegion,
+  onImageDimensionsChange,
+  relations = [],
 }: ObjectDetectionAnnotatorProps) {
+  const hasLabels = controlConfig.type === 'rectanglelabels'
   const imageField = objectConfig?.field || 'image'
   const imageUrl = task.data?.[imageField] as string | undefined
-  const [image, setImage] = useState<HTMLImageElement | null>(null)
-  const [bboxes, setBboxes] = useState<BBox[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const zp = useZoomPan(imageUrl)
+
   const [toolMode, setToolMode] = useState<ToolMode>('draw')
-  const [drawingBbox, setDrawingBbox] = useState<{
-    x: number
-    y: number
-    w: number
-    h: number
-  } | null>(null)
-  const [pendingLabelBbox, setPendingLabelBbox] = useState<{
-    x: number
-    y: number
-    w: number
-    h: number
-  } | null>(null)
-  const stageRef = useRef<Konva.Stage>(null)
+  const [activeLabel, setActiveLabel] = useState<string | null>(
+    hasLabels ? controlConfig.choices[0]?.value ?? null : null,
+  )
+  const [drawing, setDrawing] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [stageSize, setStageSize] = useState({ width: 600, height: 400 })
+  const [showTransformer, setShowTransformer] = useState(false)
 
+  // Reset tool state on task change
   useEffect(() => {
-    setBboxes([])
-    setSelectedId(null)
     setToolMode('draw')
-    setDrawingBbox(null)
-    setPendingLabelBbox(null)
-    setImage(null)
-  }, [task.id])
+    setDrawing(null)
+    setShowTransformer(false)
+    if (hasLabels) setActiveLabel(controlConfig.choices[0]?.value ?? null)
+  }, [task.id, hasLabels, controlConfig.choices])
 
+  // Track image dimensions (once)
   useEffect(() => {
-    if (!imageUrl) return
-    let cancelled = false
-    const img = new window.Image()
-    img.crossOrigin = 'anonymous'
-    img.src = appendAuthToken(imageUrl)
-    img.onload = () => {
-      if (!cancelled) setImage(img)
+    if (zp.image && !imageDimensions) {
+      onImageDimensionsChange({ width: zp.image.width, height: zp.image.height })
     }
-    return () => {
-      cancelled = true
-    }
-  }, [imageUrl])
+  }, [zp.image, imageDimensions, onImageDimensionsChange])
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setStageSize({
-          width: entry.contentRect.width,
-          height: Math.max(400, entry.contentRect.height),
-        })
-      }
-    })
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [])
+  // Stable snapshot of region ids to avoid Transformer sync on every spatial change
+  const regionIdSnapshot = regionIds(regions)
 
+  // Sync Transformer — only when selection or region count changes
   useEffect(() => {
     const transformer = transformerRef.current
-    const stage = stageRef.current
+    const stage = zp.stageRef.current
     if (!transformer || !stage) return
-    const node = selectedId ? stage.findOne(`#${selectedId}`) : null
+    const node = selectedRegionId ? stage.findOne(`#${selectedRegionId}`) : null
     transformer.nodes(node ? [node] : [])
     transformer.getLayer()?.batchDraw()
-  }, [selectedId, bboxes])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegionId, regionIdSnapshot])
 
-  const scale = image ? Math.min(stageSize.width / image.width, stageSize.height / image.height) : 1
-  const offsetX = image ? (stageSize.width - image.width * scale) / 2 : 0
-  const offsetY = image ? (stageSize.height - image.height * scale) / 2 : 0
+  const bboxes = useMemo<LocalBBox[]>(() => regions.map(regionToBBox), [regions])
 
-  const handleMouseDown = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (toolMode !== 'draw') return
-      const stage = e.target.getStage()
-      if (!stage) return
-      const pos = stage.getPointerPosition()
-      if (!pos) return
-      setDrawingBbox({ x: pos.x, y: pos.y, w: 0, h: 0 })
-    },
-    [toolMode],
+  // Stable undo: ref avoids re-registering the Ctrl+Z listener on every region change
+  const regionsRef = useRef(regions)
+  regionsRef.current = regions
+
+  const handleDelete = useCallback(
+    (id: string) => { onDeleteRegion(id) },
+    [onDeleteRegion],
   )
 
-  const handleMouseMove = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (!drawingBbox) return
-      const stage = e.target.getStage()
-      if (!stage) return
-      const pos = stage.getPointerPosition()
-      if (!pos) return
-      setDrawingBbox((prev) => (prev ? { ...prev, w: pos.x - prev.x, h: pos.y - prev.y } : null))
-    },
-    [drawingBbox],
-  )
+  const handleUndo = useCallback(() => {
+    const regs = regionsRef.current
+    const last = regs[regs.length - 1]
+    if (last) onDeleteRegion(last.id)
+    onSelectRegion(null)
+  }, [onDeleteRegion, onSelectRegion])
 
-  const handleMouseUp = useCallback(() => {
-    if (!drawingBbox) return
-    const { x, y, w, h } = drawingBbox
-    setDrawingBbox(null)
-    if (Math.abs(w) < 5 || Math.abs(h) < 5) return
-    const nx = w < 0 ? x + w : x
-    const ny = h < 0 ? y + h : y
-    const nw = Math.abs(w)
-    const nh = Math.abs(h)
-    if (labels.length === 1) {
-      setBboxes((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), x: nx, y: ny, width: nw, height: nh, label: labels[0] },
-      ])
-    } else {
-      setPendingLabelBbox({ x: nx, y: ny, w: nw, h: nh })
+  // Ctrl+Z
+  useEffect(() => {
+    if (readOnly) return
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault()
+        handleUndo()
+      }
     }
-  }, [drawingBbox, labels])
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [readOnly, handleUndo])
 
-  const handleLabelSelect = (label: string) => {
-    if (!pendingLabelBbox) return
-    setBboxes((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        x: pendingLabelBbox.x,
-        y: pendingLabelBbox.y,
-        width: pendingLabelBbox.w,
-        height: pendingLabelBbox.h,
-        label,
-      },
-    ])
-    setPendingLabelBbox(null)
-  }
+  const onMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (readOnly || zp.panEffective || toolMode !== 'draw') return
+    if (e.evt.button !== 0) return
+    // Only start drawing on empty canvas, not when clicking on existing shapes
+    if (e.target !== e.target.getStage()) return
+    // Hide transform handles when starting to draw a new box
+    setShowTransformer(false)
+    const p = zp.pointerToImage()
+    if (!p) return
+    setDrawing({ x: p.x, y: p.y, w: 0, h: 0 })
+  }, [readOnly, zp, toolMode])
 
-  const handleDelete = (id: string) => {
-    setBboxes((prev) => prev.filter((b) => b.id !== id))
-    if (selectedId === id) setSelectedId(null)
-  }
+  const onMouseMove = useCallback(() => {
+    if (!drawing) return
+    const p = zp.pointerToImage()
+    if (!p) return
+    setDrawing((prev) => (prev ? { ...prev, w: p.x - prev.x, h: p.y - prev.y } : null))
+  }, [drawing, zp])
 
-  const handleSubmit = () => {
-    if (bboxes.length === 0) {
-      getMessageInstance()?.warning('请至少绘制一个标注框')
+  const onMouseUp = useCallback(() => {
+    if (!drawing) return
+    const { x, y, w, h } = drawing
+    setDrawing(null)
+    if (Math.abs(w) < 3 || Math.abs(h) < 3) return
+    if (hasLabels && !activeLabel) {
+      getMessageInstance()?.warning('请先选择标签(点击或按数字键 1-9)')
       return
     }
-    const imgW = image?.width || 1
-    const imgH = image?.height || 1
-
-    const result: AnnotationResultItem[] = bboxes.map((bbox) => ({
-      from_name: controlConfig?.name || 'label',
-      to_name: controlConfig?.toName || objectConfig?.name || 'image',
-      type: 'rectanglelabels',
-      value: {
-        x: ((bbox.x - offsetX) / scale / imgW) * 100,
-        y: ((bbox.y - offsetY) / scale / imgH) * 100,
-        width: (bbox.width / scale / imgW) * 100,
-        height: (bbox.height / scale / imgH) * 100,
-        rectanglelabels: [bbox.label],
+    onAddRegion({
+      id: crypto.randomUUID(),
+      type: 'rectangle',
+      label: activeLabel ?? undefined,
+      spatial: {
+        x: w < 0 ? x + w : x,
+        y: h < 0 ? y + h : y,
+        width: Math.abs(w),
+        height: Math.abs(h),
       },
-    }))
-    onSubmit(result)
-  }
+      sourceControlName: controlConfig.name,
+      perRegionResults: {},
+    })
+  }, [drawing, hasLabels, activeLabel, controlConfig.name, onAddRegion])
 
-  const COLORS = ['#1677FF', '#52C41A', '#FAAD14', '#FF4D4F', '#722ED1', '#13C2C2', '#EB2F96']
+  const toolbar = readOnly ? null : (
+    <Space.Compact>
+      <Button
+        type={toolMode === 'draw' ? 'primary' : 'default'}
+        icon={<DragOutlined />}
+        onClick={() => { setToolMode('draw'); onSelectRegion(null); setShowTransformer(false) }}
+      >
+        绘制
+      </Button>
+      <Button
+        type={toolMode === 'select' ? 'primary' : 'default'}
+        icon={<SelectOutlined />}
+        onClick={() => { setToolMode('select'); setShowTransformer(false) }}
+      >
+        选择
+      </Button>
+    </Space.Compact>
+  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%' }}>
-      <Space>
-        <Button
-          type={toolMode === 'draw' ? 'primary' : 'default'}
-          icon={<DragOutlined />}
-          onClick={() => {
-            setToolMode('draw')
-            setSelectedId(null)
-          }}
-        >
-          绘制矩形
-        </Button>
-        <Button
-          type={toolMode === 'select' ? 'primary' : 'default'}
-          icon={<SelectOutlined />}
-          onClick={() => setToolMode('select')}
-        >
-          选择/移动
-        </Button>
-        <Popconfirm
-          title="确认删除?"
-          onConfirm={() => selectedId && handleDelete(selectedId)}
-          disabled={!selectedId}
-        >
-          <Button icon={<DeleteOutlined />} disabled={!selectedId}>
-            删除选中
-          </Button>
-        </Popconfirm>
-        <Button type="primary" onClick={handleSubmit} disabled={submitting || bboxes.length === 0}>
-          {submitting ? '提交中...' : `提交 (${bboxes.length})`}
-        </Button>
-      </Space>
-
-      <div
-        ref={containerRef}
-        style={{
-          flex: 1,
-          border: '1px solid var(--ant-color-border)',
-          borderRadius: 6,
-          overflow: 'hidden',
-        }}
-      >
-        <Stage
-          ref={stageRef}
-          width={stageSize.width}
-          height={stageSize.height}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-        >
-          <Layer>
-            {image && (
-              <KonvaImage image={image} x={offsetX} y={offsetY} scaleX={scale} scaleY={scale} />
-            )}
-            {bboxes.map((bbox, i) => (
-              <Rect
-                key={bbox.id}
-                id={bbox.id}
-                x={bbox.x}
-                y={bbox.y}
-                width={bbox.width}
-                height={bbox.height}
-                stroke={COLORS[i % COLORS.length]}
-                strokeWidth={2}
-                fill={`${COLORS[i % COLORS.length]}20`}
-                draggable={toolMode === 'select'}
-                onClick={() => {
-                  if (toolMode === 'select') setSelectedId(bbox.id)
-                }}
-                onTap={() => {
-                  if (toolMode === 'select') setSelectedId(bbox.id)
-                }}
-                onDragEnd={(e) => {
-                  setBboxes((prev) =>
-                    prev.map((b) =>
-                      b.id === bbox.id ? { ...b, x: e.target.x(), y: e.target.y() } : b,
-                    ),
-                  )
-                }}
-                onTransformEnd={(e) => {
-                  const node = e.target
-                  setBboxes((prev) =>
-                    prev.map((b) =>
-                      b.id === bbox.id
-                        ? {
-                            ...b,
-                            x: node.x(),
-                            y: node.y(),
-                            width: Math.max(5, node.width() * node.scaleX()),
-                            height: Math.max(5, node.height() * node.scaleY()),
-                          }
-                        : b,
-                    ),
-                  )
-                  node.scaleX(1)
-                  node.scaleY(1)
-                }}
-              />
-            ))}
-            {drawingBbox && (
-              <Rect
-                x={drawingBbox.w < 0 ? drawingBbox.x + drawingBbox.w : drawingBbox.x}
-                y={drawingBbox.h < 0 ? drawingBbox.y + drawingBbox.h : drawingBbox.y}
-                width={Math.abs(drawingBbox.w)}
-                height={Math.abs(drawingBbox.h)}
-                stroke="#1677FF"
-                strokeWidth={2}
-                dash={[4, 4]}
-              />
-            )}
-            {selectedId && (
-              <Transformer
-                ref={transformerRef}
-                boundBoxFunc={(_oldBox, newBox) => {
-                  if (newBox.width < 5 || newBox.height < 5) return _oldBox
-                  return newBox
-                }}
-              />
-            )}
-          </Layer>
-        </Stage>
-      </div>
-
-      {pendingLabelBbox && (
-        <div style={{ padding: 8, background: 'var(--ant-color-bg-layout)', borderRadius: 6 }}>
-          <span style={{ marginRight: 8 }}>选择标签:</span>
-          <Select
-            placeholder="选择标签"
-            style={{ width: 200 }}
-            onSelect={handleLabelSelect}
-            autoFocus
-            options={labels.map((l) => ({ label: l, value: l }))}
-          />
-        </div>
+      {!readOnly && hasLabels && (
+        <LabelPalette
+          labels={controlConfig.choices.map((c) => c.value)}
+          activeLabel={activeLabel}
+          onChange={setActiveLabel}
+        />
       )}
 
-      {bboxes.length > 0 && (
-        <List
-          size="small"
-          dataSource={bboxes}
-          style={{ maxHeight: 150, overflowY: 'auto' }}
-          renderItem={(bbox, i) => (
-            <List.Item
-              style={{ padding: '4px 12px', cursor: 'pointer' }}
-              onClick={() => setSelectedId(bbox.id)}
-            >
-              <Space>
-                <Tag color={COLORS[i % COLORS.length]}>{i + 1}</Tag>
-                <span>{bbox.label}</span>
-              </Space>
-              <Button
-                type="text"
-                size="small"
-                icon={<DeleteOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleDelete(bbox.id)
-                }}
-              />
-            </List.Item>
+      <div style={{ flex: 1, position: 'relative', minHeight: 400 }}>
+        <ZoomPanImageStage
+          controller={zp}
+          toolbarExtra={
+            <Space>
+              {toolbar}
+              {!readOnly && (
+                <>
+                  <Button icon={<UndoOutlined />} onClick={handleUndo} disabled={bboxes.length === 0}>
+                    撤销
+                  </Button>
+                  <Popconfirm
+                    title="确认删除?"
+                    onConfirm={() => selectedRegionId && handleDelete(selectedRegionId)}
+                    disabled={!selectedRegionId}
+                  >
+                    <Button icon={<DeleteOutlined />} disabled={!selectedRegionId}>
+                      删除选中
+                    </Button>
+                  </Popconfirm>
+                  <Tag>{bboxes.length} 个区域</Tag>
+                </>
+              )}
+            </Space>
+          }
+          onStageMouseDown={onMouseDown}
+          onStageMouseMove={onMouseMove}
+          onStageMouseUp={onMouseUp}
+          renderContent={({ visibleStrokeWidth, visibleAnchorSize }) => (
+            <>
+              {bboxes.map((bbox, i) => (
+                <Rect
+                  key={bbox.id}
+                  id={bbox.id}
+                  x={bbox.x}
+                  y={bbox.y}
+                  width={bbox.width}
+                  height={bbox.height}
+                  stroke={labelColor(i)}
+                  strokeWidth={visibleStrokeWidth(2)}
+                  fill={`${labelColor(i)}20`}
+                  draggable={!readOnly && !zp.panEffective}
+                  onClick={() => {
+                    if (!readOnly) {
+                      onSelectRegion(selectedRegionId === bbox.id ? null : bbox.id)
+                      setShowTransformer(false)
+                    }
+                  }}
+                  onTap={() => {
+                    if (!readOnly) {
+                      onSelectRegion(selectedRegionId === bbox.id ? null : bbox.id)
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    e.evt.preventDefault()
+                    if (!readOnly) {
+                      onSelectRegion(bbox.id)
+                      setShowTransformer(true)
+                    }
+                  }}
+                  onDragEnd={(e) => {
+                    const node = e.target
+                    onUpdateRegion(bbox.id, {
+                      spatial: { x: node.x(), y: node.y(), width: bbox.width, height: bbox.height },
+                    })
+                  }}
+                  onTransformEnd={(e) => {
+                    const node = e.target
+                    const newW = Math.max(3, node.width() * node.scaleX())
+                    const newH = Math.max(3, node.height() * node.scaleY())
+                    onUpdateRegion(bbox.id, {
+                      spatial: { x: node.x(), y: node.y(), width: newW, height: newH },
+                    })
+                    node.scaleX(1)
+                    node.scaleY(1)
+                  }}
+                />
+              ))}
+              {drawing && (
+                <Rect
+                  x={drawing.w < 0 ? drawing.x + drawing.w : drawing.x}
+                  y={drawing.h < 0 ? drawing.y + drawing.h : drawing.y}
+                  width={Math.abs(drawing.w)}
+                  height={Math.abs(drawing.h)}
+                  stroke="#1677FF"
+                  strokeWidth={visibleStrokeWidth(2)}
+                  dash={[4, 4]}
+                />
+              )}
+              {selectedRegionId && !readOnly && showTransformer && (
+                <Transformer
+                  ref={transformerRef}
+                  anchorSize={visibleAnchorSize()}
+                  borderStrokeWidth={visibleStrokeWidth(1.5)}
+                  boundBoxFunc={(oldBox, newBox) =>
+                    newBox.width < 5 || newBox.height < 5 ? oldBox : newBox
+                  }
+                />
+              )}
+              {/* Render relation arrows */}
+              {relations.map((rel) => {
+                const fromRegion = regions.find((r) => r.id === rel.fromRegionId)
+                const toRegion = regions.find((r) => r.id === rel.toRegionId)
+                if (!fromRegion || !toRegion) return null
+                const fx = fromRegion.spatial.x + fromRegion.spatial.width / 2
+                const fy = fromRegion.spatial.y + fromRegion.spatial.height / 2
+                const tx = toRegion.spatial.x + toRegion.spatial.width / 2
+                const ty = toRegion.spatial.y + toRegion.spatial.height / 2
+                return (
+                  <Arrow
+                    key={rel.id}
+                    points={[fx, fy, tx, ty]}
+                    stroke="#FF6B00"
+                    fill="#FF6B00"
+                    strokeWidth={visibleStrokeWidth(2)}
+                    pointerLength={10}
+                    pointerWidth={8}
+                  />
+                )
+              })}
+            </>
           )}
         />
+
+      </div>
+      {/* Region list — placed below canvas to avoid occluding the image */}
+      {bboxes.length > 0 && (
+        <div style={{
+          maxHeight: 120,
+          overflowY: 'auto',
+          background: 'var(--ant-color-bg-container)',
+          border: '1px solid var(--ant-color-border)',
+          borderRadius: 6,
+          flexShrink: 0,
+        }}>
+          <List
+            size="small"
+            dataSource={bboxes}
+            renderItem={(item: LocalBBox, i: number) => (
+              <List.Item
+                style={{
+                  padding: '4px 12px',
+                  cursor: 'pointer',
+                  background: selectedRegionId === item.id ? 'var(--ant-color-primary-bg)' : undefined,
+                }}
+                onClick={() => { onSelectRegion(item.id); setShowTransformer(false) }}
+              >
+                <Space>
+                  <Tag color={labelColor(i)}>{i + 1}</Tag>
+                  <span>{item.label || `区域 ${i + 1}`}</span>
+                </Space>
+                {!readOnly && (
+                  <Button
+                    type="text" size="small" icon={<DeleteOutlined />}
+                    onClick={(e) => { e.stopPropagation(); handleDelete(item.id) }}
+                  />
+                )}
+              </List.Item>
+            )}
+          />
+        </div>
       )}
     </div>
   )
