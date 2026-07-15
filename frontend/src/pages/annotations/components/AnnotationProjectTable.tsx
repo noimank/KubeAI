@@ -60,9 +60,7 @@ export default function AnnotationProjectTable({
       title: '标注模板',
       dataIndex: 'templateName',
       width: 120,
-      render: (name: string | null | undefined) => (
-        <Tag color="blue">{name || '—'}</Tag>
-      ),
+      render: (name: string | null | undefined) => <Tag color="blue">{name || '—'}</Tag>,
     },
     {
       title: '进度',

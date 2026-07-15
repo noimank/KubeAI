@@ -1,21 +1,35 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Alert, Button, Card, Divider, Modal, Result, Space, Spin, Tag, Tooltip, Typography,
+  Alert,
+  Button,
+  Card,
+  Divider,
+  Modal,
+  Result,
+  Space,
+  Spin,
+  Tag,
+  Tooltip,
+  Typography,
 } from 'antd'
-import {
-  ArrowLeftOutlined, EditOutlined, QuestionCircleOutlined,
-} from '@ant-design/icons'
+import { ArrowLeftOutlined, EditOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  cancelAnnotation, getAnnotationProjectDetail, getAnnotationTaskDetail,
-  getMyProjectTaskIds, getNextAnnotationTask, submitAnnotation,
+  cancelAnnotation,
+  getAnnotationProjectDetail,
+  getAnnotationTaskDetail,
+  getMyProjectTaskIds,
+  getNextAnnotationTask,
+  submitAnnotation,
 } from '@/services/annotations'
 import { getMessageInstance } from '@/utils/messageHolder'
 import type { AnnotationResultItem, AnnotationTask } from '@/types/annotation'
 import {
-  parseLabelConfig, SPATIAL_CONTROL_TYPES,
-  type LabelStudioControlConfig, type LabelStudioObjectConfig,
+  parseLabelConfig,
+  SPATIAL_CONTROL_TYPES,
+  type LabelStudioControlConfig,
+  type LabelStudioObjectConfig,
 } from './utils/parseLabelConfig'
 import { serializeRegions } from './utils/serializeRegions'
 import { validateAnnotationResults } from './utils/validation'
@@ -77,9 +91,13 @@ function renderClassificationControl(
       const textValue = currentRegionResult?.value?.text as string[] | undefined
       return (
         <TextAreaAnnotator
-          task={task} labels={ctrl.choices.map((c) => c.value)}
-          objectConfig={objectConfig} controlConfig={ctrl} readOnly={readOnly}
-          perRegion={perRegion} selectedRegionId={selectedRegionId}
+          task={task}
+          labels={ctrl.choices.map((c) => c.value)}
+          objectConfig={objectConfig}
+          controlConfig={ctrl}
+          readOnly={readOnly}
+          perRegion={perRegion}
+          selectedRegionId={selectedRegionId}
           currentRegionText={textValue?.[0] ?? null}
           onPerRegionResult={onPerRegionResult}
           onSubmit={onGlobalResult ? (r) => onGlobalResult(r) : () => {}}
@@ -94,9 +112,13 @@ function renderClassificationControl(
       const choiceValue = currentRegionResult?.value?.choices as string[] | undefined
       return (
         <ChoicesAnnotator
-          task={task} labels={ctrl.choices.map((c) => c.value)}
-          objectConfig={objectConfig} controlConfig={ctrl} readOnly={readOnly}
-          perRegion={perRegion} selectedRegionId={selectedRegionId}
+          task={task}
+          labels={ctrl.choices.map((c) => c.value)}
+          objectConfig={objectConfig}
+          controlConfig={ctrl}
+          readOnly={readOnly}
+          perRegion={perRegion}
+          selectedRegionId={selectedRegionId}
           currentRegionChoices={choiceValue ?? null}
           onPerRegionResult={onPerRegionResult}
           onSubmit={onGlobalResult ? (r) => onGlobalResult(r) : () => {}}
@@ -112,9 +134,13 @@ function renderClassificationControl(
     case 'taxonomy':
       return (
         <FormControlAnnotator
-          task={task} labels={ctrl.choices.map((c) => c.value)}
-          objectConfig={objectConfig} controlConfig={ctrl} readOnly={readOnly}
-          perRegion={perRegion} selectedRegionId={selectedRegionId}
+          task={task}
+          labels={ctrl.choices.map((c) => c.value)}
+          objectConfig={objectConfig}
+          controlConfig={ctrl}
+          readOnly={readOnly}
+          perRegion={perRegion}
+          selectedRegionId={selectedRegionId}
           currentRegionValue={currentRegionResult?.value ?? null}
           onPerRegionResult={onPerRegionResult}
           onSubmit={onGlobalResult ? (r) => onGlobalResult(r) : () => {}}
@@ -125,9 +151,7 @@ function renderClassificationControl(
         />
       )
     default:
-      return (
-        <Result status="warning" title="暂未支持" subTitle={`${ctrl.tag} 控件尚未实现`} />
-      )
+      return <Result status="warning" title="暂未支持" subTitle={`${ctrl.tag} 控件尚未实现`} />
   }
 }
 
@@ -186,10 +210,7 @@ export default function AnnotationWorkspacePage() {
   )
 
   // Relation controls
-  const relationControls = useMemo(
-    () => parsedConfig?.relations ?? [],
-    [parsedConfig?.relations],
-  )
+  const relationControls = useMemo(() => parsedConfig?.relations ?? [], [parsedConfig?.relations])
 
   const relationsHook = useAnnotationRelations({ taskId, readOnly })
 
@@ -225,7 +246,14 @@ export default function AnnotationWorkspacePage() {
       relationsHook.relations,
       relationControls,
     )
-  }, [regionsHook.regions, regionsHook.imageDimensions, globalResults, parsedConfig?.controls, relationsHook.relations, relationControls])
+  }, [
+    regionsHook.regions,
+    regionsHook.imageDimensions,
+    globalResults,
+    parsedConfig?.controls,
+    relationsHook.relations,
+    relationControls,
+  ])
 
   // ── Per-region result handler ─────────────────────────────────────────────
 
@@ -247,22 +275,25 @@ export default function AnnotationWorkspacePage() {
 
   // ── Task navigation ──────────────────────────────────────────────────────
 
-  const loadTaskById = useCallback(async (tid: string) => {
-    if (!projectId) return
-    setTaskLoading(true)
-    setTaskLoadFailed(false)
-    try {
-      const detail = await getAnnotationTaskDetail(tid)
-      setCurrentTask(detail)
-      setReadOnly(detail.status === 'completed')
-      setGlobalResults({})
-    } catch {
-      setTaskLoadFailed(true)
-      getMessageInstance()?.error('加载任务失败')
-    } finally {
-      setTaskLoading(false)
-    }
-  }, [projectId])
+  const loadTaskById = useCallback(
+    async (tid: string) => {
+      if (!projectId) return
+      setTaskLoading(true)
+      setTaskLoadFailed(false)
+      try {
+        const detail = await getAnnotationTaskDetail(tid)
+        setCurrentTask(detail)
+        setReadOnly(detail.status === 'completed')
+        setGlobalResults({})
+      } catch {
+        setTaskLoadFailed(true)
+        getMessageInstance()?.error('加载任务失败')
+      } finally {
+        setTaskLoading(false)
+      }
+    },
+    [projectId],
+  )
 
   const goPrev = useCallback(async () => {
     if (cursor <= 0) return
@@ -283,8 +314,11 @@ export default function AnnotationWorkspacePage() {
         setCursor(taskIds.indexOf(next.id) === -1 ? taskIds.length : taskIds.indexOf(next.id))
         return
       }
-    } catch { /* fallthrough */ }
-    finally { setTaskLoading(false) }
+    } catch {
+      /* fallthrough */
+    } finally {
+      setTaskLoading(false)
+    }
     if (cursor < taskIds.length - 1) {
       const nxt = cursor + 1
       setCursor(nxt)
@@ -318,7 +352,11 @@ export default function AnnotationWorkspacePage() {
         onOk: () => {
           submitMutation.mutate(
             { taskId: currentTask.id, result },
-            { onSuccess: async () => { await goNext() } },
+            {
+              onSuccess: async () => {
+                await goNext()
+              },
+            },
           )
         },
       })
@@ -326,7 +364,11 @@ export default function AnnotationWorkspacePage() {
     }
     submitMutation.mutate(
       { taskId: currentTask.id, result },
-      { onSuccess: async () => { await goNext() } },
+      {
+        onSuccess: async () => {
+          await goNext()
+        },
+      },
     )
   }, [currentTask, buildSubmitResult, submitMutation, goNext, parsedConfig?.controls])
 
@@ -338,16 +380,23 @@ export default function AnnotationWorkspacePage() {
       try {
         const ids = await getMyProjectTaskIds(projectId)
         setTaskIds(ids)
-        if (ids.length === 0) { setCurrentTask(null); return }
+        if (ids.length === 0) {
+          setCurrentTask(null)
+          return
+        }
         const next = await getNextAnnotationTask(projectId)
         if (next) {
           setCurrentTask(next)
           setReadOnly(next.status === 'completed')
           const existingIdx = ids.indexOf(next.id)
-          setCursor(existingIdx >= 0 ? existingIdx : (() => {
-            setTaskIds((prev) => [...prev, next.id])
-            return ids.length
-          })())
+          setCursor(
+            existingIdx >= 0
+              ? existingIdx
+              : (() => {
+                  setTaskIds((prev) => [...prev, next.id])
+                  return ids.length
+                })(),
+          )
         } else {
           await loadTaskById(ids[0])
           setCursor(0)
@@ -367,8 +416,13 @@ export default function AnnotationWorkspacePage() {
       const tag = (e.target as HTMLElement | null)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
       if (e.altKey || e.ctrlKey || e.metaKey) return
-      if (e.key === 'ArrowLeft') { e.preventDefault(); void goPrev() }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); void goNext() }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        void goPrev()
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        void goNext()
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -378,7 +432,9 @@ export default function AnnotationWorkspacePage() {
 
   if (projectLoading || !project) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+      <div
+        style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}
+      >
         <Spin />
       </div>
     )
@@ -388,8 +444,14 @@ export default function AnnotationWorkspacePage() {
     return (
       <div style={{ padding: 48 }}>
         <Result
-          status="error" title="加载失败" subTitle="标注任务加载失败，请稍后重试"
-          extra={<Button type="primary" onClick={() => window.location.reload()}>重新加载</Button>}
+          status="error"
+          title="加载失败"
+          subTitle="标注任务加载失败，请稍后重试"
+          extra={
+            <Button type="primary" onClick={() => window.location.reload()}>
+              重新加载
+            </Button>
+          }
         />
       </div>
     )
@@ -399,8 +461,14 @@ export default function AnnotationWorkspacePage() {
     return (
       <div style={{ padding: 48 }}>
         <Result
-          status="success" title="全部完成" subTitle="该项目中没有更多分配给你的标注任务"
-          extra={<Button type="primary" onClick={() => navigate('/annotations')}>返回标注列表</Button>}
+          status="success"
+          title="全部完成"
+          subTitle="该项目中没有更多分配给你的标注任务"
+          extra={
+            <Button type="primary" onClick={() => navigate('/annotations')}>
+              返回标注列表
+            </Button>
+          }
         />
       </div>
     )
@@ -411,38 +479,48 @@ export default function AnnotationWorkspacePage() {
   if (currentTask && spatialControls.length === 0) {
     return (
       <ClassificationOnlyWorkspace
-        task={currentTask} project={project}
+        task={currentTask}
+        project={project}
         objectConfig={parsedConfig?.objects[0]}
         controls={classificationControls}
-        onSubmit={handleSubmit} submitting={submitMutation.isPending} readOnly={readOnly}
+        onSubmit={handleSubmit}
+        submitting={submitMutation.isPending}
+        readOnly={readOnly}
         guidelineCollapsed={guidelineCollapsed}
         onToggleGuideline={() => setGuidelineCollapsed(!guidelineCollapsed)}
         onBack={() => navigate('/annotations')}
         currentTaskIndex={cursor}
         totalTasks={taskIds.length || project.totalTasks || 0}
         completedTasks={project.completedTasks || 0}
-        onPrev={goPrev} onNext={goNext}
+        onPrev={goPrev}
+        onNext={goNext}
         onHotkeyHelp={() => setHotkeyHelpOpen(true)}
         renderControl={(ctrl) => {
-            const objCfg = parsedConfig?.objects[0]
-            const imgUrl = objCfg ? (currentTask.data?.[objCfg.field] as string | undefined) : undefined
-            const selRegion = regionsHook.selectedRegionId
-              ? regionsHook.regions.find((r) => r.id === regionsHook.selectedRegionId) ?? null
-              : null
-            return renderClassificationControl(
-              ctrl, currentTask, objCfg, readOnly,
-              !!ctrl.perRegion, regionsHook.selectedRegionId,
-              regionsHook.selectedRegionId
-                ? regionsHook.getRegionResult(regionsHook.selectedRegionId, ctrl.name)
-                : null,
-              ctrl.perRegion ? handlePerRegionResult(ctrl.name) : undefined,
-              ctrl.perRegion ? undefined : handleGlobalResult(ctrl.name),
-              submitMutation.isPending,
-              ctrl.perRegion ? selRegion : null,
-              ctrl.perRegion ? regionsHook.imageDimensions : null,
-              ctrl.perRegion ? imgUrl : undefined,
-            )
-          }}
+          const objCfg = parsedConfig?.objects[0]
+          const imgUrl = objCfg
+            ? (currentTask.data?.[objCfg.field] as string | undefined)
+            : undefined
+          const selRegion = regionsHook.selectedRegionId
+            ? (regionsHook.regions.find((r) => r.id === regionsHook.selectedRegionId) ?? null)
+            : null
+          return renderClassificationControl(
+            ctrl,
+            currentTask,
+            objCfg,
+            readOnly,
+            !!ctrl.perRegion,
+            regionsHook.selectedRegionId,
+            regionsHook.selectedRegionId
+              ? regionsHook.getRegionResult(regionsHook.selectedRegionId, ctrl.name)
+              : null,
+            ctrl.perRegion ? handlePerRegionResult(ctrl.name) : undefined,
+            ctrl.perRegion ? undefined : handleGlobalResult(ctrl.name),
+            submitMutation.isPending,
+            ctrl.perRegion ? selRegion : null,
+            ctrl.perRegion ? regionsHook.imageDimensions : null,
+            ctrl.perRegion ? imgUrl : undefined,
+          )
+        }}
       />
     )
   }
@@ -451,7 +529,9 @@ export default function AnnotationWorkspacePage() {
 
   if (!currentTask) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+      <div
+        style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}
+      >
         <Spin />
       </div>
     )
@@ -463,10 +543,15 @@ export default function AnnotationWorkspacePage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Top Bar */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '8px 16px', borderBottom: '1px solid var(--ant-color-border)',
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '8px 16px',
+          borderBottom: '1px solid var(--ant-color-border)',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/annotations')}>
             返回
@@ -479,12 +564,17 @@ export default function AnnotationWorkspacePage() {
             currentTaskIndex={cursor}
             totalTasks={taskIds.length || totalTasks}
             completedTasks={completedTasks}
-            onPrev={goPrev} onNext={goNext}
+            onPrev={goPrev}
+            onNext={goNext}
             hasPrev={cursor > 0}
             hasNext={cursor < (taskIds.length || totalTasks) - 1 || true}
           />
           <Tooltip title="快捷键帮助">
-            <Button type="text" icon={<QuestionCircleOutlined />} onClick={() => setHotkeyHelpOpen(true)} />
+            <Button
+              type="text"
+              icon={<QuestionCircleOutlined />}
+              onClick={() => setHotkeyHelpOpen(true)}
+            />
           </Tooltip>
         </Space>
         <Button type="text" onClick={() => setGuidelineCollapsed(!guidelineCollapsed)}>
@@ -495,10 +585,14 @@ export default function AnnotationWorkspacePage() {
       {/* Read-only alert */}
       {readOnly && currentTask && (
         <Alert
-          type="info" showIcon
+          type="info"
+          showIcon
           message="该任务已提交,当前为只读预览"
           action={
-            <Button size="small" type="primary" icon={<EditOutlined />}
+            <Button
+              size="small"
+              type="primary"
+              icon={<EditOutlined />}
               loading={cancelMutation.isPending}
               onClick={() => {
                 Modal.confirm({
@@ -513,7 +607,9 @@ export default function AnnotationWorkspacePage() {
                   },
                 })
               }}
-            >重新标注</Button>
+            >
+              重新标注
+            </Button>
           }
           style={{ margin: '8px 16px 0' }}
         />
@@ -523,106 +619,147 @@ export default function AnnotationWorkspacePage() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Canvas Area — renders spatial controls */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {currentTask && spatialControls.map((spatialCtrl) => {
-            const objectConfig = objectMap.get(spatialCtrl.toName)
-            const sharedProps = {
-              task: currentTask,
-              objectConfig,
-              controlConfig: spatialCtrl,
-              readOnly,
-              regions: regionsHook.regions,
-              selectedRegionId: regionsHook.selectedRegionId,
-              imageDimensions: regionsHook.imageDimensions,
-              onAddRegion: regionsHook.addRegion,
-              onUpdateRegion: regionsHook.updateRegion,
-              onDeleteRegion: regionsHook.removeRegion,
-              onSelectRegion: regionsHook.selectRegion,
-              onImageDimensionsChange: regionsHook.setImageDimensions,
-            }
-
-            const { type } = spatialCtrl
-            const tag = objectConfig?.tag
-
-            // Image-based spatial controls
-            if (tag === 'Image') {
-              switch (type) {
-                case 'rectangle':
-                case 'rectanglelabels':
-                  return <ObjectDetectionAnnotator key={spatialCtrl.name} {...sharedProps} relations={relationsHook.relations} />
-                case 'polygon':
-                case 'polygonlabels':
-                  return <ImageSegmentationAnnotator key={spatialCtrl.name} {...sharedProps} relations={relationsHook.relations} />
-                case 'keypoint':
-                case 'keypointlabels':
-                  return <KeyPointAnnotator key={spatialCtrl.name} {...sharedProps} relations={relationsHook.relations} />
-                case 'ellipse':
-                case 'ellipselabels':
-                  return <EllipseAnnotator key={spatialCtrl.name} {...sharedProps} relations={relationsHook.relations} />
-                case 'brush':
-                case 'brushlabels':
-                  return <BrushAnnotator key={spatialCtrl.name} {...sharedProps} />
+          {currentTask &&
+            spatialControls.map((spatialCtrl) => {
+              const objectConfig = objectMap.get(spatialCtrl.toName)
+              const sharedProps = {
+                task: currentTask,
+                objectConfig,
+                controlConfig: spatialCtrl,
+                readOnly,
+                regions: regionsHook.regions,
+                selectedRegionId: regionsHook.selectedRegionId,
+                imageDimensions: regionsHook.imageDimensions,
+                onAddRegion: regionsHook.addRegion,
+                onUpdateRegion: regionsHook.updateRegion,
+                onDeleteRegion: regionsHook.removeRegion,
+                onSelectRegion: regionsHook.selectRegion,
+                onImageDimensionsChange: regionsHook.setImageDimensions,
               }
-            }
 
-            // Text-based NLP labels
-            if ((tag === 'Text' || tag === 'HyperText') && type === 'labels') {
-              return <NerTextAnnotator key={spatialCtrl.name} {...sharedProps} />
-            }
+              const { type } = spatialCtrl
+              const tag = objectConfig?.tag
 
-            return (
-              <Result
-                key={spatialCtrl.name}
-                status="warning"
-                title="当前控件暂未支持"
-                subTitle={`${spatialCtrl.tag} (${spatialCtrl.type}) 对 ${tag ?? '未知'} 类型暂未实现`}
-              />
-            )
-          })}
+              // Image-based spatial controls
+              if (tag === 'Image') {
+                switch (type) {
+                  case 'rectangle':
+                  case 'rectanglelabels':
+                    return (
+                      <ObjectDetectionAnnotator
+                        key={spatialCtrl.name}
+                        {...sharedProps}
+                        relations={relationsHook.relations}
+                      />
+                    )
+                  case 'polygon':
+                  case 'polygonlabels':
+                    return (
+                      <ImageSegmentationAnnotator
+                        key={spatialCtrl.name}
+                        {...sharedProps}
+                        relations={relationsHook.relations}
+                      />
+                    )
+                  case 'keypoint':
+                  case 'keypointlabels':
+                    return (
+                      <KeyPointAnnotator
+                        key={spatialCtrl.name}
+                        {...sharedProps}
+                        relations={relationsHook.relations}
+                      />
+                    )
+                  case 'ellipse':
+                  case 'ellipselabels':
+                    return (
+                      <EllipseAnnotator
+                        key={spatialCtrl.name}
+                        {...sharedProps}
+                        relations={relationsHook.relations}
+                      />
+                    )
+                  case 'brush':
+                  case 'brushlabels':
+                    return <BrushAnnotator key={spatialCtrl.name} {...sharedProps} />
+                }
+              }
+
+              // Text-based NLP labels
+              if ((tag === 'Text' || tag === 'HyperText') && type === 'labels') {
+                return <NerTextAnnotator key={spatialCtrl.name} {...sharedProps} />
+              }
+
+              return (
+                <Result
+                  key={spatialCtrl.name}
+                  status="warning"
+                  title="当前控件暂未支持"
+                  subTitle={`${spatialCtrl.tag} (${spatialCtrl.type}) 对 ${tag ?? '未知'} 类型暂未实现`}
+                />
+              )
+            })}
           {!currentTask && taskLoading && (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin /></div>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+              <Spin />
+            </div>
           )}
         </div>
 
         {/* Side Panel: Classification Controls */}
-        <div style={{
-          width: 280, borderLeft: '1px solid var(--ant-color-border)',
-          overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12,
-        }}>
+        <div
+          style={{
+            width: 280,
+            borderLeft: '1px solid var(--ant-color-border)',
+            overflowY: 'auto',
+            padding: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
           {/* Per-Region Controls */}
           {perRegionControls.map((ctrl) => {
             const objCfg = objectMap.get(ctrl.toName)
-            const imgUrl = objCfg ? (currentTask.data?.[objCfg.field] as string | undefined) : undefined
+            const imgUrl = objCfg
+              ? (currentTask.data?.[objCfg.field] as string | undefined)
+              : undefined
             const selRegion = regionsHook.selectedRegionId
-              ? regionsHook.regions.find((r) => r.id === regionsHook.selectedRegionId) ?? null
+              ? (regionsHook.regions.find((r) => r.id === regionsHook.selectedRegionId) ?? null)
               : null
             return (
-            <Card
-              key={ctrl.name}
-              size="small"
-              title={
-                <Space>
-                  <span>{ctrl.tag}</span>
-                  {regionsHook.selectedRegionId
-                    ? <Tag color="blue">已选中区域</Tag>
-                    : <Tag color="default">等待选择</Tag>
-                  }
-                </Space>
-              }
-            >
-              {renderClassificationControl(
-                ctrl, currentTask, objCfg, readOnly,
-                true, regionsHook.selectedRegionId,
-                regionsHook.selectedRegionId
-                  ? regionsHook.getRegionResult(regionsHook.selectedRegionId, ctrl.name)
-                  : null,
-                handlePerRegionResult(ctrl.name),
-                undefined,
-                submitMutation.isPending,
-                selRegion,
-                regionsHook.imageDimensions,
-                imgUrl,
-              )}
-            </Card>
+              <Card
+                key={ctrl.name}
+                size="small"
+                title={
+                  <Space>
+                    <span>{ctrl.tag}</span>
+                    {regionsHook.selectedRegionId ? (
+                      <Tag color="blue">已选中区域</Tag>
+                    ) : (
+                      <Tag color="default">等待选择</Tag>
+                    )}
+                  </Space>
+                }
+              >
+                {renderClassificationControl(
+                  ctrl,
+                  currentTask,
+                  objCfg,
+                  readOnly,
+                  true,
+                  regionsHook.selectedRegionId,
+                  regionsHook.selectedRegionId
+                    ? regionsHook.getRegionResult(regionsHook.selectedRegionId, ctrl.name)
+                    : null,
+                  handlePerRegionResult(ctrl.name),
+                  undefined,
+                  submitMutation.isPending,
+                  selRegion,
+                  regionsHook.imageDimensions,
+                  imgUrl,
+                )}
+              </Card>
             )
           })}
 
@@ -635,10 +772,19 @@ export default function AnnotationWorkspacePage() {
           {globalClassificationControls.map((ctrl) => (
             <Card key={ctrl.name} size="small" title={ctrl.tag}>
               {renderClassificationControl(
-                ctrl, currentTask, objectMap.get(ctrl.toName), readOnly,
-                false, null, null, undefined, handleGlobalResult(ctrl.name),
+                ctrl,
+                currentTask,
+                objectMap.get(ctrl.toName),
+                readOnly,
+                false,
+                null,
+                null,
+                undefined,
+                handleGlobalResult(ctrl.name),
                 submitMutation.isPending,
-                null, null, undefined,
+                null,
+                null,
+                undefined,
               )}
             </Card>
           ))}
@@ -683,26 +829,40 @@ export default function AnnotationWorkspacePage() {
                   )}
                   {relationsHook.relations.length > 0 && (
                     <div style={{ marginTop: 8 }}>
-                      {relationsHook.relations.filter((r) => r.sourceControlName === relCtrl.name).map((rel, i) => {
-                        const fromRegion = regionsHook.regions.find((r) => r.id === rel.fromRegionId)
-                        const toRegion = regionsHook.regions.find((r) => r.id === rel.toRegionId)
-                        return (
-                          <div key={rel.id} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                            <Tag color="blue">{rel.label || `关系${i + 1}`}</Tag>
-                            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                              {fromRegion?.label || `区域`} → {toRegion?.label || `区域`}
-                            </Typography.Text>
-                            {!readOnly && (
-                              <Button
-                                type="text" size="small" danger
-                                onClick={() => relationsHook.removeRelation(rel.id)}
-                              >
-                                ×
-                              </Button>
-                            )}
-                          </div>
-                        )
-                      })}
+                      {relationsHook.relations
+                        .filter((r) => r.sourceControlName === relCtrl.name)
+                        .map((rel, i) => {
+                          const fromRegion = regionsHook.regions.find(
+                            (r) => r.id === rel.fromRegionId,
+                          )
+                          const toRegion = regionsHook.regions.find((r) => r.id === rel.toRegionId)
+                          return (
+                            <div
+                              key={rel.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                marginBottom: 4,
+                              }}
+                            >
+                              <Tag color="blue">{rel.label || `关系${i + 1}`}</Tag>
+                              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                {fromRegion?.label || `区域`} → {toRegion?.label || `区域`}
+                              </Typography.Text>
+                              {!readOnly && (
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  danger
+                                  onClick={() => relationsHook.removeRelation(rel.id)}
+                                >
+                                  ×
+                                </Button>
+                              )}
+                            </div>
+                          )
+                        })}
                     </div>
                   )}
                 </Card>
@@ -713,10 +873,15 @@ export default function AnnotationWorkspacePage() {
           {/* Submit */}
           {!readOnly && (
             <Button
-              type="primary" size="large" block
-              onClick={handleSubmit} loading={submitMutation.isPending}
-              disabled={regionsHook.regions.length === 0
-                && Object.values(globalResults).every((a) => a.length === 0)}
+              type="primary"
+              size="large"
+              block
+              onClick={handleSubmit}
+              loading={submitMutation.isPending}
+              disabled={
+                regionsHook.regions.length === 0 &&
+                Object.values(globalResults).every((a) => a.length === 0)
+              }
             >
               提交标注 ({regionsHook.regions.length})
             </Button>
@@ -734,7 +899,12 @@ export default function AnnotationWorkspacePage() {
 
       {/* Region List — integrated into each annotator's overlay */}
 
-      <Modal open={hotkeyHelpOpen} title="快捷键" footer={null} onCancel={() => setHotkeyHelpOpen(false)}>
+      <Modal
+        open={hotkeyHelpOpen}
+        title="快捷键"
+        footer={null}
+        onCancel={() => setHotkeyHelpOpen(false)}
+      >
         <Card size="small">
           <Space direction="vertical" style={{ width: '100%' }}>
             {HOTKEYS.map((h) => (
@@ -753,10 +923,22 @@ export default function AnnotationWorkspacePage() {
 // ── Classification-Only Workspace (no spatial controls) ─────────────────────
 
 function ClassificationOnlyWorkspace({
-  task, project, objectConfig, controls,
-  onSubmit, submitting, readOnly,
-  guidelineCollapsed, onToggleGuideline, onBack,
-  currentTaskIndex, totalTasks, completedTasks, onPrev, onNext, onHotkeyHelp,
+  task,
+  project,
+  objectConfig,
+  controls,
+  onSubmit,
+  submitting,
+  readOnly,
+  guidelineCollapsed,
+  onToggleGuideline,
+  onBack,
+  currentTaskIndex,
+  totalTasks,
+  completedTasks,
+  onPrev,
+  onNext,
+  onHotkeyHelp,
   renderControl,
 }: {
   task: AnnotationTask
@@ -783,20 +965,31 @@ function ClassificationOnlyWorkspace({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '8px 16px', borderBottom: '1px solid var(--ant-color-border)',
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '8px 16px',
+          borderBottom: '1px solid var(--ant-color-border)',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>返回</Button>
+          <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
+            返回
+          </Button>
           <span style={{ fontWeight: 500 }}>{(project as { name: string }).name}</span>
           {readOnly && <Tag color="green">已完成 - 只读</Tag>}
         </div>
         <Space>
           <TaskNavigator
-            currentTaskIndex={currentTaskIndex} totalTasks={totalTasks}
-            completedTasks={completedTasks} onPrev={onPrev} onNext={onNext}
-            hasPrev={currentTaskIndex > 0} hasNext={true}
+            currentTaskIndex={currentTaskIndex}
+            totalTasks={totalTasks}
+            completedTasks={completedTasks}
+            onPrev={onPrev}
+            onNext={onNext}
+            hasPrev={currentTaskIndex > 0}
+            hasNext={true}
           />
           <Tooltip title="快捷键帮助">
             <Button type="text" icon={<QuestionCircleOutlined />} onClick={onHotkeyHelp} />
@@ -810,9 +1003,13 @@ function ClassificationOnlyWorkspace({
         <div style={{ flex: 1, padding: 16, overflowY: 'auto' }}>
           {objectConfig?.tag === 'Image' && objectValue ? (
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <img src={appendAuthToken(objectValue)} style={{ maxHeight: 400, maxWidth: '100%' }} alt="" />
+              <img
+                src={appendAuthToken(objectValue)}
+                style={{ maxHeight: 400, maxWidth: '100%' }}
+                alt=""
+              />
             </div>
-          ) : (objectConfig?.tag === 'Text' || objectConfig?.tag === 'HyperText') ? (
+          ) : objectConfig?.tag === 'Text' || objectConfig?.tag === 'HyperText' ? (
             <Card size="small" style={{ marginBottom: 16 }}>
               <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
                 {objectValue || '无内容'}

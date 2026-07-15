@@ -42,7 +42,7 @@ export default function ImageSegmentationAnnotator({
   type ToolMode = 'select' | 'draw'
   const [toolMode, setToolMode] = useState<ToolMode>('draw')
   const [activeLabel, setActiveLabel] = useState<string | null>(
-    hasLabels ? controlConfig.choices[0]?.value ?? null : null,
+    hasLabels ? (controlConfig.choices[0]?.value ?? null) : null,
   )
   const [currentPoints, setCurrentPoints] = useState<[number, number][]>([])
 
@@ -159,14 +159,20 @@ export default function ImageSegmentationAnnotator({
       <Button
         type={toolMode === 'draw' ? 'primary' : 'default'}
         icon={<BorderOutlined />}
-        onClick={() => { setToolMode('draw'); onSelectRegion(null) }}
+        onClick={() => {
+          setToolMode('draw')
+          onSelectRegion(null)
+        }}
       >
         绘制
       </Button>
       <Button
         type={toolMode === 'select' ? 'primary' : 'default'}
         icon={<SelectOutlined />}
-        onClick={() => { setToolMode('select'); setCurrentPoints([]) }}
+        onClick={() => {
+          setToolMode('select')
+          setCurrentPoints([])
+        }}
       >
         选择
       </Button>
@@ -230,7 +236,8 @@ export default function ImageSegmentationAnnotator({
                     fill={`${labelColor(i)}30`}
                     draggable={!readOnly && toolMode === 'select' && !zp.panEffective}
                     onClick={() => {
-                      if (!readOnly) onSelectRegion(selectedRegionId === region.id ? null : region.id)
+                      if (!readOnly)
+                        onSelectRegion(selectedRegionId === region.id ? null : region.id)
                     }}
                     onContextMenu={(e) => {
                       e.evt.preventDefault()
@@ -240,9 +247,10 @@ export default function ImageSegmentationAnnotator({
                       const node = e.target
                       const dx = node.x()
                       const dy = node.y()
-                      const newPoints: [number, number][] = pts.map(
-                        ([px, py]) => [px + dx, py + dy],
-                      )
+                      const newPoints: [number, number][] = pts.map(([px, py]) => [
+                        px + dx,
+                        py + dy,
+                      ])
                       const xs = newPoints.map((p) => p[0])
                       const ys = newPoints.map((p) => p[1])
                       onUpdateRegion(region.id, {
@@ -271,18 +279,19 @@ export default function ImageSegmentationAnnotator({
             </>
           )}
         />
-
       </div>
       {/* Region list — placed below canvas to avoid occluding the image */}
       {polyRegions.length > 0 && (
-        <div style={{
-          maxHeight: 120,
-          overflowY: 'auto',
-          background: 'var(--ant-color-bg-container)',
-          border: '1px solid var(--ant-color-border)',
-          borderRadius: 6,
-          flexShrink: 0,
-        }}>
+        <div
+          style={{
+            maxHeight: 120,
+            overflowY: 'auto',
+            background: 'var(--ant-color-bg-container)',
+            border: '1px solid var(--ant-color-border)',
+            borderRadius: 6,
+            flexShrink: 0,
+          }}
+        >
           <List
             size="small"
             dataSource={polyRegions}
@@ -291,7 +300,8 @@ export default function ImageSegmentationAnnotator({
                 style={{
                   padding: '4px 12px',
                   cursor: 'pointer',
-                  background: selectedRegionId === region.id ? 'var(--ant-color-primary-bg)' : undefined,
+                  background:
+                    selectedRegionId === region.id ? 'var(--ant-color-primary-bg)' : undefined,
                 }}
                 onClick={() => onSelectRegion(region.id)}
               >
@@ -301,8 +311,13 @@ export default function ImageSegmentationAnnotator({
                 </Space>
                 {!readOnly && (
                   <Button
-                    type="text" size="small" icon={<DeleteOutlined />}
-                    onClick={(e) => { e.stopPropagation(); handleDelete(region.id) }}
+                    type="text"
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDelete(region.id)
+                    }}
                   />
                 )}
               </List.Item>

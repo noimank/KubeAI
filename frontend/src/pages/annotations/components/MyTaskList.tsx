@@ -79,9 +79,7 @@ export default function MyTaskList({ page, pageSize, onPageChange }: MyTaskListP
             title: '标注模板',
             dataIndex: 'templateName',
             width: 140,
-            render: (name: string | null | undefined) => (
-              <Tag color="blue">{name || '—'}</Tag>
-            ),
+            render: (name: string | null | undefined) => <Tag color="blue">{name || '—'}</Tag>,
           },
           {
             title: '状态',

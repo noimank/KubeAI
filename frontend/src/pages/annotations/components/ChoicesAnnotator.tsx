@@ -56,7 +56,12 @@ export default function ChoicesAnnotator({
 
   // 当选中区域变化时，回显已有选择
   useEffect(() => {
-    if (perRegion && selectedRegionId && currentRegionChoices !== undefined && currentRegionChoices !== null) {
+    if (
+      perRegion &&
+      selectedRegionId &&
+      currentRegionChoices !== undefined &&
+      currentRegionChoices !== null
+    ) {
       setSelected(currentRegionChoices)
     } else if (perRegion && !selectedRegionId) {
       setSelected([])

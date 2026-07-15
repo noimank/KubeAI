@@ -2,7 +2,10 @@ import { useEffect, useMemo } from 'react'
 import { Form, Input, Modal, Select, Space } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createAnnotationProject } from '@/services/annotations'
-import { listAnnotationTemplateGroups, listAnnotationTemplates } from '@/services/annotation-templates'
+import {
+  listAnnotationTemplateGroups,
+  listAnnotationTemplates,
+} from '@/services/annotation-templates'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
 import { getMessageInstance } from '@/utils/messageHolder'
 
@@ -112,10 +115,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     [datasetDetail?.versions],
   )
 
-  const groupOptions = useMemo(
-    () => (groups ?? []).map((g) => ({ value: g, label: g })),
-    [groups],
-  )
+  const groupOptions = useMemo(() => (groups ?? []).map((g) => ({ value: g, label: g })), [groups])
 
   const templateOptions = useMemo(
     () =>
@@ -154,7 +154,12 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           </Form.Item>
 
           <Form.Item label="项目描述" name="description" style={{ marginBottom: 0 }}>
-            <Input.TextArea placeholder="可选，描述标注规则或验收标准" rows={2} maxLength={500} showCount />
+            <Input.TextArea
+              placeholder="可选，描述标注规则或验收标准"
+              rows={2}
+              maxLength={500}
+              showCount
+            />
           </Form.Item>
 
           <Space style={{ width: '100%' }} size="middle" align="start">
@@ -164,7 +169,12 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               rules={[{ required: true, message: '请选择数据集' }]}
               style={{ flex: 1, marginBottom: 0 }}
             >
-              <Select placeholder="选择数据集" showSearch optionFilterProp="label" options={datasetOptions} />
+              <Select
+                placeholder="选择数据集"
+                showSearch
+                optionFilterProp="label"
+                options={datasetOptions}
+              />
             </Form.Item>
 
             <Form.Item
@@ -190,7 +200,11 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               rules={[{ required: true, message: '请选择模板分组' }]}
               style={{ flex: 1, marginBottom: 0 }}
             >
-              <Select placeholder="选择模板分组" options={groupOptions} notFoundContent="暂无分组" />
+              <Select
+                placeholder="选择模板分组"
+                options={groupOptions}
+                notFoundContent="暂无分组"
+              />
             </Form.Item>
 
             <Form.Item

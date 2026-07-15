@@ -1,4 +1,12 @@
-export type LabelStudioObjectType = 'Image' | 'Text' | 'Audio' | 'Video' | 'HyperText' | 'PDF' | 'Header' | 'Style'
+export type LabelStudioObjectType =
+  | 'Image'
+  | 'Text'
+  | 'Audio'
+  | 'Video'
+  | 'HyperText'
+  | 'PDF'
+  | 'Header'
+  | 'Style'
 
 export type LabelStudioControlType =
   | 'choices'
@@ -78,22 +86,35 @@ export interface LabelStudioRelationConfig {
 
 /** 空间控件类型（创建几何区域） */
 export const SPATIAL_CONTROL_TYPES: LabelStudioControlType[] = [
-  'rectangle', 'rectanglelabels',
-  'polygon', 'polygonlabels',
-  'keypoint', 'keypointlabels',
-  'ellipse', 'ellipselabels',
-  'brush', 'brushlabels',
+  'rectangle',
+  'rectanglelabels',
+  'polygon',
+  'polygonlabels',
+  'keypoint',
+  'keypointlabels',
+  'ellipse',
+  'ellipselabels',
+  'brush',
+  'brushlabels',
   'labels',
 ]
 
 /** 分类控件类型（提供标签/文本，支持 perRegion） */
 export const CLASSIFICATION_CONTROL_TYPES: LabelStudioControlType[] = [
-  'choices', 'textarea', 'rating', 'number', 'taxonomy',
+  'choices',
+  'textarea',
+  'rating',
+  'number',
+  'taxonomy',
 ]
 
 /** 无内嵌标签的空间控件（可与独立的 Labels/TextArea 配合） */
 export const BARE_SPATIAL_CONTROL_TYPES: LabelStudioControlType[] = [
-  'rectangle', 'polygon', 'keypoint', 'ellipse', 'brush',
+  'rectangle',
+  'polygon',
+  'keypoint',
+  'ellipse',
+  'brush',
 ]
 
 export interface ParsedLabelConfig {
@@ -150,7 +171,8 @@ export function parseLabelConfig(config: string): ParsedLabelConfig {
   const parser = new DOMParser()
   const xml = parser.parseFromString(config, 'application/xml')
   const errorNode = xml.querySelector('parsererror')
-  if (errorNode) return { objects: [], controls: [], relations: [], labels: [], error: '标注配置 XML 格式无效' }
+  if (errorNode)
+    return { objects: [], controls: [], relations: [], labels: [], error: '标注配置 XML 格式无效' }
 
   const objects: LabelStudioObjectConfig[] = []
 
@@ -245,8 +267,10 @@ export function parseLabelConfig(config: string): ParsedLabelConfig {
   }
 
   const labels = controls.flatMap((control) => control.choices.map((choice) => choice.value))
-  if (objects.length === 0) return { objects, controls, relations, labels, error: '配置缺少数据标签' }
-  if (controls.length === 0) return { objects, controls, relations, labels, error: '配置缺少标注控件' }
+  if (objects.length === 0)
+    return { objects, controls, relations, labels, error: '配置缺少数据标签' }
+  if (controls.length === 0)
+    return { objects, controls, relations, labels, error: '配置缺少标注控件' }
 
   return { objects, controls, relations, labels }
 }

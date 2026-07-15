@@ -222,8 +222,8 @@ function ImageOverlay({ imageUrl, entries }: { imageUrl: string; entries: Entry[
             if (entry.item.type === 'ellipselabels' || entry.item.type === 'ellipse') {
               const cx = (Number(v.x) / 100) * image.width * scale + offsetX
               const cy = (Number(v.y) / 100) * image.height * scale + offsetY
-              const rx = (Number(v.radiusX || (Number(v.width) / 2)) / 100) * image.width * scale
-              const ry = (Number(v.radiusY || (Number(v.height) / 2)) / 100) * image.height * scale
+              const rx = (Number(v.radiusX || Number(v.width) / 2) / 100) * image.width * scale
+              const ry = (Number(v.radiusY || Number(v.height) / 2) / 100) * image.height * scale
               return (
                 <Ellipse
                   key={entry.index}
@@ -248,16 +248,30 @@ function ImageOverlay({ imageUrl, entries }: { imageUrl: string; entries: Entry[
 
 function imageEntries(entries: Entry[]): Entry[] {
   return entries.filter((e) =>
-    ['rectanglelabels', 'rectangle', 'polygonlabels', 'polygon',
-     'keypointlabels', 'keypoint', 'ellipselabels', 'ellipse'].includes(e.item.type),
+    [
+      'rectanglelabels',
+      'rectangle',
+      'polygonlabels',
+      'polygon',
+      'keypointlabels',
+      'keypoint',
+      'ellipselabels',
+      'ellipse',
+    ].includes(e.item.type),
   )
 }
 
 function shapeListGroups(entries: Entry[]) {
   return entries.filter((e) =>
-    ['rectanglelabels', 'rectangle', 'polygonlabels', 'polygon', 'brushlabels', 'keypointlabels', 'labels'].includes(
-      e.item.type,
-    ),
+    [
+      'rectanglelabels',
+      'rectangle',
+      'polygonlabels',
+      'polygon',
+      'brushlabels',
+      'keypointlabels',
+      'labels',
+    ].includes(e.item.type),
   )
 }
 
@@ -370,9 +384,7 @@ export default function AnnotationPreview({
             {shapes.map((entry) => {
               // perRegion 关联的 textarea
               const regionTextareas = hasPerRegionTextareas(entries)
-                ? entries.filter(
-                    (e) => e.item.type === 'textarea' && e.item.id === entry.item.id,
-                  )
+                ? entries.filter((e) => e.item.type === 'textarea' && e.item.id === entry.item.id)
                 : []
               return (
                 <div key={entry.index}>

@@ -55,7 +55,12 @@ export default function TextAreaAnnotator({
 
   // 当选中区域变化时，回显已有文本
   useEffect(() => {
-    if (perRegion && selectedRegionId && currentRegionText !== undefined && currentRegionText !== null) {
+    if (
+      perRegion &&
+      selectedRegionId &&
+      currentRegionText !== undefined &&
+      currentRegionText !== null
+    ) {
       setValue(currentRegionText)
     } else if (perRegion && !selectedRegionId) {
       setValue('')
@@ -132,7 +137,9 @@ export default function TextAreaAnnotator({
         value={value}
         onChange={(event) => setValue(event.target.value)}
         rows={4}
-        placeholder={controlConfig?.name ? `请输入 ${controlConfig.name} 标注内容` : '请输入标注内容'}
+        placeholder={
+          controlConfig?.name ? `请输入 ${controlConfig.name} 标注内容` : '请输入标注内容'
+        }
         disabled={readOnly}
         style={{ resize: 'vertical' }}
       />

@@ -24,7 +24,10 @@ interface ObjectDetectionAnnotatorProps {
   selectedRegionId: string | null
   imageDimensions: ImageDimensions | null
   onAddRegion: (region: AnnotationRegion) => void
-  onUpdateRegion: (id: string, updates: Partial<Pick<AnnotationRegion, 'spatial' | 'label'>>) => void
+  onUpdateRegion: (
+    id: string,
+    updates: Partial<Pick<AnnotationRegion, 'spatial' | 'label'>>,
+  ) => void
   onDeleteRegion: (id: string) => void
   onSelectRegion: (id: string | null) => void
   onImageDimensionsChange: (dims: ImageDimensions) => void
@@ -47,8 +50,11 @@ interface LocalBBox {
 
 function regionToBBox(r: AnnotationRegion): LocalBBox {
   return {
-    id: r.id, x: r.spatial.x, y: r.spatial.y,
-    width: r.spatial.width, height: r.spatial.height,
+    id: r.id,
+    x: r.spatial.x,
+    y: r.spatial.y,
+    width: r.spatial.width,
+    height: r.spatial.height,
     label: r.label ?? '',
   }
 }
@@ -82,9 +88,11 @@ export default function ObjectDetectionAnnotator({
 
   const [toolMode, setToolMode] = useState<ToolMode>('draw')
   const [activeLabel, setActiveLabel] = useState<string | null>(
-    hasLabels ? controlConfig.choices[0]?.value ?? null : null,
+    hasLabels ? (controlConfig.choices[0]?.value ?? null) : null,
   )
-  const [drawing, setDrawing] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [drawing, setDrawing] = useState<{ x: number; y: number; w: number; h: number } | null>(
+    null,
+  )
   const transformerRef = useRef<Konva.Transformer>(null)
   const [showTransformer, setShowTransformer] = useState(false)
 
@@ -124,7 +132,9 @@ export default function ObjectDetectionAnnotator({
   regionsRef.current = regions
 
   const handleDelete = useCallback(
-    (id: string) => { onDeleteRegion(id) },
+    (id: string) => {
+      onDeleteRegion(id)
+    },
     [onDeleteRegion],
   )
 
@@ -150,17 +160,20 @@ export default function ObjectDetectionAnnotator({
     return () => window.removeEventListener('keydown', handler)
   }, [readOnly, handleUndo])
 
-  const onMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (readOnly || zp.panEffective || toolMode !== 'draw') return
-    if (e.evt.button !== 0) return
-    // Only start drawing on empty canvas, not when clicking on existing shapes
-    if (e.target !== e.target.getStage()) return
-    // Hide transform handles when starting to draw a new box
-    setShowTransformer(false)
-    const p = zp.pointerToImage()
-    if (!p) return
-    setDrawing({ x: p.x, y: p.y, w: 0, h: 0 })
-  }, [readOnly, zp, toolMode])
+  const onMouseDown = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (readOnly || zp.panEffective || toolMode !== 'draw') return
+      if (e.evt.button !== 0) return
+      // Only start drawing on empty canvas, not when clicking on existing shapes
+      if (e.target !== e.target.getStage()) return
+      // Hide transform handles when starting to draw a new box
+      setShowTransformer(false)
+      const p = zp.pointerToImage()
+      if (!p) return
+      setDrawing({ x: p.x, y: p.y, w: 0, h: 0 })
+    },
+    [readOnly, zp, toolMode],
+  )
 
   const onMouseMove = useCallback(() => {
     if (!drawing) return
@@ -198,14 +211,21 @@ export default function ObjectDetectionAnnotator({
       <Button
         type={toolMode === 'draw' ? 'primary' : 'default'}
         icon={<DragOutlined />}
-        onClick={() => { setToolMode('draw'); onSelectRegion(null); setShowTransformer(false) }}
+        onClick={() => {
+          setToolMode('draw')
+          onSelectRegion(null)
+          setShowTransformer(false)
+        }}
       >
         绘制
       </Button>
       <Button
         type={toolMode === 'select' ? 'primary' : 'default'}
         icon={<SelectOutlined />}
-        onClick={() => { setToolMode('select'); setShowTransformer(false) }}
+        onClick={() => {
+          setToolMode('select')
+          setShowTransformer(false)
+        }}
       >
         选择
       </Button>
@@ -230,7 +250,11 @@ export default function ObjectDetectionAnnotator({
               {toolbar}
               {!readOnly && (
                 <>
-                  <Button icon={<UndoOutlined />} onClick={handleUndo} disabled={bboxes.length === 0}>
+                  <Button
+                    icon={<UndoOutlined />}
+                    onClick={handleUndo}
+                    disabled={bboxes.length === 0}
+                  >
                     撤销
                   </Button>
                   <Popconfirm
@@ -345,18 +369,19 @@ export default function ObjectDetectionAnnotator({
             </>
           )}
         />
-
       </div>
       {/* Region list — placed below canvas to avoid occluding the image */}
       {bboxes.length > 0 && (
-        <div style={{
-          maxHeight: 120,
-          overflowY: 'auto',
-          background: 'var(--ant-color-bg-container)',
-          border: '1px solid var(--ant-color-border)',
-          borderRadius: 6,
-          flexShrink: 0,
-        }}>
+        <div
+          style={{
+            maxHeight: 120,
+            overflowY: 'auto',
+            background: 'var(--ant-color-bg-container)',
+            border: '1px solid var(--ant-color-border)',
+            borderRadius: 6,
+            flexShrink: 0,
+          }}
+        >
           <List
             size="small"
             dataSource={bboxes}
@@ -365,9 +390,13 @@ export default function ObjectDetectionAnnotator({
                 style={{
                   padding: '4px 12px',
                   cursor: 'pointer',
-                  background: selectedRegionId === item.id ? 'var(--ant-color-primary-bg)' : undefined,
+                  background:
+                    selectedRegionId === item.id ? 'var(--ant-color-primary-bg)' : undefined,
                 }}
-                onClick={() => { onSelectRegion(item.id); setShowTransformer(false) }}
+                onClick={() => {
+                  onSelectRegion(item.id)
+                  setShowTransformer(false)
+                }}
               >
                 <Space>
                   <Tag color={labelColor(i)}>{i + 1}</Tag>
@@ -375,8 +404,13 @@ export default function ObjectDetectionAnnotator({
                 </Space>
                 {!readOnly && (
                   <Button
-                    type="text" size="small" icon={<DeleteOutlined />}
-                    onClick={(e) => { e.stopPropagation(); handleDelete(item.id) }}
+                    type="text"
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDelete(item.id)
+                    }}
                   />
                 )}
               </List.Item>
