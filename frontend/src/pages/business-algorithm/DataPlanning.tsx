@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Card, Button, message } from 'antd'
+import { Card, Button } from 'antd'
+import { getMessageInstance } from '@/utils/messageHolder'
 import { useSearchParams } from 'react-router-dom'
 import ResourceAllocationForm from './components/ResourceAllocationForm'
 import ResourceAllocationResult, {
@@ -71,7 +72,7 @@ export default function DataPlanningPage() {
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .catch((err: any) => {
-        message.error(err?.response?.data?.error || err?.message || '优化请求失败')
+        getMessageInstance()?.error(err?.response?.data?.error || err?.message || '优化请求失败')
       })
       .finally(() => setLoading(false))
   }

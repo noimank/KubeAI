@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Button, Card, Col, message, Row, Tabs, Typography } from 'antd'
+import { Button, Card, Col, Row, Tabs, Typography } from 'antd'
+import { getMessageInstance } from '@/utils/messageHolder'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getClusterOverview,
@@ -80,15 +81,15 @@ export default function MonitoringPage() {
     try {
       const res = await triggerCleanup()
       if (res.success) {
-        message.success('清理任务已触发')
+        getMessageInstance()?.success('清理任务已触发')
         setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ['staleJobs'] })
         }, 3000)
       } else {
-        message.error(res.message || '触发失败')
+        getMessageInstance()?.error(res.message || '触发失败')
       }
     } catch {
-      message.error('触发清理请求失败')
+      getMessageInstance()?.error('触发清理请求失败')
     }
   }
 

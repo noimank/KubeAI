@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import { message } from 'antd'
 import { getUnreadCount } from '@/services/notifications'
+import { getMessageInstance } from '@/utils/messageHolder'
 
 interface NotificationState {
   unreadCount: number
@@ -30,7 +30,7 @@ export const useNotificationStore = create<NotificationState>((set) => ({
     set((s) => ({ unreadCount: s.unreadCount + 1 }))
     const title = payload.title as string | undefined
     if (title) {
-      message.info({ content: title, duration: 3 })
+      getMessageInstance()?.info({ content: title, duration: 3 })
     }
   },
 }))

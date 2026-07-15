@@ -1,13 +1,7 @@
 # MLflow Tracking Server - 实验追踪
 # 依赖: PostgreSQL (需 mlflow 数据库)
-# 部署: kubectl apply -k infra/k8s/mlflow/
+# 部署: kubectl apply -f infra/k8s/mlflow/mlflow.yaml
 # 端口: ClusterIP 5000 (内部访问；如需外部，通过 Ingress 暴露)
-#
-# 生产部署前:
-#   1. 确认 StorageClass 可用
-#   2. 按需调整 PVC 大小和资源限制
-#   3. 建议 artifact 使用 S3 兼容存储 (MinIO) 而非本地 PVC
-#   4. 构建自定义 MLflow 镜像: docker build -t kubeai-mlflow -f infra/images/mlflow/Dockerfile .
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -33,7 +27,7 @@ spec:
         kubeai: "true"
       containers:
         - name: mlflow
-          image: kubeai-mlflow:v3.12.0
+          image: hub.uimpcloud.com/kubeai/mlflow:v3.12.0
           command: ["mlflow", "server"]
           args:
             - --host
@@ -60,6 +54,10 @@ spec:
             # (mlflow.kubeai.svc.cluster.local) 访问会被 403 "Invalid Host header" 拒绝。
             # 此服务为 ClusterIP 内部访问，故放开全部 Host (DNS 重绑定防护对内网无意义)。
             - name: MLFLOW_SERVER_ALLOWED_HOSTS
+              value: "*"
+            # MLflow 3.12+ 新增 CORSBlockingMiddleware，前端浏览器请求带 Origin header
+            # (如 http://mlflow.uimpcloud.com) 被判定为跨域请求 → 403。放开全部来源。
+            - name: MLFLOW_SERVER_CORS_ALLOWED_ORIGINS
               value: "*"
           ports:
             - name: http
@@ -88,23 +86,9 @@ spec:
               memory: 2Gi
       volumes:
         - name: artifacts
-          persistentVolumeClaim:
-            claimName: mlflow-artifacts
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mlflow-artifacts
-  namespace: kubeai
-  labels:
-    app.kubernetes.io/name: mlflow
-    app.kubernetes.io/component: tracking
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 50Gi
+          hostPath:
+            path: /data/kubeai/mlflow/
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

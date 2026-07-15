@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Card, Button, Input, InputNumber, Select, Table, Progress, message } from 'antd'
+import { Card, Button, Input, InputNumber, Select, Table, Progress } from 'antd'
+import { getMessageInstance } from '@/utils/messageHolder'
 import {
   DeleteOutlined,
   PlusOutlined,
@@ -152,7 +153,7 @@ export default function HeuristicRulesPage() {
     const usedIds = job.processes.map((p) => p.deviceId).filter(Boolean) as number[]
     const available = validProcessList.filter((p) => !usedIds.includes(p.id))
     if (available.length === 0) {
-      message.warning('该作业已包含所有有效工序')
+      getMessageInstance()?.warning('该作业已包含所有有效工序')
       return
     }
     const newList = [...jobList]
@@ -216,7 +217,7 @@ export default function HeuristicRulesPage() {
   const handleSubmit = () => {
     const error = validateForm()
     if (error) {
-      message.error(error)
+      getMessageInstance()?.error(error)
       return
     }
     setLoading(true)
@@ -238,7 +239,7 @@ export default function HeuristicRulesPage() {
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .catch((err: any) => {
-        message.error(err?.response?.data?.error || err?.message || '优化请求失败')
+        getMessageInstance()?.error(err?.response?.data?.error || err?.message || '优化请求失败')
       })
       .finally(() => setLoading(false))
   }
