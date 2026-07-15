@@ -1,6 +1,7 @@
 from app.models.algorithm import Algorithm
 from app.models.annotation import AnnotationProject
 from app.models.annotation_task import AnnotationTask
+from app.models.annotation_template import AnnotationTemplate
 from app.models.audit_log import AuditLog
 from app.models.dataset import Dataset, DatasetFile, DatasetVersion
 from app.models.dev_environment import DevEnvironment
@@ -19,6 +20,7 @@ __all__ = [
     "Algorithm",
     "AnnotationProject",
     "AnnotationTask",
+    "AnnotationTemplate",
     "AuditLog",
     "Dataset",
     "DatasetFile",

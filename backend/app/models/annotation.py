@@ -10,6 +10,7 @@ from app.models.base import Base, TenantMixin, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.annotation_task import AnnotationTask
+    from app.models.annotation_template import AnnotationTemplate
     from app.models.dataset import Dataset, DatasetVersion
 
 
@@ -22,9 +23,11 @@ class AnnotationProject(Base, TimestampMixin, TenantMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     dataset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("datasets.id"), nullable=False)
     dataset_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("dataset_versions.id"), nullable=False)
-    annotation_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    template_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("annotation_templates.id", ondelete="SET NULL"), nullable=True
+    )
     label_studio_project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    label_config: Mapped[str] = mapped_column(Text, nullable=False)
+    label_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_tasks: Mapped[int] = mapped_column(Integer, default=0)
     completed_tasks: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="active")
@@ -32,6 +35,7 @@ class AnnotationProject(Base, TimestampMixin, TenantMixin):
 
     dataset: Mapped[Dataset] = relationship(lazy="selectin")
     dataset_version: Mapped[DatasetVersion] = relationship(lazy="selectin", foreign_keys=[dataset_version_id])
+    template: Mapped[AnnotationTemplate | None] = relationship(back_populates="projects", lazy="noload")
     tasks: Mapped[list[AnnotationTask]] = relationship(back_populates="project", lazy="noload")
 
     def __init__(self, **kwargs: object) -> None:

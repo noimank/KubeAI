@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.endpoints.algorithms import router as algorithms_router
+from app.api.endpoints.annotation_templates import router as annotation_templates_router
 from app.api.endpoints.annotations import router as annotations_router
 from app.api.endpoints.audit_logs import router as audit_logs_router
 from app.api.endpoints.auth import router as auth_router
@@ -36,6 +37,7 @@ api_router.include_router(auth_router)
 api_router.include_router(business_algorithm_router)
 api_router.include_router(algorithms_router)
 api_router.include_router(annotations_router)
+api_router.include_router(annotation_templates_router)
 api_router.include_router(credentials_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(datasets_router)

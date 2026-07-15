@@ -58,6 +58,7 @@ class ResourceType(enum.StrEnum):
     MODEL = "model"
     ANNOTATION_PROJECT = "annotation_project"
     ALGORITHM = "algorithm"
+    ANNOTATION_TEMPLATE = "annotation_template"
 
 
 class BuildStatus(enum.StrEnum):
