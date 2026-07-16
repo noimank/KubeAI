@@ -8,7 +8,7 @@ import {
   updateAnnotationTemplate,
 } from '@/services/annotation-templates'
 import { getMessageInstance } from '@/utils/messageHolder'
-import { parseLabelConfig } from '@/pages/annotations/utils/parseLabelConfig'
+import { parseConfigTree, findNodes } from '@/pages/annotations/utils/parseLabelConfig'
 
 interface TemplateBuilderProps {
   templateId?: string
@@ -52,14 +52,24 @@ export default function TemplateBuilder({ templateId, onSaved }: TemplateBuilder
     setXml(detail.labelConfig)
   }, [detail, form])
 
-  const preview = useMemo(() => parseLabelConfig(xml), [xml])
+  const preview = useMemo(() => {
+    try {
+      const tree = parseConfigTree(xml)
+      const objects = findNodes(tree, (n) => n.type === 'object')
+      const controls = findNodes(tree, (n) => n.controlType !== undefined)
+      const labels = controls.flatMap((c) => (c.choices ?? []).map((ch) => ch.value))
+      return { tree, objects, controls, labels, error: null as string | null }
+    } catch (e) {
+      return { tree: null, objects: [], controls: [], labels: [], error: (e as Error).message }
+    }
+  }, [xml])
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const values = await form.validateFields()
-      const parsed = parseLabelConfig(xml)
-      if (parsed.error) throw new Error(parsed.error)
-      if (parsed.controls.length === 0) throw new Error('XML 配置缺少标注控件')
+      const parsed = parseConfigTree(xml)
+      if (findNodes(parsed, (n) => n.controlType !== undefined).length === 0)
+        throw new Error('XML 配置缺少标注控件')
       const groupValue = Array.isArray(values.group) ? values.group[0] : values.group
       if (isEdit) {
         await updateAnnotationTemplate(templateId!, {
@@ -180,16 +190,18 @@ export default function TemplateBuilder({ templateId, onSaved }: TemplateBuilder
                   数据标签: {preview.objects.map((o) => o.tag).join(', ') || '-'}
                 </Typography.Text>
                 <Typography.Text type="secondary">
-                  控件: {preview.controls.map((c) => `${c.tag} → ${c.toName}`).join(', ') || '-'}
+                  控件:{' '}
+                  {preview.controls.map((c) => `${c.tag} → ${c.attrs.toname ?? ''}`).join(', ') ||
+                    '-'}
                 </Typography.Text>
                 <Typography.Text type="secondary">
-                  标注类型: {preview.controls[0]?.type ?? '-'}
+                  标注类型: {preview.controls[0]?.controlType ?? '-'}
                 </Typography.Text>
                 <div>
                   {preview.controls.map((c) =>
-                    c.choices.length > 0 ? (
+                    (c.choices ?? []).length > 0 ? (
                       <Space key={c.name} wrap style={{ marginTop: 8 }}>
-                        {c.choices.map((choice) => (
+                        {(c.choices ?? []).map((choice) => (
                           <Tag key={choice.value} color={choice.background || 'blue'}>
                             {choice.value}
                           </Tag>

@@ -1,7 +1,7 @@
 import type { AnnotationResultItem } from '@/types/annotation'
 import type { AnnotationRegion, ImageDimensions } from '../hooks/useAnnotationRegions'
 import type { AnnotationRelation } from '../hooks/useAnnotationRelations'
-import type { LabelStudioControlConfig, LabelStudioControlType } from './parseLabelConfig'
+import type { LabelStudioControlConfig, LabelStudioRelationConfig } from './parseLabelConfig'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -10,7 +10,7 @@ function toPercent(value: number, total: number): number {
 }
 
 /** 根据 control type 生成结果 value 中的标签键名 */
-function labelKey(ctrlType: LabelStudioControlType): string | null {
+function labelKey(ctrlType: string): string | null {
   if (ctrlType.endsWith('labels')) return ctrlType
   return null
 }
@@ -92,7 +92,7 @@ function serializeLabelsRegion(region: AnnotationRegion): Record<string, unknown
 /** Serialize relations into LabelStudio-compatible result items */
 export function serializeRelations(
   relations: AnnotationRelation[],
-  relationControls: LabelStudioControlConfig[],
+  relationControls: LabelStudioRelationConfig[],
 ): AnnotationResultItem[] {
   const ctrlMap = new Map(relationControls.map((c) => [c.name, c]))
   return relations.map((rel) => {
@@ -131,7 +131,7 @@ export function serializeRegions(
   imageDims: ImageDimensions | null,
   globalResults: Record<string, AnnotationResultItem[]>,
   relations?: AnnotationRelation[],
-  relationControls?: LabelStudioControlConfig[],
+  relationControls?: LabelStudioRelationConfig[],
 ): AnnotationResultItem[] {
   const results: AnnotationResultItem[] = []
   const controlMap = new Map(controls.map((c) => [c.name, c]))

@@ -1,46 +1,37 @@
-export type LabelStudioObjectType =
-  | 'Image'
-  | 'Text'
-  | 'Audio'
-  | 'Video'
-  | 'HyperText'
-  | 'PDF'
-  | 'Header'
-  | 'Style'
+/**
+ * Label Studio XML 配置解析器 — 树形模型
+ *
+ * XML 是声明式 UI 树，解析结果保留完整层级结构。
+ * workspace 从树中提取空间控件做 canvas 分发，其余节点交给 ConfigRenderer 递归渲染。
+ */
 
-export type LabelStudioControlType =
-  | 'choices'
-  | 'rectanglelabels'
-  | 'rectangle'
-  | 'polygonlabels'
-  | 'polygon'
-  | 'brushlabels'
-  | 'brush'
-  | 'keypointlabels'
-  | 'keypoint'
-  | 'ellipselabels'
-  | 'ellipse'
-  | 'labels'
-  | 'textarea'
-  | 'rating'
-  | 'number'
-  | 'taxonomy'
-  | 'relation'
-  | 'relationlabels'
+// ── Types ──────────────────────────────────────────────────────────────────────
 
-export interface LabelStudioObjectConfig {
-  tag: LabelStudioObjectType
-  name: string
-  field: string
-  /** Header text content */
-  value?: string
-  /** Style attributes from <Style> tag */
-  styles?: Record<string, string>
-}
+export type ConfigNodeType = 'object' | 'control' | 'visual' | 'relation'
 
-export interface LabelStudioChoiceConfig {
-  value: string
-  background?: string
+export interface ConfigNode {
+  /** XML 标签名 (e.g. "RectangleLabels", "View", "Header") */
+  tag: string
+  /** 节点分类 */
+  type: ConfigNodeType
+  /** name 属性值，无则为 null */
+  name: string | null
+  /** 子节点 */
+  children: ConfigNode[]
+  /** 所有属性 (key 为 camelCase) */
+  attrs: Record<string, string>
+  /** 文本内容 (Header/Style/Markdown 等有文本子节点的标签) */
+  text: string | null
+
+  // ── 解析期预填便捷字段 ──
+  /** 控件标准化类型 (choices / rectanglelabels / textarea / ...) */
+  controlType?: string
+  /** object 标签的 $fieldname 解析结果 */
+  field?: string
+  /** Choice/Label 子元素列表 */
+  choices?: { value: string; background?: string }[]
+  /** Taxonomy 嵌套树 */
+  taxonomy?: TaxonomyNode[]
 }
 
 export interface TaxonomyNode {
@@ -48,30 +39,29 @@ export interface TaxonomyNode {
   children: TaxonomyNode[]
 }
 
+// ── Stable prop types for annotator components (derived from ConfigNode) ────────
+
+export interface LabelStudioObjectConfig {
+  tag: string
+  name: string
+  field: string
+}
+
 export interface LabelStudioControlConfig {
   tag: string
   name: string
   toName: string
-  type: LabelStudioControlType
+  type: string
   choice?: string
-  choices: LabelStudioChoiceConfig[]
-  /** Taxonomy 控件的嵌套 Choice 树 */
+  choices: { value: string; background?: string }[]
   taxonomy?: TaxonomyNode[]
-  /** perRegion: 结果绑定到选中的空间区域而非整个 task */
   perRegion?: boolean
-  /** 仅当区域标签匹配时可见 */
   whenLabelValue?: string | null
-  /** perRegion 展示模式: "tag" | "region-list" */
   displayMode?: string | null
-  /** 是否必填 */
   required?: boolean
-  /** 条件必填表达式 */
   requiredwhen?: string
-  /** 条件可见表达式 */
   visibleWhen?: string
-  /** 默认值 */
   defaultValue?: string
-  /** 标签最大使用次数 */
   maxUsages?: number
 }
 
@@ -80,54 +70,58 @@ export interface LabelStudioRelationConfig {
   name: string
   toName: string
   type: 'relation' | 'relationlabels'
-  choices: LabelStudioChoiceConfig[]
+  choices: { value: string; background?: string }[]
   perRegion?: boolean
 }
 
-/** 空间控件类型（创建几何区域） */
-export const SPATIAL_CONTROL_TYPES: LabelStudioControlType[] = [
-  'rectangle',
-  'rectanglelabels',
-  'polygon',
-  'polygonlabels',
-  'keypoint',
-  'keypointlabels',
-  'ellipse',
-  'ellipselabels',
-  'brush',
-  'brushlabels',
-  'labels',
-]
-
-/** 分类控件类型（提供标签/文本，支持 perRegion） */
-export const CLASSIFICATION_CONTROL_TYPES: LabelStudioControlType[] = [
-  'choices',
-  'textarea',
-  'rating',
-  'number',
-  'taxonomy',
-]
-
-/** 无内嵌标签的空间控件（可与独立的 Labels/TextArea 配合） */
-export const BARE_SPATIAL_CONTROL_TYPES: LabelStudioControlType[] = [
-  'rectangle',
-  'polygon',
-  'keypoint',
-  'ellipse',
-  'brush',
-]
-
-export interface ParsedLabelConfig {
-  objects: LabelStudioObjectConfig[]
-  controls: LabelStudioControlConfig[]
-  relations: LabelStudioRelationConfig[]
-  labels: string[]
-  error?: string
+/** Extract LabelStudioControlConfig from a ConfigNode */
+export function toControlConfig(node: ConfigNode): LabelStudioControlConfig {
+  const a = node.attrs
+  return {
+    tag: node.tag,
+    name: node.name ?? '',
+    toName: a.toname ?? '',
+    type: node.controlType ?? '',
+    choices: node.choices ?? [],
+    choice: a.choice,
+    taxonomy: node.taxonomy,
+    perRegion: a.perregion === 'true',
+    whenLabelValue: a.whenlabelvalue ?? null,
+    displayMode: a.displaymode ?? null,
+    required: a.required === 'true' || undefined,
+    requiredwhen: a.requiredwhen,
+    visibleWhen: a.visiblewhen,
+    defaultValue: a.defaultvalue,
+    maxUsages: a.maxusages ? Number(a.maxusages) : undefined,
+  }
 }
 
-const objectTags = ['Image', 'Text', 'Audio', 'Video', 'HyperText', 'PDF'] as const
+/** Extract LabelStudioObjectConfig from a ConfigNode */
+export function toObjectConfig(node: ConfigNode): LabelStudioObjectConfig {
+  return {
+    tag: node.tag,
+    name: node.name ?? '',
+    field: node.field ?? '',
+  }
+}
 
-const controlTypeByTag: Record<string, LabelStudioControlType> = {
+/** Extract LabelStudioRelationConfig from a ConfigNode */
+export function toRelationConfig(node: ConfigNode): LabelStudioRelationConfig {
+  return {
+    tag: node.tag,
+    name: node.name ?? '',
+    toName: node.attrs.toname ?? '',
+    type: node.controlType as 'relation' | 'relationlabels',
+    choices: node.choices ?? [],
+    perRegion: node.attrs.perregion === 'true',
+  }
+}
+
+// ── 标签分类常量 ──────────────────────────────────────────────────────────────
+
+const OBJECT_TAGS = new Set(['Image', 'Text', 'Audio', 'Video', 'HyperText', 'PDF'])
+
+const CONTROL_TAG_MAP: Record<string, string> = {
   Choices: 'choices',
   RectangleLabels: 'rectanglelabels',
   Rectangle: 'rectangle',
@@ -148,157 +142,182 @@ const controlTypeByTag: Record<string, LabelStudioControlType> = {
   RelationLabels: 'relationlabels',
 }
 
+// VISUAL_TAGS 常量仅文档用途（当前解析器按 tag 名 classify，不需要此集合）
+// const VISUAL_TAGS = new Set(['View', 'Header', 'Style', 'Collapse', 'Panel', 'Markdown'])
+
+const RELATION_TAGS = new Set(['Relation', 'RelationLabels'])
+
+/** 空间控件类型 (创建几何区域) */
+export const SPATIAL_CONTROL_TYPES = [
+  'rectangle',
+  'rectanglelabels',
+  'polygon',
+  'polygonlabels',
+  'keypoint',
+  'keypointlabels',
+  'ellipse',
+  'ellipselabels',
+  'brush',
+  'brushlabels',
+  'labels',
+]
+
+/** 分类控件类型 (提供标签/文本，支持 perRegion) */
+export const CLASSIFICATION_CONTROL_TYPES = ['choices', 'textarea', 'rating', 'number', 'taxonomy']
+
+/** 无内嵌标签的空间控件 */
+export const BARE_SPATIAL_CONTROL_TYPES = ['rectangle', 'polygon', 'keypoint', 'ellipse', 'brush']
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
 function fieldFromValue(value: string | null): string | null {
   const match = value?.trim().match(/^\$([A-Za-z_][\w.-]*)$/)
   return match?.[1] ?? null
 }
 
-function parseBooleanAttr(value: string | null): boolean | undefined {
-  if (!value) return undefined
-  return value.toLowerCase() === 'true' || undefined
-}
-
-function parseChoiceAttributes(node: Element): LabelStudioChoiceConfig | null {
+function parseChoiceAttributes(node: Element): { value: string; background?: string } | null {
   const value = node.getAttribute('value') || ''
   if (!value) return null
-  return {
-    value,
-    background: node.getAttribute('background') || undefined,
-  }
+  const bg = node.getAttribute('background') || undefined
+  return bg ? { value, background: bg } : { value }
 }
 
-export function parseLabelConfig(config: string): ParsedLabelConfig {
-  const parser = new DOMParser()
-  const xml = parser.parseFromString(config, 'application/xml')
-  const errorNode = xml.querySelector('parsererror')
-  if (errorNode)
-    return { objects: [], controls: [], relations: [], labels: [], error: '标注配置 XML 格式无效' }
-
-  const objects: LabelStudioObjectConfig[] = []
-
-  // Parse data object tags
-  for (const tag of objectTags) {
-    xml.querySelectorAll(tag).forEach((node) => {
-      const name = node.getAttribute('name')
-      const field = fieldFromValue(node.getAttribute('value'))
-      if (name && field) objects.push({ tag, name, field })
-    })
-  }
-
-  // Parse Header tags as layout objects
-  xml.querySelectorAll('Header').forEach((node) => {
-    const name = node.getAttribute('name')
-    const headerValue = node.getAttribute('value') || node.textContent?.trim() || ''
-    if (name) {
-      objects.push({ tag: 'Header', name, field: '', value: headerValue })
-    }
-  })
-
-  // Parse Style tags as layout objects
-  xml.querySelectorAll('Style').forEach((node) => {
-    const name = node.getAttribute('name')
-    if (name) {
-      const styles: Record<string, string> = {}
-      for (const attr of node.attributes) {
-        if (attr.name !== 'name') styles[attr.name] = attr.value
-      }
-      objects.push({ tag: 'Style', name, field: '', styles })
-    }
-  })
-
-  // Parse control tags
-  const controls: LabelStudioControlConfig[] = []
-  for (const [tag, type] of Object.entries(controlTypeByTag)) {
-    // Skip relation types — parsed separately below
-    if (tag === 'Relation' || tag === 'RelationLabels') continue
-
-    xml.querySelectorAll(tag).forEach((node) => {
-      const name = node.getAttribute('name')
-      const toName = node.getAttribute('toName')
-      if (!name || !toName) return
-
-      const choices = Array.from(node.querySelectorAll('Choice, Label'))
-        .map(parseChoiceAttributes)
-        .filter((c): c is LabelStudioChoiceConfig => c !== null)
-
-      controls.push({
-        tag,
-        name,
-        toName,
-        type,
-        choice: node.getAttribute('choice') || undefined,
-        choices,
-        taxonomy: type === 'taxonomy' ? buildTaxonomy(node) : undefined,
-        perRegion: parseBooleanAttr(node.getAttribute('perRegion')),
-        whenLabelValue: node.getAttribute('whenLabelValue') || undefined,
-        displayMode: node.getAttribute('displayMode') || undefined,
-        required: parseBooleanAttr(node.getAttribute('required')),
-        requiredwhen: node.getAttribute('requiredwhen') || undefined,
-        visibleWhen: node.getAttribute('visibleWhen') || undefined,
-        defaultValue: node.getAttribute('defaultValue') || undefined,
-        maxUsages: node.getAttribute('maxUsages')
-          ? parseInt(node.getAttribute('maxUsages')!, 10)
-          : undefined,
-      })
-    })
-  }
-
-  // Parse Relation / RelationLabels
-  const relations: LabelStudioRelationConfig[] = []
-  for (const tag of ['Relation', 'RelationLabels']) {
-    xml.querySelectorAll(tag).forEach((node) => {
-      const name = node.getAttribute('name')
-      const toName = node.getAttribute('toName')
-      if (!name || !toName) return
-      const type = tag === 'RelationLabels' ? 'relationlabels' : 'relation'
-      const choices = Array.from(node.querySelectorAll('Label'))
-        .map(parseChoiceAttributes)
-        .filter((c): c is LabelStudioChoiceConfig => c !== null)
-
-      relations.push({
-        tag,
-        name,
-        toName,
-        type: type as 'relation' | 'relationlabels',
-        choices,
-        perRegion: parseBooleanAttr(node.getAttribute('perRegion')),
-      })
-    })
-  }
-
-  const labels = controls.flatMap((control) => control.choices.map((choice) => choice.value))
-  if (objects.length === 0)
-    return { objects, controls, relations, labels, error: '配置缺少数据标签' }
-  if (controls.length === 0)
-    return { objects, controls, relations, labels, error: '配置缺少标注控件' }
-
-  return { objects, controls, relations, labels }
+function classifyTag(tag: string): ConfigNodeType {
+  if (tag === 'Style') return 'visual'
+  if (OBJECT_TAGS.has(tag)) return 'object'
+  if (RELATION_TAGS.has(tag)) return 'relation'
+  if (tag in CONTROL_TAG_MAP) return 'control'
+  return 'visual'
 }
 
-export function parseLabelsFromConfig(config: string): string[] {
-  return parseLabelConfig(config).labels
-}
-
-/** 递归构建 Taxonomy Choice 树 */
-function buildTaxonomy(node: Element): TaxonomyNode[] {
+function buildTaxonomy(element: Element): TaxonomyNode[] {
   const result: TaxonomyNode[] = []
-  node.querySelectorAll(':scope > Choice').forEach((child) => {
+  element.querySelectorAll(':scope > Choice').forEach((child) => {
     const value = child.getAttribute('value') || ''
     if (!value) return
-    const children = buildTaxonomy(child)
-    result.push({ value, children })
+    result.push({ value, children: buildTaxonomy(child) })
   })
   return result
 }
 
-interface TaxonomyTreeNode {
-  value: string
-  title: string
-  children?: TaxonomyTreeNode[]
+function cssStringToObject(style: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const part of style.split(';')) {
+    const colon = part.indexOf(':')
+    if (colon === -1) continue
+    const key = part.substring(0, colon).trim()
+    const value = part.substring(colon + 1).trim()
+    if (key) result[key.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value
+  }
+  return result
 }
 
-/** 将 TaxonomyNode[] 转为 antd TreeSelect 的 DataNode 树 */
-export function taxonomyToTreeData(nodes: TaxonomyNode[] | undefined): TaxonomyTreeNode[] {
+// ── Parse ──────────────────────────────────────────────────────────────────────
+
+function buildNode(element: Element): ConfigNode {
+  const tag = element.tagName
+  const type = classifyTag(tag)
+
+  // 构建 attrs — 统一 lowercase key (对齐 LS Tree.tsx attrsToProps)
+  const attrs: Record<string, string> = {}
+  for (const attr of element.attributes) {
+    attrs[attr.name.toLowerCase()] = attr.value
+  }
+
+  const name = attrs.name || null
+  const field = attrs.value ? fieldFromValue(attrs.value) : null
+
+  // 子元素分类
+  const childElements = Array.from(element.children)
+  const children = childElements.map(buildNode)
+
+  // 文本内容 (无元素子节点且有文本)
+  const rawText = element.textContent?.trim()
+  const text = element.children.length === 0 && rawText ? rawText : null
+
+  const node: ConfigNode = { tag, type, name, children, attrs, text }
+
+  // 按节点类型填充便捷字段
+  if (type === 'object' && field) {
+    node.field = field
+  }
+
+  if (type === 'control') {
+    node.controlType = CONTROL_TAG_MAP[tag]
+    node.choices = childElements
+      .filter((c) => c.tagName === 'Choice' || c.tagName === 'Label')
+      .map(parseChoiceAttributes)
+      .filter((c): c is { value: string; background?: string } => c !== null)
+    if (tag === 'Taxonomy') {
+      node.taxonomy = buildTaxonomy(element)
+    }
+  }
+
+  if (type === 'relation') {
+    node.controlType = CONTROL_TAG_MAP[tag]
+    node.choices = childElements
+      .filter((c) => c.tagName === 'Label')
+      .map(parseChoiceAttributes)
+      .filter((c): c is { value: string; background?: string } => c !== null)
+  }
+
+  return node
+}
+
+// ── Public API ─────────────────────────────────────────────────────────────────
+
+export function parseConfigTree(xml: string): ConfigNode {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(xml, 'application/xml')
+  const errorNode = doc.querySelector('parsererror')
+  if (errorNode) {
+    throw new Error('标注配置 XML 格式无效')
+  }
+  return buildNode(doc.documentElement)
+}
+
+/** DFS 遍历树，返回所有匹配 predicate 的节点 */
+export function findNodes(
+  root: ConfigNode,
+  predicate: (node: ConfigNode) => boolean,
+): ConfigNode[] {
+  const result: ConfigNode[] = []
+  const walk = (node: ConfigNode) => {
+    if (predicate(node)) result.push(node)
+    node.children.forEach(walk)
+  }
+  walk(root)
+  return result
+}
+
+/** DFS 查找第一个匹配 predicate 的节点 */
+export function findFirstNode(
+  root: ConfigNode,
+  predicate: (node: ConfigNode) => boolean,
+): ConfigNode | null {
+  if (predicate(root)) return root
+  for (const child of root.children) {
+    const found = findFirstNode(child, predicate)
+    if (found) return found
+  }
+  return null
+}
+
+/** 获取 config 中所有标签值 (用于 AnnotationGuideline) */
+export function extractLabels(root: ConfigNode): string[] {
+  return findNodes(root, (n) => !!n.choices).flatMap((n) => (n.choices ?? []).map((c) => c.value))
+}
+
+// ── Taxonomy 工具 ─────────────────────────────────────────────────────────────
+
+interface AntdTreeNode {
+  value: string
+  title: string
+  children?: AntdTreeNode[]
+}
+
+/** 将 TaxonomyNode[] 转为 antd TreeSelect DataNode */
+export function taxonomyToTreeData(nodes: TaxonomyNode[] | undefined): AntdTreeNode[] {
   if (!nodes) return []
   return nodes.map((n) => {
     const children = taxonomyToTreeData(n.children)
@@ -309,3 +328,5 @@ export function taxonomyToTreeData(nodes: TaxonomyNode[] | undefined): TaxonomyT
     }
   })
 }
+
+export { cssStringToObject }
