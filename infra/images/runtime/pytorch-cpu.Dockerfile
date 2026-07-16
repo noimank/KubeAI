@@ -44,12 +44,12 @@ RUN uv pip install --no-cache --system \
 # 常用深度学习生态包
 RUN uv pip install --no-cache --system \
     transformers \
-    datasets \
+    datasets opencv-python-headless \
     accelerate \
     wandb \
     optuna \
     plotly \
-    tensorboardx
+    tensorboard
 
 EXPOSE 8000
 
