@@ -357,6 +357,20 @@
     "group": "计算机视觉"
   },
   {
+    "key": "ls:computer vision:fake plate vehicle recognition",
+    "label": "套牌车识别",
+    "description": "套牌车识别 — 输入车辆图片并标注对应车牌号",
+    "config": "<View>\n  <!-- 1. 显示图片 -->\n  <Image name=\"image\" value=\"$image\" />\n  \n  <!-- 2. 标题/提示信息 -->\n  <Header value=\"📷 请为这张车辆图片输入对应的车牌标签\" />\n  \n  <!-- 3. 文本输入框（整图标签） -->\n  <TextArea name=\"whole_image_label\" \n            toName=\"image\" \n            placeholder=\"例如：晋J76828\" \n            rows=\"3\"\n            maxRows=\"5\"\n            required=\"true\"\n            autofocus=\"true\" />\n  \n</View>",
+    "group": "计算机视觉"
+  },
+  {
+    "key": "ls:computer vision:meter reading recognition",
+    "label": "仪表读数识别",
+    "description": "仪表读数识别 — 框选仪表区域并输入对应读数",
+    "config": "<View>\n  <Image name=\"image\" value=\"$image\" />\n  \n  <Rectangle name=\"box\" toName=\"image\" />\n  \n  <TextArea name=\"custom_label\" \n            toName=\"image\" \n            perRegion=\"true\" \n            placeholder=\"请输入截取区域的对应读数，如：288.06\" \n            rows=\"2\"\n            maxRows=\"4\"\n            required=\"true\" />\n            \n</View>",
+    "group": "计算机视觉"
+  },
+  {
     "key": "ls:chat:evaluate production conversations for rlhf",
     "label": "Evaluate Production Conversations for RLHF",
     "description": "生产对话分析 — 分析智能体成功或失败的原因",
