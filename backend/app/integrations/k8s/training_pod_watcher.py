@@ -234,6 +234,10 @@ async def _handle_added_or_modified(
 
     # ── Pod Failed while job is active ─────────────────────────────────────
     if phase == "Failed" and current_status in _ACTIVE_STATUSES:
+        # Already FAILED: notification was sent on the initial transition;
+        # skip duplicate processing from Watch reconnect / repeated events.
+        if current_status == TrainingJobStatus.FAILED:
+            return
         job.status = TrainingJobStatus.FAILED
         _update_timestamps(job, TrainingJobStatus.FAILED)
         job.error_message = await resolve_pod_failure_reason(namespace, job.vcjob_name)
@@ -268,6 +272,10 @@ async def _handle_added_or_modified(
 async def _handle_deleted(job: TrainingJob, db: AsyncSession) -> None:
     """Pod was deleted — reconcile the training job status."""
     current_status = TrainingJobStatus(job.status)
+
+    # Already in a terminal state — notification was sent on initial transition.
+    if current_status == TrainingJobStatus.FAILED:
+        return
 
     if current_status != TrainingJobStatus.RUNNING:
         # Pod deleted while job is still QUEUED/INITIALIZING — likely evicted
