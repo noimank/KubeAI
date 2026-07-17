@@ -188,10 +188,14 @@ const MENU_CONFIG: MenuEntry[] = [
   },
 ]
 
-export function buildSidebarMenu(hasPermission: (permission: string) => boolean): MenuDataItem[] {
+export function buildSidebarMenu(
+  hasPermission: (permission: string) => boolean,
+  enableBusinessAlgorithm: boolean,
+): MenuDataItem[] {
   const result: MenuDataItem[] = []
   for (const entry of MENU_CONFIG) {
     if (entry.type === 'group') {
+      if (entry.key === 'group-business-algorithm' && !enableBusinessAlgorithm) continue
       const filtered = filterMenuItems(entry.children, hasPermission)
       if (filtered.length === 0) continue
       result.push({

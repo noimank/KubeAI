@@ -89,6 +89,7 @@ class PasswordChangeRequest(BaseModel):
 class AuthConfigResponse(BaseModel):
     allow_user_registration: bool
     oidc_auto_redirect: bool
+    enable_business_algorithm: bool
 
 
 class TokenResponse(BaseModel):

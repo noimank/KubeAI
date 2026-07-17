@@ -5,6 +5,7 @@ import { buildSidebarMenu } from './components/Sidebar'
 import { Header } from './components/Header'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
 import { useRbacStore } from '@/stores/rbacStore'
+import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { APP_TITLE } from '@/utils/constants'
 
@@ -34,6 +35,7 @@ export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const hasPermission = useRbacStore((s) => s.hasPermission)
+  const enableBusinessAlgorithm = useAuthStore((s) => s.enableBusinessAlgorithm)
   const themeMode = useThemeStore((s) => s.themeMode)
 
   useIdleTimeout()
@@ -55,7 +57,7 @@ export default function MainLayout() {
       siderWidth={240}
       fixSiderbar
       fixedHeader
-      menuDataRender={() => buildSidebarMenu(hasPermission)}
+      menuDataRender={() => buildSidebarMenu(hasPermission, enableBusinessAlgorithm)}
       menuItemRender={(item, dom) => (
         <div
           onClick={() => {

@@ -4,7 +4,7 @@ import { useRbacStore } from './rbacStore'
 import { useTenantStore } from './tenantStore'
 import { useNotificationStore } from './notificationStore'
 import { useWsStore } from './wsStore'
-import { getCurrentUser } from '@/services/auth'
+import { getCurrentUser, getAuthConfig } from '@/services/auth'
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, API_BASE_URL } from '@/utils/constants'
 
 interface AuthState {
@@ -13,6 +13,7 @@ interface AuthState {
   refreshToken: string | null
   isAuthenticated: boolean
   isInitializing: boolean
+  enableBusinessAlgorithm: boolean
   login: (user: User, accessToken: string, refreshToken: string) => void
   logout: () => void
   setTokens: (accessToken: string, refreshToken: string) => void
@@ -60,6 +61,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   refreshToken: getStoredToken(REFRESH_TOKEN_KEY),
   isAuthenticated: !!getStoredToken(ACCESS_TOKEN_KEY),
   isInitializing: !!getStoredToken(ACCESS_TOKEN_KEY),
+  enableBusinessAlgorithm: false,
 
   login: (user, accessToken, refreshToken) => {
     localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
@@ -101,6 +103,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   initializeAuth: async () => {
+    // Always fetch backend config (unauthenticated endpoint), fail-safe
+    try {
+      const configRes = await getAuthConfig()
+      if (configRes.success && configRes.data) {
+        set({ enableBusinessAlgorithm: configRes.data.enableBusinessAlgorithm })
+      }
+    } catch {
+      // config fetch failed — keep default (false), don't block startup
+    }
+
     const token = getStoredToken(ACCESS_TOKEN_KEY)
     if (!token) return
     set({ isInitializing: true })

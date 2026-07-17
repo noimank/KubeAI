@@ -57,6 +57,7 @@ async def auth_config() -> BaseResponse[AuthConfigResponse]:
         data=AuthConfigResponse(
             allow_user_registration=settings.ALLOW_USER_REGISTRATION,
             oidc_auto_redirect=settings.OIDC_AUTO_REDIRECT,
+            enable_business_algorithm=settings.ENABLE_BUSINESS_ALGORITHM,
         ),
         message="获取成功",
     )

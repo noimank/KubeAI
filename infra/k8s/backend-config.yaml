@@ -67,6 +67,9 @@ data:
   # -- 用户注册
   ALLOW_USER_REGISTRATION: "true"
 
+  # -- 业务算法库（元启发算法 / 数据规划 / 启发式规则）
+  ENABLE_BUSINESS_ALGORITHM: "false"
+
   # -- OIDC/SSO (启用后需配置 OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET)
   # 对接 Casdoor 时：需要在 Casdoor 应用中创建 kubeai_ 前缀的角色
   # 角色映射: kubeai_admin→admin, kubeai_mlops→mlops, kubeai_engineer→engineer, kubeai_annotator→annotator

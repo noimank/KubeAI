@@ -72,6 +72,7 @@ const FONT_FAMILY_CODE =
 
 export default function App() {
   const themeMode = useThemeStore((s) => s.themeMode)
+  const enableBusinessAlgorithm = useAuthStore((s) => s.enableBusinessAlgorithm)
   const initializeAuth = useAuthStore((s) => s.initializeAuth)
 
   useEffect(() => {
@@ -324,14 +325,16 @@ export default function App() {
                         </PermissionGuard>
                       }
                     />
-                    <Route path="business-algorithm" element={<Outlet />}>
-                      <Route index element={<BusinessAlgorithmPage />} />
-                      <Route path="metaheuristic" element={<MetaheuristicPage />} />
-                      <Route path="data-planning" element={<DataPlanningPage />} />
-                      <Route path="heuristic-rules" element={<HeuristicRulesPage />} />
-                    </Route>
                     <Route path="profile" element={<ProfilePage />} />
                     <Route path="403" element={<ForbiddenPage />} />
+                    {enableBusinessAlgorithm && (
+                      <Route path="business-algorithm" element={<Outlet />}>
+                        <Route index element={<BusinessAlgorithmPage />} />
+                        <Route path="metaheuristic" element={<MetaheuristicPage />} />
+                        <Route path="data-planning" element={<DataPlanningPage />} />
+                        <Route path="heuristic-rules" element={<HeuristicRulesPage />} />
+                      </Route>
+                    )}
                   </Route>
                 </Route>
               </Routes>

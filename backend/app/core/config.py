@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     RESOURCE_CLEANUP_INTERVAL_SECONDS: int = 3600
     RESOURCE_CLEANUP_JOB_MAX_AGE_DAYS: int = 7
     ALLOW_USER_REGISTRATION: bool = True
+    ENABLE_BUSINESS_ALGORITHM: bool = False
 
     OIDC_ENABLED: bool = False
     OIDC_ISSUER: str = ""
