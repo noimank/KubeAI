@@ -4,6 +4,7 @@ import { ProForm, ProFormText } from '@ant-design/pro-components'
 import { Button, Card } from 'antd'
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { login, getAuthConfig, getCurrentUser } from '@/services/auth'
+import { getOAuthProviders } from '@/services/oauth'
 import { useAuthStore } from '@/stores/authStore'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { APP_TITLE } from '@/utils/constants'
@@ -21,6 +22,8 @@ function ProductIcon({ className = '' }: { className?: string }) {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [allowUserRegistration, setAllowUserRegistration] = useState(false)
+  const [redirecting, setRedirecting] = useState<{ name: string; displayName: string } | null>(null)
+  const [redirectTimedOut, setRedirectTimedOut] = useState(false)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { isAuthenticated, login: authLogin } = useAuthStore()
@@ -28,10 +31,21 @@ export default function LoginPage() {
 
   useEffect(() => {
     let mounted = true
-    getAuthConfig()
-      .then((res) => {
-        if (mounted) {
-          setAllowUserRegistration(Boolean(res.data?.allowUserRegistration))
+    let timeoutId: ReturnType<typeof setTimeout>
+    Promise.all([getAuthConfig(), getOAuthProviders()])
+      .then(([configRes, providersRes]) => {
+        if (!mounted) return
+        setAllowUserRegistration(Boolean(configRes.data?.allowUserRegistration))
+        const oidcAutoRedirect = Boolean(configRes.data?.oidcAutoRedirect)
+        const providerList = providersRes.success && providersRes.data ? providersRes.data : []
+        if (oidcAutoRedirect && providerList.length > 0) {
+          const provider = providerList[0]
+          setRedirecting({ name: provider.name, displayName: provider.displayName })
+          window.location.href = `/api/auth/oauth/${provider.name}/authorize`
+          // If redirect hasn't happened after 8s, show fallback
+          timeoutId = setTimeout(() => {
+            if (mounted) setRedirectTimedOut(true)
+          }, 8000)
         }
       })
       .catch(() => {
@@ -41,11 +55,66 @@ export default function LoginPage() {
       })
     return () => {
       mounted = false
+      clearTimeout(timeoutId)
     }
   }, [])
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />
+  }
+
+  if (redirecting) {
+    return (
+      <div className="login-page">
+        <div className="login-background" aria-hidden="true">
+          <div className="login-scanline" />
+          <div className="login-circuit login-circuit-left" />
+          <div className="login-circuit login-circuit-right" />
+        </div>
+
+        <main className="login-shell">
+          <section className="login-brand-panel">
+            <div className="login-product-mark">
+              <ProductIcon className="login-logo-mark" />
+              <span>{APP_TITLE}</span>
+            </div>
+          </section>
+
+          <section className="login-form-panel">
+            <Card className="login-card login-redirect-card elevated-card" variant="borderless">
+              <div className="login-redirect-header">
+                <div className="login-redirect-provider-icon">
+                  <ProductIcon className="login-redirect-icon-img" />
+                </div>
+                <h2>{redirecting.displayName}</h2>
+                <p className="login-redirect-desc">正在跳转至企业身份认证，请稍候…</p>
+              </div>
+
+              <div className="login-redirect-progress">
+                <div className="login-redirect-bar-track">
+                  <div className="login-redirect-bar-fill" />
+                </div>
+              </div>
+
+              {redirectTimedOut && (
+                <div className="login-redirect-fallback">
+                  <p>跳转未响应？请确认已开启浏览器弹窗拦截白名单，或返回账号密码登录。</p>
+                  <Button
+                    type="primary"
+                    block
+                    size="large"
+                    className="login-submit-button"
+                    onClick={() => setRedirecting(null)}
+                  >
+                    返回账号密码登录
+                  </Button>
+                </div>
+              )}
+            </Card>
+          </section>
+        </main>
+      </div>
+    )
   }
 
   const handleSubmit = async (values: { username: string; password: string }) => {

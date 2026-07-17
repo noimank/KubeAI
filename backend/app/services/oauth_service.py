@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.core.exceptions import ExternalServiceException, UnauthorizedException
 from app.core.security import create_access_token, create_refresh_token, hash_password
+from app.models.enums import UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.auth import TokenResponse
@@ -27,6 +28,13 @@ logger = structlog.get_logger()
 
 STATE_TTL = 600
 DISCOVERY_CACHE_TTL = 3600
+
+_ROLE_PRIORITY: dict[UserRole, int] = {
+    UserRole.ADMIN: 100,
+    UserRole.MLOPS: 75,
+    UserRole.ENGINEER: 50,
+    UserRole.ANNOTATOR: 25,
+}
 
 
 class OAuthService:
@@ -87,17 +95,38 @@ class OAuthService:
             settings.OIDC_CLIENT_SECRET,
             scope=settings.OIDC_SCOPES,
         ) as client:
-            await client.fetch_token(
+            token = await client.fetch_token(
                 discovery["token_endpoint"],
                 code=code,
                 state=state,
                 redirect_uri=redirect_uri,
             )
 
+            access_token = token.get("access_token")
+
             userinfo_resp = await client.get(discovery["userinfo_endpoint"])
             if userinfo_resp.status_code != 200:
                 raise ExternalServiceException("无法获取用户信息")
             userinfo = userinfo_resp.json()
+
+            # Casdoor: /api/userinfo excludes roles. Fetch them via /api/get-account.
+            if access_token:
+                try:
+                    account_url = f"{settings.OIDC_ISSUER.rstrip('/')}/api/get-account"
+                    account_resp = await client.get(
+                        account_url,
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                    if account_resp.status_code == 200:
+                        account_data = account_resp.json().get("data", {})
+                        raw_roles = account_data.get("roles") or []
+                        # Roles from /api/get-account are objects with "name" field
+                        role_names = [r["name"] if isinstance(r, dict) else str(r) for r in raw_roles]
+                        if role_names:
+                            userinfo["roles"] = role_names
+                            logger.info("oidc_roles_from_casdoor", roles=role_names)
+                except Exception:
+                    logger.warning("oidc_get_account_failed", exc_info=True)
 
         sub = userinfo.get("sub")
         if not sub:
@@ -110,7 +139,9 @@ class OAuthService:
             str(v) if (v := userinfo.get("displayName") or userinfo.get("nickname") or userinfo.get("name")) else None
         )
 
-        user = await self._find_or_create_user(external_id, preferred_username, email, nickname)
+        role = self._extract_role_from_userinfo(userinfo)
+
+        user = await self._find_or_create_user(external_id, preferred_username, email, nickname, role=role)
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
     async def _restore_if_deleted(self, user: User) -> bool:
@@ -122,7 +153,12 @@ class OAuthService:
         return True
 
     async def _find_or_create_user(
-        self, external_id: str, username: str, email: str, nickname: str | None = None
+        self,
+        external_id: str,
+        username: str,
+        email: str,
+        nickname: str | None = None,
+        role: UserRole | None = None,
     ) -> User:
         username = self._normalize_username(username or external_id)
         email = email.strip()
@@ -133,7 +169,7 @@ class OAuthService:
         user = result.scalar_one_or_none()
         if user:
             await self._restore_if_deleted(user)
-            await self._sync_oauth_profile(user, username, email, nickname)
+            await self._sync_oauth_profile(user, username, email, nickname, role=role)
             return user
 
         if email:
@@ -142,7 +178,7 @@ class OAuthService:
                 existing_email.auth_provider = "oidc"
                 existing_email.external_id = external_id
                 await self._restore_if_deleted(existing_email)
-                await self._sync_oauth_profile(existing_email, username, email, nickname)
+                await self._sync_oauth_profile(existing_email, username, email, nickname, role=role)
                 logger.info("oauth_user_bound", user_id=str(existing_email.id), username=existing_email.username)
                 return existing_email
 
@@ -159,6 +195,7 @@ class OAuthService:
             auth_provider="oidc",
             external_id=external_id,
             tenant_id=default_tenant_id,
+            role=role if role is not None else UserRole.ENGINEER,
         )
         self.db.add(user)
         await self.db.flush()
@@ -211,7 +248,45 @@ class OAuthService:
             candidate = f"{local_part}{suffix}@oauth.local"
             counter += 1
 
-    async def _sync_oauth_profile(self, user: User, username: str, email: str, nickname: str | None = None) -> None:
+    @staticmethod
+    def _extract_role_from_userinfo(userinfo: dict[str, object]) -> UserRole | None:
+        """Extract the highest-priority KubeAI role from OIDC userinfo.
+
+        Reads the "roles" claim, filters for entries with "kubeai_" prefix,
+        strips the prefix, maps to UserRole enum, and returns the highest-priority
+        role. Returns None if no matching role is found.
+        """
+        roles = userinfo.get("roles", [])
+        if not isinstance(roles, list) or not roles:
+            return None
+
+        mapped: list[UserRole] = []
+        for r in roles:
+            if not isinstance(r, str) or not r.startswith("kubeai_"):
+                continue
+            role_name = r.removeprefix("kubeai_")
+            try:
+                mapped.append(UserRole(role_name))
+            except ValueError:
+                logger.warning("oidc_unknown_role", raw_role=r, stripped=role_name)
+
+        if not mapped:
+            logger.info("oidc_roles_no_kubeai_match", roles=roles)
+            return None
+
+        mapped.sort(key=lambda r: _ROLE_PRIORITY[r], reverse=True)
+        selected = mapped[0]
+        logger.info("oidc_role_selected", selected=selected.value)
+        return selected
+
+    async def _sync_oauth_profile(
+        self,
+        user: User,
+        username: str,
+        email: str,
+        nickname: str | None = None,
+        role: UserRole | None = None,
+    ) -> None:
         if username and user.username != username:
             user.username = await self._make_unique_username(username, current_user=user)
 
@@ -223,6 +298,17 @@ class OAuthService:
 
         if nickname:
             user.nickname = nickname[:100]
+
+        if role is not None and user.role != role:
+            old_role = user.role
+            user.role = role
+            logger.info(
+                "oauth_role_synced",
+                user_id=str(user.id),
+                username=user.username,
+                old_role=old_role.value,
+                new_role=role.value,
+            )
 
     async def _get_default_tenant_id(self) -> uuid.UUID | None:
         result = await self.db.execute(select(Tenant).where(Tenant.name == "default"))

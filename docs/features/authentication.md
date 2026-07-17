@@ -47,7 +47,7 @@ sequenceDiagram
 
 ### OIDC/OAuth2 单点登录（可选）
 
-支持通过 OIDC 协议对接外部身份提供商（如 Keycloak、Authing、Azure AD）。
+支持通过 OIDC 协议对接外部身份提供商（如 Casdoor、Keycloak、Authing、Azure AD）。
 
 **配置项：**
 
@@ -59,6 +59,7 @@ sequenceDiagram
 | `OIDC_CLIENT_SECRET` | 客户端密钥 |
 | `OIDC_SCOPES` | OAuth 范围（默认 `openid profile email`） |
 | `OIDC_DISPLAY_NAME` | 登录页显示名称 |
+| `OIDC_AUTO_REDIRECT` | 是否自动跳转 SSO 登录页（默认 `false`） |
 
 **SSO 登录流程：**
 
@@ -68,6 +69,26 @@ sequenceDiagram
 4. 后端用授权码换取用户信息
 5. 自动创建/关联本地用户账号
 6. 返回 JWT Token
+
+### Casdoor 角色同步
+
+对接 Casdoor 时，KubeAI 会在每次 OIDC 登录时自动同步用户角色。Casdoor 端的角色以 `kubeai_` 为前缀命名，映射关系如下：
+
+| Casdoor 角色 | KubeAI 角色 |
+|-------------|------------|
+| `kubeai_admin` | 管理员 (admin) |
+| `kubeai_mlops` | MLOps 工程师 (mlops) |
+| `kubeai_engineer` | 算法工程师 (engineer) |
+| `kubeai_annotator` | 标注员 (annotator) |
+
+**配置要点：**
+
+1. **Casdoor 端**：在 Casdoor 应用中为用户分配 `kubeai_` 前缀的角色即可，KubeAI 通过 `/api/get-account` 接口自动获取
+2. **同步行为**：
+   - 登录时如果 userinfo 中包含 `kubeai_` 前缀的角色，直接覆盖 KubeAI 用户角色
+   - 用户拥有多个 `kubeai_` 角色时，取优先级最高者（admin > mlops > engineer > annotator）
+   - 如果 userinfo 中没有 `kubeai_` 前缀的角色，不修改用户现有角色
+   - 无效的角色名（如 `kubeai_superuser`）会被跳过并记录警告日志
 
 ## 账户安全
 

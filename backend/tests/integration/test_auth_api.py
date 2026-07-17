@@ -48,6 +48,7 @@ async def test_auth_config_default(client):
     body = response.json()
     assert body["success"] is True
     assert body["data"]["allow_user_registration"] is True
+    assert body["data"]["oidc_auto_redirect"] is False
 
 
 @pytest.mark.asyncio(loop_scope="session")

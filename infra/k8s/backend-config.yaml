@@ -68,9 +68,12 @@ data:
   ALLOW_USER_REGISTRATION: "true"
 
   # -- OIDC/SSO (启用后需配置 OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET)
+  # 对接 Casdoor 时：需要在 Casdoor 应用中创建 kubeai_ 前缀的角色
+  # 角色映射: kubeai_admin→admin, kubeai_mlops→mlops, kubeai_engineer→engineer, kubeai_annotator→annotator
   OIDC_ENABLED: "false"
   OIDC_SCOPES: "openid profile email"
   OIDC_DISPLAY_NAME: "SSO 登录"
+  OIDC_AUTO_REDIRECT: "false"
 
   # -- 前端地址（OIDC 回调/邮件链接等使用，部署时必须改为实际域名）
   FRONTEND_URL: "https://kubeai.example.com"  # FIXME: 改为实际生产域名

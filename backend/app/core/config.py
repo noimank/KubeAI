@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     OIDC_CLIENT_SECRET: str = ""
     OIDC_SCOPES: str = "openid profile email"
     OIDC_DISPLAY_NAME: str = "SSO 登录"
+    OIDC_AUTO_REDIRECT: bool = False
     FRONTEND_URL: str = "http://localhost:3000"
 
     MINIO_ENDPOINT: str = "localhost:9000"

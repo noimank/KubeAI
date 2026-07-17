@@ -19,6 +19,7 @@ export interface TokenPayload {
 
 export interface AuthConfig {
   allowUserRegistration: boolean
+  oidcAutoRedirect: boolean
 }
 
 export interface RegisterRequest {

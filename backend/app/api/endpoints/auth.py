@@ -54,7 +54,10 @@ def _audit_ctx(request: Request) -> dict[str, Any]:
 @router.get("/config", response_model=BaseResponse[AuthConfigResponse])
 async def auth_config() -> BaseResponse[AuthConfigResponse]:
     return BaseResponse(
-        data=AuthConfigResponse(allow_user_registration=settings.ALLOW_USER_REGISTRATION),
+        data=AuthConfigResponse(
+            allow_user_registration=settings.ALLOW_USER_REGISTRATION,
+            oidc_auto_redirect=settings.OIDC_AUTO_REDIRECT,
+        ),
         message="获取成功",
     )
 

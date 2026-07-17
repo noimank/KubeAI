@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.exceptions import UnauthorizedException
+from app.models.enums import UserRole
 from app.services.oauth_service import OAuthService
 
 
@@ -177,3 +178,135 @@ class TestFindOrCreateUser:
 
         assert user.username == "ext-id-abc"
         assert user.email == "ext-id-abc@oauth.local"
+
+
+class TestExtractRoleFromUserinfo:
+    def test_no_roles_claim_returns_none(self):
+        result = OAuthService._extract_role_from_userinfo({"sub": "123"})
+        assert result is None
+
+    def test_empty_roles_returns_none(self):
+        result = OAuthService._extract_role_from_userinfo({"roles": []})
+        assert result is None
+
+    def test_no_kubeai_prefixed_roles_returns_none(self):
+        result = OAuthService._extract_role_from_userinfo({"roles": ["app_user", "project_x"]})
+        assert result is None
+
+    def test_single_kubeai_role_maps_correctly(self):
+        from app.models.enums import UserRole
+
+        result = OAuthService._extract_role_from_userinfo({"roles": ["kubeai_admin"]})
+        assert result == UserRole.ADMIN
+
+    def test_multiple_kubeai_roles_picks_highest_priority(self):
+        from app.models.enums import UserRole
+
+        result = OAuthService._extract_role_from_userinfo(
+            {"roles": ["kubeai_annotator", "kubeai_admin", "kubeai_engineer"]}
+        )
+        assert result == UserRole.ADMIN
+
+    def test_kubeai_roles_mixed_with_other_roles(self):
+        from app.models.enums import UserRole
+
+        result = OAuthService._extract_role_from_userinfo({"roles": ["app_user", "kubeai_mlops", "other_system_role"]})
+        assert result == UserRole.MLOPS
+
+    def test_all_kubeai_roles_map_correctly(self):
+        from app.models.enums import UserRole
+
+        cases = [
+            ("kubeai_admin", UserRole.ADMIN),
+            ("kubeai_mlops", UserRole.MLOPS),
+            ("kubeai_engineer", UserRole.ENGINEER),
+            ("kubeai_annotator", UserRole.ANNOTATOR),
+        ]
+        for raw, expected in cases:
+            result = OAuthService._extract_role_from_userinfo({"roles": [raw]})
+            assert result == expected, f"{raw} should map to {expected}"
+
+    def test_unknown_role_name_returns_none(self, caplog):
+        result = OAuthService._extract_role_from_userinfo({"roles": ["kubeai_superuser"]})
+        assert result is None
+
+    def test_roles_not_a_list_returns_none(self):
+        result = OAuthService._extract_role_from_userinfo({"roles": "not-a-list"})
+        assert result is None
+
+    def test_highest_priority_picked_among_kubeai_roles(self):
+        from app.models.enums import UserRole
+
+        result = OAuthService._extract_role_from_userinfo(
+            {"roles": ["kubeai_engineer", "kubeai_annotator", "kubeai_mlops"]}
+        )
+        assert result == UserRole.MLOPS
+
+
+class TestSyncOAuthProfileRole:
+    async def test_role_synced_when_different(self, oauth_service, mock_db):
+        from app.models.user import User
+
+        user = User(username="testuser", email="test@example.com", hashed_password="hashed")
+
+        await oauth_service._sync_oauth_profile(user, "testuser", "test@example.com", role=UserRole.ADMIN)
+        assert user.role == UserRole.ADMIN
+
+    async def test_role_not_changed_when_none_passed(self, oauth_service, mock_db):
+        from app.models.user import User
+
+        user = User(username="testuser", email="test@example.com", hashed_password="hashed")
+        original_role = user.role
+
+        await oauth_service._sync_oauth_profile(user, "testuser", "test@example.com", role=None)
+        assert user.role == original_role
+
+    async def test_role_not_changed_when_same(self, oauth_service, mock_db):
+        from app.models.user import User
+
+        user = User(username="testuser", email="test@example.com", hashed_password="hashed")
+        user.role = UserRole.ENGINEER
+
+        await oauth_service._sync_oauth_profile(user, "testuser", "test@example.com", role=UserRole.ENGINEER)
+        assert user.role == UserRole.ENGINEER
+
+
+class TestFindOrCreateUserRoleSync:
+    async def test_new_user_gets_role_from_oidc(self, oauth_service, mock_db):
+        from app.models.enums import UserRole
+
+        mock_db.execute = AsyncMock(return_value=_sync_result(None))
+        mock_db.flush = AsyncMock()
+
+        with patch("app.services.oauth_service.hash_password", new=AsyncMock(return_value="hashed")):
+            user = await oauth_service._find_or_create_user(
+                "ext-123", "testuser", "test@example.com", role=UserRole.MLOPS
+            )
+
+        assert user.role == UserRole.MLOPS
+
+    async def test_new_user_defaults_to_engineer_when_no_role(self, oauth_service, mock_db):
+        from app.models.enums import UserRole
+
+        mock_db.execute = AsyncMock(return_value=_sync_result(None))
+        mock_db.flush = AsyncMock()
+
+        with patch("app.services.oauth_service.hash_password", new=AsyncMock(return_value="hashed")):
+            user = await oauth_service._find_or_create_user("ext-123", "testuser", "test@example.com", role=None)
+
+        assert user.role == UserRole.ENGINEER
+
+    async def test_existing_user_role_updated_on_sync(self, oauth_service, mock_db):
+        from app.models.enums import UserRole
+        from app.models.user import User
+
+        existing = User(username="testuser", email="test@example.com", hashed_password="hashed")
+        existing.auth_provider = "oidc"
+        existing.external_id = "ext-123"
+        existing.role = UserRole.ENGINEER
+
+        mock_db.execute = AsyncMock(return_value=_sync_result(existing))
+
+        user = await oauth_service._find_or_create_user("ext-123", "testuser", "test@example.com", role=UserRole.ADMIN)
+
+        assert user.role == UserRole.ADMIN
