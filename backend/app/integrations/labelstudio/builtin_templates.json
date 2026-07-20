@@ -276,7 +276,7 @@
     "key": "ls:computer vision:ocr labeling for pdfs",
     "label": "OCR Labeling for PDFs",
     "description": "PDF 区域 OCR — 直接在 PDF 上进行区域级 OCR",
-    "config": "<View>\n  <Style>\n    .htx-pdf { calc(100vh - 250px); }\n  </Style>\n  <Header value=\"Select text to correct\" size=\"4\"/>\n  <OcrLabels name=\"ocr\" toName=\"pdf\">\n    <Label value=\"Typo\" />\n    <Label value=\"Incorrect Amount\" />\n    <Label value=\"Incorrect Name\" />\n  </OcrLabels>\n  <Pdf name=\"pdf\" value=\"$pdf\"/>\n</View>\n\n<!-- {\n  \"data\": {\n    \"pdf\": \"/static/samples/opossum-cuteness.pdf\"\n  }\n} -->\n",
+    "config": "<View>\n  <Style>\n    .htx-pdf { calc(100vh - 250px); }\n  </Style>\n  <Header value=\"Select text to correct\" size=\"4\"/>\n  <RectangleLabels name=\"ocr\" toName=\"pdf\">\n    <Label value=\"Typo\" />\n    <Label value=\"Incorrect Amount\" />\n    <Label value=\"Incorrect Name\" />\n  </RectangleLabels>\n  <TextArea name=\"transcription\" toName=\"pdf\" perRegion=\"true\" editable=\"true\" rows=\"1\" required=\"true\" placeholder=\"Type or correct OCR text…\"/>\n  <Pdf name=\"pdf\" value=\"$pdf\"/>\n</View>\n\n<!-- {\n  \"data\": {\n    \"pdf\": \"/static/samples/opossum-cuteness.pdf\"\n  }\n} -->\n",
     "group": "计算机视觉"
   },
   {

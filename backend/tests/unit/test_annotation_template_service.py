@@ -95,6 +95,64 @@ class TestValidateLabelConfig:
         with pytest.raises(BadRequestException):
             svc._validate_label_config(xml)
 
+    def test_video_frame_classification_template_passes(self) -> None:
+        svc = AnnotationTemplateService(db=MagicMock())  # type: ignore[arg-type]
+        xml = """<View>
+  <TimelineLabels name="videoLabels" toName="video">
+    <Label value="Movement" background="#c813ec"/>
+    <Label value="Still" background="#1d81cd"/>
+  </TimelineLabels>
+  <Video name="video" value="$video"/>
+</View>"""
+        svc._validate_label_config(xml)  # no exception
+
+    def test_video_object_tracking_template_passes(self) -> None:
+        svc = AnnotationTemplateService(db=MagicMock())  # type: ignore[arg-type]
+        xml = """<View>
+  <Labels name="videoLabels" toName="video" allowEmpty="true">
+    <Label value="Man" background="blue"/>
+    <Label value="Woman" background="red"/>
+  </Labels>
+  <Video name="video" value="$video" framerate="25.0"/>
+  <VideoRectangle name="box" toName="video"/>
+</View>"""
+        svc._validate_label_config(xml)  # no exception
+
+    def test_timeseries_template_passes(self) -> None:
+        svc = AnnotationTemplateService(db=MagicMock())  # type: ignore[arg-type]
+        xml = """<View>
+  <TimeSeriesLabels name="label" toName="ts">
+    <Label value="Change" background="red"/>
+  </TimeSeriesLabels>
+  <TimeSeries name="ts" valueType="url" value="$csv"
+    sep="," timeColumn="time">
+    <Channel column="velocity" legend="Velocity"/>
+  </TimeSeries>
+</View>"""
+        svc._validate_label_config(xml)  # no exception
+
+    def test_all_builtin_templates_validate(self) -> None:
+        import json
+        from pathlib import Path
+
+        builtin_path = (
+            Path(__file__).parent.parent.parent / "app" / "integrations" / "labelstudio" / "builtin_templates.json"
+        )
+        if not builtin_path.exists():
+            pytest.skip("builtin_templates.json not found")
+
+        templates = json.loads(builtin_path.read_text(encoding="utf-8"))
+        svc = AnnotationTemplateService(db=MagicMock())  # type: ignore[arg-type]
+
+        failures: list[tuple[str, str]] = []
+        for tpl in templates:
+            try:
+                svc._validate_label_config(tpl["config"])
+            except BadRequestException as e:
+                failures.append((tpl["label"], str(e)))
+
+        assert failures == [], "模板校验失败:\n" + "\n".join(f"{k}: {v}" for k, v in failures)
+
 
 class TestGetTemplate:
     def test_returns_template_when_found(self) -> None:
