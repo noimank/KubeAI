@@ -1,64 +1,45 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import {
-  Alert,
-  Button,
-  Card,
-  Divider,
-  Modal,
-  Result,
-  Space,
-  Spin,
-  Tag,
-  Tooltip,
-  Typography,
-} from 'antd'
-import { ArrowLeftOutlined, EditOutlined, QuestionCircleOutlined } from '@ant-design/icons'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  cancelAnnotation,
-  getAnnotationProjectDetail,
-  getAnnotationTaskDetail,
-  getMyProjectTaskIds,
-  getNextAnnotationTask,
-  submitAnnotation,
-} from '@/services/annotations'
-import { getMessageInstance } from '@/utils/messageHolder'
+import { Alert, Button, Modal, Result, Spin } from 'antd'
+import { EditOutlined } from '@ant-design/icons'
+import { useQuery } from '@tanstack/react-query'
+import { getAnnotationProjectDetail } from '@/services/annotations'
 import type { AnnotationResultItem, AnnotationTask } from '@/types/annotation'
 import {
-  parseConfigTree,
-  findNodes,
   toControlConfig,
   toObjectConfig,
-  toRelationConfig,
-  extractLabels,
-  SPATIAL_CONTROL_TYPES,
+  findNodes,
   type ConfigNode,
 } from './utils/parseLabelConfig'
-import { serializeRegions } from './utils/serializeRegions'
-import { validateAnnotationResults } from './utils/validation'
+import { regionKindForControl } from './registry/tags'
+import type { VisibilityState } from './utils/visibility'
 import { useAnnotationRegions } from './hooks/useAnnotationRegions'
 import { useAnnotationRelations } from './hooks/useAnnotationRelations'
+import { useAnnotationConfig } from './hooks/useAnnotationConfig'
+import { useAnnotationTask } from './hooks/useAnnotationTask'
+import { useAnnotationSubmit } from './hooks/useAnnotationSubmit'
 import AnnotationGuideline from './components/AnnotationGuideline'
-import TaskNavigator from './components/TaskNavigator'
+import WorkspaceTopBar from './components/WorkspaceTopBar'
+import HotkeyHelpModal from './components/HotkeyHelpModal'
+import RelationPanel from './components/RelationPanel'
+import UnsupportedTag from './components/UnsupportedTag'
 import ObjectDetectionAnnotator from './components/ObjectDetectionAnnotator'
 import ImageSegmentationAnnotator from './components/ImageSegmentationAnnotator'
 import KeyPointAnnotator from './components/KeyPointAnnotator'
 import EllipseAnnotator from './components/EllipseAnnotator'
 import BrushAnnotator from './components/BrushAnnotator'
+import VectorAnnotator from './components/VectorAnnotator'
+import BitmaskAnnotator from './components/BitmaskAnnotator'
+import MagicWandAnnotator from './components/MagicWandAnnotator'
 import NerTextAnnotator from './components/NerTextAnnotator'
+import ParagraphLabelsAnnotator from './components/ParagraphLabelsAnnotator'
+import TimeSeriesLabelsAnnotator from './components/TimeSeriesLabelsAnnotator'
+import AudioLabelsAnnotator from './components/AudioLabelsAnnotator'
+import ChatViewer from './components/viewers/ChatViewer'
 import ConfigRenderer, { type WorkspaceContext } from './components/ConfigRenderer'
-
-// ── Hotkeys ─────────────────────────────────────────────────────────────────
-
-const HOTKEYS: Array<{ key: string; label: string }> = [
-  { key: '1-9', label: '选择标签' },
-  { key: 'Enter', label: '提交当前标注 (Ctrl+Enter)' },
-  { key: '← / →', label: '上一个 / 下一个任务' },
-  { key: 'Ctrl+Z', label: '撤销' },
-  { key: 'Space (按住)', label: '临时平移画布' },
-  { key: '滚轮', label: '以鼠标为锚点缩放' },
-]
+import VideoAnnotator from './components/video/VideoAnnotator'
+import { deserializeRegions } from './utils/deserializeRegions'
+import type { VideoSerializeMeta } from './utils/serializeRegions'
 
 // ── Spatial control dispatch ────────────────────────────────────────────────
 
@@ -73,6 +54,8 @@ function renderSpatialControl(
   const config = toControlConfig(node)
   const objectNode = objectMap.get(config.toName)
   const objectConfig = objectNode ? toObjectConfig(objectNode) : undefined
+  const objectTag = objectNode?.tag
+  const regionKind = regionKindForControl(config.tag)
 
   const sharedProps = {
     task,
@@ -89,42 +72,60 @@ function renderSpatialControl(
     onImageDimensionsChange: regionsHook.setImageDimensions,
   }
 
-  const tag = objectNode?.tag
-
-  if (tag === 'Image') {
-    switch (config.type) {
+  if (objectTag === 'Image' && regionKind) {
+    switch (regionKind) {
       case 'rectangle':
-      case 'rectanglelabels':
         return <ObjectDetectionAnnotator key={config.name} {...sharedProps} relations={relations} />
       case 'polygon':
-      case 'polygonlabels':
         return (
           <ImageSegmentationAnnotator key={config.name} {...sharedProps} relations={relations} />
         )
       case 'keypoint':
-      case 'keypointlabels':
         return <KeyPointAnnotator key={config.name} {...sharedProps} relations={relations} />
       case 'ellipse':
-      case 'ellipselabels':
         return <EllipseAnnotator key={config.name} {...sharedProps} relations={relations} />
       case 'brush':
-      case 'brushlabels':
         return <BrushAnnotator key={config.name} {...sharedProps} />
+      case 'vector':
+        return <VectorAnnotator key={config.name} {...sharedProps} />
+      case 'bitmask':
+        return <BitmaskAnnotator key={config.name} {...sharedProps} />
+      case 'magicwand':
+        return <MagicWandAnnotator key={config.name} {...sharedProps} />
     }
   }
 
-  if ((tag === 'Text' || tag === 'HyperText') && config.type === 'labels') {
+  if ((objectTag === 'Text' || objectTag === 'HyperText') && regionKind === 'textspan') {
     return <NerTextAnnotator key={config.name} {...sharedProps} />
   }
 
-  return (
-    <Result
-      key={config.name}
-      status="warning"
-      title="当前控件暂未支持"
-      subTitle={`${config.tag} (${config.type}) 对 ${tag ?? '未知'} 类型暂未实现`}
-    />
-  )
+  // Audio Labels：在波形上选区间（Labels 控件目标为 Audio）
+  if (objectTag === 'Audio' && (config.tag === 'Labels' || config.tag === 'HyperTextLabels')) {
+    return <AudioLabelsAnnotator key={config.name} {...sharedProps} />
+  }
+
+  if (objectTag === 'Paragraphs' && regionKind === 'paragraphspan') {
+    return <ParagraphLabelsAnnotator key={config.name} {...sharedProps} />
+  }
+
+  if (objectTag === 'TimeSeries' && regionKind === 'timeseries' && objectNode) {
+    return (
+      <TimeSeriesLabelsAnnotator
+        key={config.name}
+        task={task}
+        objectNode={objectNode}
+        controlConfig={config}
+        readOnly={readOnly}
+        regions={regionsHook.regions}
+        selectedRegionId={regionsHook.selectedRegionId}
+        onAddRegion={regionsHook.addRegion}
+        onDeleteRegion={regionsHook.removeRegion}
+        onSelectRegion={regionsHook.selectRegion}
+      />
+    )
+  }
+
+  return <UnsupportedTag key={config.name} tag={config.tag} />
 }
 
 // ── Main Component ──────────────────────────────────────────────────────────
@@ -132,21 +133,6 @@ function renderSpatialControl(
 export default function AnnotationWorkspacePage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const [taskIds, setTaskIds] = useState<string[]>([])
-  const [cursor, setCursor] = useState(0)
-  const [currentTask, setCurrentTask] = useState<AnnotationTask | null>(null)
-  const [readOnly, setReadOnly] = useState(false)
-  const [guidelineCollapsed, setGuidelineCollapsed] = useState(false)
-  const [taskLoading, setTaskLoading] = useState(false)
-  const [taskLoadFailed, setTaskLoadFailed] = useState(false)
-  const [initialized, setInitialized] = useState(false)
-  const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false)
-  const [globalResults, setGlobalResults] = useState<Record<string, AnnotationResultItem[]>>({})
-
-  const taskId = currentTask?.id ?? ''
-  const regionsHook = useAnnotationRegions({ taskId, readOnly })
-  const relationsHook = useAnnotationRelations({ taskId, readOnly })
 
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['annotationProject', projectId],
@@ -154,68 +140,81 @@ export default function AnnotationWorkspacePage() {
     enabled: !!projectId,
   })
 
-  // ── Parse config tree ────────────────────────────────────────────────────
+  const task = useAnnotationTask(projectId)
+  const { currentTask, readOnly } = task
+  const taskId = currentTask?.id ?? ''
+  const regionsHook = useAnnotationRegions({ taskId, readOnly })
+  const relationsHook = useAnnotationRelations({ taskId, readOnly })
+  const { configTree, spatialControls, relationControls, objectMap, labels } =
+    useAnnotationConfig(project)
 
-  const configTree = useMemo(() => {
-    if (!project?.labelConfig) return null
-    try {
-      return parseConfigTree(project.labelConfig)
-    } catch {
-      return null
-    }
-  }, [project?.labelConfig])
+  // 按 <Video> 对象聚合视频空间控件，每个 Video 渲染单个 VideoAnnotator（共享唯一 <video>）
+  const videoGroups = useMemo(() => {
+    if (!configTree) return []
+    const videos = findNodes(
+      configTree,
+      (n) => n.type === 'object' && n.tag === 'Video' && !!n.name,
+    )
+    return videos
+      .map((v) => ({
+        videoNode: v,
+        controls: spatialControls.filter((c) => c.attrs.toname === v.name),
+      }))
+      .filter((g) => g.controls.length > 0)
+  }, [configTree, spatialControls])
 
-  const spatialControls = useMemo(
+  const videoConsumedControlNames = useMemo(
     () =>
-      configTree
-        ? findNodes(
-            configTree,
-            (n) => !!n.controlType && SPATIAL_CONTROL_TYPES.includes(n.controlType!),
-          )
-        : [],
-    [configTree],
+      new Set(
+        videoGroups.flatMap((g) => g.controls.map((c) => c.name).filter((n): n is string => !!n)),
+      ),
+    [videoGroups],
   )
 
-  const relationControls = useMemo(
-    () => (configTree ? findNodes(configTree, (n) => n.type === 'relation') : []),
-    [configTree],
-  )
+  const [globalResults, setGlobalResults] = useState<Record<string, AnnotationResultItem[]>>({})
+  const [videoMetaByObject, setVideoMetaByObject] = useState<Record<string, VideoSerializeMeta>>({})
+  const [guidelineCollapsed, setGuidelineCollapsed] = useState(false)
+  const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false)
 
-  const objectMap = useMemo(() => {
-    const map = new Map<string, ConfigNode>()
-    if (configTree) {
-      for (const n of findNodes(configTree, (n) => n.type === 'object' && !!n.name)) {
-        if (n.name) map.set(n.name, n)
-      }
-    }
-    return map
-  }, [configTree])
-
-  // ── Mutations ─────────────────────────────────────────────────────────────
-
-  const submitMutation = useMutation({
-    mutationFn: ({ taskId: tid, result }: { taskId: string; result: AnnotationResultItem[] }) =>
-      submitAnnotation(tid, { result }),
-    onSuccess: () => {
-      getMessageInstance()?.success('标注提交成功')
-      queryClient.invalidateQueries({ queryKey: ['annotationProject', projectId] })
-      queryClient.invalidateQueries({ queryKey: ['myAnnotationTasks'] })
-      queryClient.invalidateQueries({ queryKey: ['myAnnotationTaskSummary'] })
-    },
+  const { submitMutation, cancelMutation, handleSubmit } = useAnnotationSubmit({
+    projectId,
+    currentTask,
+    configTree,
+    spatialControls,
+    relationControls,
+    regionsHook,
+    relationsHook,
+    globalResults,
+    videoMetaByObject,
+    goNext: task.goNext,
   })
 
-  const cancelMutation = useMutation({
-    mutationFn: (tid: string) => cancelAnnotation(tid),
-    onSuccess: () => {
-      getMessageInstance()?.success('已撤销提交,可以重新标注')
-      queryClient.invalidateQueries({ queryKey: ['annotationProject', projectId] })
-    },
-  })
+  // 切换任务时重置全局分类结果
+  useEffect(() => {
+    setGlobalResults({})
+  }, [taskId])
 
-  // ── Workspace context for ConfigRenderer ─────────────────────────────────
+  // 只读回显：反序列化已提交结果到 regions（修复 workspace 提交后不回显的既有缺口）
+  useEffect(() => {
+    regionsHook.restoreRegions(deserializeRegions(currentTask?.result))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId])
 
   const workspaceContext: WorkspaceContext | null = useMemo(() => {
     if (!currentTask) return null
+    const selectedRegion =
+      regionsHook.regions.find((r) => r.id === regionsHook.selectedRegionId) ?? null
+    const selectedRegionRole =
+      selectedRegion?.value.kind === 'message' ? selectedRegion.value.role : undefined
+    const visibility: VisibilityState = {
+      selectedRegion,
+      regions: regionsHook.regions,
+      results: [
+        ...Object.values(globalResults).flat(),
+        ...regionsHook.regions.flatMap((r) => Object.values(r.perRegionResults)),
+      ],
+      selectedRegionRole,
+    }
     return {
       task: currentTask,
       readOnly,
@@ -232,6 +231,7 @@ export default function AnnotationWorkspacePage() {
         regionsHook.getRegionResult(regionId, controlName),
       hasSpatialControls: spatialControls.length > 0,
       objectMap,
+      visibility,
     }
   }, [
     currentTask,
@@ -243,184 +243,7 @@ export default function AnnotationWorkspacePage() {
     objectMap,
   ])
 
-  // ── Submit ────────────────────────────────────────────────────────────────
-
-  const buildSubmitResult = useCallback((): AnnotationResultItem[] => {
-    return serializeRegions(
-      regionsHook.regions,
-      spatialControls.map(toControlConfig),
-      regionsHook.imageDimensions,
-      globalResults,
-      relationsHook.relations,
-      relationControls.map(toRelationConfig),
-    )
-  }, [
-    regionsHook.regions,
-    regionsHook.imageDimensions,
-    globalResults,
-    spatialControls,
-    relationsHook.relations,
-    relationControls,
-  ])
-
-  // ── Task navigation ──────────────────────────────────────────────────────
-
-  const loadTaskById = useCallback(
-    async (tid: string) => {
-      if (!projectId) return
-      setTaskLoading(true)
-      setTaskLoadFailed(false)
-      try {
-        const detail = await getAnnotationTaskDetail(tid)
-        setCurrentTask(detail)
-        setReadOnly(detail.status === 'completed')
-        setGlobalResults({})
-      } catch {
-        setTaskLoadFailed(true)
-        getMessageInstance()?.error('加载任务失败')
-      } finally {
-        setTaskLoading(false)
-      }
-    },
-    [projectId],
-  )
-
-  const goPrev = useCallback(async () => {
-    if (cursor <= 0) return
-    const prev = cursor - 1
-    setCursor(prev)
-    await loadTaskById(taskIds[prev])
-  }, [cursor, taskIds, loadTaskById])
-
-  const goNext = useCallback(async () => {
-    if (!projectId) return
-    setTaskLoading(true)
-    try {
-      const next = await getNextAnnotationTask(projectId)
-      if (next) {
-        setTaskIds((prev) => (prev.includes(next.id) ? prev : [...prev, next.id]))
-        setCurrentTask(next)
-        setReadOnly(next.status === 'completed')
-        setCursor(taskIds.indexOf(next.id) === -1 ? taskIds.length : taskIds.indexOf(next.id))
-        return
-      }
-    } catch {
-      /* fallthrough */
-    } finally {
-      setTaskLoading(false)
-    }
-    if (cursor < taskIds.length - 1) {
-      const nxt = cursor + 1
-      setCursor(nxt)
-      await loadTaskById(taskIds[nxt])
-      return
-    }
-    setCurrentTask(null)
-  }, [cursor, taskIds, projectId, loadTaskById])
-
-  const handleSubmit = useCallback(() => {
-    if (!currentTask) return
-    const result = buildSubmitResult()
-    if (result.length === 0) {
-      getMessageInstance()?.warning('请先完成标注')
-      return
-    }
-    const allControls = configTree ? findNodes(configTree, (n) => n.controlType !== undefined) : []
-    const issues = validateAnnotationResults(allControls.map(toControlConfig), result)
-    if (issues.length > 0) {
-      Modal.confirm({
-        title: '标注未完成',
-        content: (
-          <ul style={{ paddingLeft: 20, margin: 0 }}>
-            {issues.map((issue) => (
-              <li key={issue.controlName}>{issue.message}</li>
-            ))}
-          </ul>
-        ),
-        okText: '仍然提交',
-        cancelText: '继续标注',
-        onOk: () => {
-          submitMutation.mutate(
-            { taskId: currentTask.id, result },
-            {
-              onSuccess: async () => {
-                await goNext()
-              },
-            },
-          )
-        },
-      })
-      return
-    }
-    submitMutation.mutate(
-      { taskId: currentTask.id, result },
-      {
-        onSuccess: async () => {
-          await goNext()
-        },
-      },
-    )
-  }, [currentTask, buildSubmitResult, submitMutation, goNext, configTree])
-
-  // ── Init ──────────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (!projectId || initialized) return
-    setInitialized(true)
-    void (async () => {
-      setTaskLoading(true)
-      try {
-        const ids = await getMyProjectTaskIds(projectId)
-        setTaskIds(ids)
-        if (ids.length === 0) {
-          setCurrentTask(null)
-          return
-        }
-        const next = await getNextAnnotationTask(projectId)
-        if (next) {
-          setCurrentTask(next)
-          setReadOnly(next.status === 'completed')
-          const existingIdx = ids.indexOf(next.id)
-          setCursor(
-            existingIdx >= 0
-              ? existingIdx
-              : (() => {
-                  setTaskIds((prev) => [...prev, next.id])
-                  return ids.length
-                })(),
-          )
-        } else {
-          await loadTaskById(ids[0])
-          setCursor(0)
-        }
-      } catch {
-        setTaskLoadFailed(true)
-        getMessageInstance()?.error('加载任务失败')
-      } finally {
-        setTaskLoading(false)
-      }
-    })()
-  }, [projectId, initialized, loadTaskById])
-
-  // Global hotkeys
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      if (e.altKey || e.ctrlKey || e.metaKey) return
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        void goPrev()
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault()
-        void goNext()
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [goPrev, goNext])
-
-  // ── Loading / error / empty states ───────────────────────────────────────
+  // ── States ──────────────────────────────────────────────────────────────────
 
   if (projectLoading || !project) {
     return (
@@ -432,7 +255,7 @@ export default function AnnotationWorkspacePage() {
     )
   }
 
-  if (taskLoadFailed) {
+  if (task.taskLoadFailed) {
     return (
       <div style={{ padding: 48 }}>
         <Result
@@ -449,7 +272,7 @@ export default function AnnotationWorkspacePage() {
     )
   }
 
-  if (initialized && !currentTask && !taskLoading) {
+  if (task.initialized && !currentTask && !task.taskLoading) {
     return (
       <div style={{ padding: 48 }}>
         <Result
@@ -466,34 +289,6 @@ export default function AnnotationWorkspacePage() {
     )
   }
 
-  // ── Classification-only workspace ────────────────────────────────────────
-
-  if (currentTask && spatialControls.length === 0 && workspaceContext) {
-    return (
-      <ClassificationOnlyWorkspace
-        task={currentTask}
-        project={project}
-        configTree={configTree!}
-        context={workspaceContext}
-        onSubmit={handleSubmit}
-        submitting={submitMutation.isPending}
-        readOnly={readOnly}
-        guidelineCollapsed={guidelineCollapsed}
-        onToggleGuideline={() => setGuidelineCollapsed(!guidelineCollapsed)}
-        onBack={() => navigate('/annotations')}
-        currentTaskIndex={cursor}
-        totalTasks={taskIds.length || project.totalTasks || 0}
-        completedTasks={project.completedTasks || 0}
-        onPrev={goPrev}
-        onNext={goNext}
-        onHotkeyHelp={() => setHotkeyHelpOpen(true)}
-        labels={configTree ? extractLabels(configTree) : []}
-      />
-    )
-  }
-
-  // ── Main workspace layout ────────────────────────────────────────────────
-
   if (!currentTask || !workspaceContext) {
     return (
       <div
@@ -504,53 +299,34 @@ export default function AnnotationWorkspacePage() {
     )
   }
 
-  const totalTasks = project.totalTasks || 0
-  const completedTasks = project.completedTasks || 0
+  const totalTasks = task.taskIds.length || project.totalTasks || 0
+  const chatObjects = configTree
+    ? findNodes(configTree, (n) => n.type === 'object' && n.tag === 'Chat')
+    : []
+  // 画布面板承载空间控件与交互式对象（Chat 消息即区域）
+  const hasCanvasPane = spatialControls.length > 0 || chatObjects.length > 0
+
+  // ── Layout（空间/分类两种形态合并：无 canvas 控件时 DOM 面板全宽）─────────
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Top Bar */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '8px 16px',
-          borderBottom: '1px solid var(--ant-color-border)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/annotations')}>
-            返回
-          </Button>
-          <span style={{ fontWeight: 500 }}>{project.name}</span>
-          {readOnly && currentTask && <Tag color="green">已完成 - 只读</Tag>}
-        </div>
-        <Space>
-          <TaskNavigator
-            currentTaskIndex={cursor}
-            totalTasks={taskIds.length || totalTasks}
-            completedTasks={completedTasks}
-            onPrev={goPrev}
-            onNext={goNext}
-            hasPrev={cursor > 0}
-            hasNext={cursor < (taskIds.length || totalTasks) - 1 || true}
-          />
-          <Tooltip title="快捷键帮助">
-            <Button
-              type="text"
-              icon={<QuestionCircleOutlined />}
-              onClick={() => setHotkeyHelpOpen(true)}
-            />
-          </Tooltip>
-        </Space>
-        <Button type="text" onClick={() => setGuidelineCollapsed(!guidelineCollapsed)}>
-          规范 {guidelineCollapsed ? '▸' : '▾'}
-        </Button>
-      </div>
+      <WorkspaceTopBar
+        projectName={project.name}
+        readOnly={readOnly}
+        onBack={() => navigate('/annotations')}
+        cursor={task.cursor}
+        totalTasks={totalTasks}
+        completedTasks={project.completedTasks || 0}
+        onPrev={task.goPrev}
+        onNext={task.goNext}
+        hasPrev={task.cursor > 0}
+        hasNext={task.cursor < totalTasks - 1 || true}
+        onHotkeyHelp={() => setHotkeyHelpOpen(true)}
+        guidelineCollapsed={guidelineCollapsed}
+        onToggleGuideline={() => setGuidelineCollapsed(!guidelineCollapsed)}
+      />
 
-      {/* Read-only alert */}
-      {readOnly && currentTask && (
+      {readOnly && (
         <Alert
           type="info"
           showIcon
@@ -568,9 +344,7 @@ export default function AnnotationWorkspacePage() {
                   okText: '重新标注',
                   onOk: async () => {
                     await cancelMutation.mutateAsync(currentTask.id)
-                    const fresh = await getAnnotationTaskDetail(currentTask.id)
-                    setCurrentTask(fresh)
-                    setReadOnly(fresh.status === 'completed')
+                    await task.refreshCurrentTask()
                   },
                 })
               }}
@@ -582,34 +356,61 @@ export default function AnnotationWorkspacePage() {
         />
       )}
 
-      {/* Workspace Body */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Canvas Area — spatial controls */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {spatialControls.map((node) =>
-            renderSpatialControl(
-              node,
-              objectMap,
-              currentTask,
-              readOnly,
-              regionsHook,
-              relationsHook.relations,
-            ),
-          )}
-          {!currentTask && taskLoading && (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-              <Spin />
-            </div>
-          )}
-        </div>
+        {hasCanvasPane && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {videoGroups.map((g) => (
+              <VideoAnnotator
+                key={g.videoNode.name}
+                videoNode={g.videoNode}
+                controls={g.controls}
+                task={currentTask}
+                readOnly={readOnly}
+                regionsHook={regionsHook}
+                onVideoMeta={(meta) =>
+                  setVideoMetaByObject((prev) => ({ ...prev, [g.videoNode.name!]: meta }))
+                }
+              />
+            ))}
+            {spatialControls
+              .filter((node) => !videoConsumedControlNames.has(node.name!))
+              .map((node) =>
+                renderSpatialControl(
+                  node,
+                  objectMap,
+                  currentTask,
+                  readOnly,
+                  regionsHook,
+                  relationsHook.relations,
+                ),
+              )}
+            {chatObjects.map((node) => (
+              <div key={node.name} style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+                <ChatViewer
+                  task={currentTask}
+                  objectConfig={toObjectConfig(node)}
+                  regions={regionsHook.regions}
+                  selectedRegionId={regionsHook.selectedRegionId}
+                  onAddRegion={regionsHook.addRegion}
+                  onSelectRegion={regionsHook.selectRegion}
+                  readOnly={readOnly}
+                />
+              </div>
+            ))}
+            {!currentTask && task.taskLoading && (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+                <Spin />
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* Side Panel: ConfigRenderer handles layout + classification */}
         <div
           style={{
-            width: 280,
-            borderLeft: '1px solid var(--ant-color-border)',
+            flex: hasCanvasPane ? '0 0 280px' : 1,
+            borderLeft: hasCanvasPane ? '1px solid var(--ant-color-border)' : undefined,
             overflowY: 'auto',
-            padding: 12,
+            padding: 16,
             display: 'flex',
             flexDirection: 'column',
             gap: 12,
@@ -617,92 +418,17 @@ export default function AnnotationWorkspacePage() {
         >
           {configTree && <ConfigRenderer node={configTree} context={workspaceContext} />}
 
-          {/* Relation controls (not rendered by ConfigRenderer — handled here) */}
-          {relationControls.length > 0 && (
-            <>
-              <Divider style={{ margin: '4px 0' }}>关系标注</Divider>
-              {relationControls.map((relNode) => {
-                const relConfig = toRelationConfig(relNode)
-                return (
-                  <Card key={relConfig.name} size="small" title={relConfig.tag}>
-                    {!readOnly && (
-                      <Space direction="vertical" style={{ width: '100%' }} size="small">
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          点击左侧区域列表中的一个区域作为源，再点击另一个作为目标来创建关系。
-                        </Typography.Text>
-                        {relConfig.choices.length > 0 && !relationsHook.selectedRelationId && (
-                          <Space wrap>
-                            {relConfig.choices.map((ch) => (
-                              <Tag
-                                key={ch.value}
-                                color="blue"
-                                style={{ cursor: 'pointer' }}
-                                onClick={() => {
-                                  if (regionsHook.selectedRegionId) {
-                                    relationsHook.addRelation({
-                                      id: crypto.randomUUID(),
-                                      fromRegionId: regionsHook.selectedRegionId,
-                                      toRegionId: '',
-                                      label: ch.value,
-                                      sourceControlName: relConfig.name,
-                                    })
-                                  }
-                                }}
-                              >
-                                {ch.value}
-                              </Tag>
-                            ))}
-                          </Space>
-                        )}
-                      </Space>
-                    )}
-                    {relationsHook.relations.length > 0 && (
-                      <div style={{ marginTop: 8 }}>
-                        {relationsHook.relations
-                          .filter((r) => r.sourceControlName === relConfig.name)
-                          .map((rel, i) => {
-                            const fromRegion = regionsHook.regions.find(
-                              (r) => r.id === rel.fromRegionId,
-                            )
-                            const toRegion = regionsHook.regions.find(
-                              (r) => r.id === rel.toRegionId,
-                            )
-                            return (
-                              <div
-                                key={rel.id}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  marginBottom: 4,
-                                }}
-                              >
-                                <Tag color="blue">{rel.label || `关系${i + 1}`}</Tag>
-                                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                                  {fromRegion?.label || '区域'} → {toRegion?.label || '区域'}
-                                </Typography.Text>
-                                {!readOnly && (
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    danger
-                                    onClick={() => relationsHook.removeRelation(rel.id)}
-                                  >
-                                    ×
-                                  </Button>
-                                )}
-                              </div>
-                            )
-                          })}
-                      </div>
-                    )}
-                  </Card>
-                )
-              })}
-            </>
-          )}
+          <RelationPanel
+            relationControls={relationControls}
+            regions={regionsHook.regions}
+            selectedRegionId={regionsHook.selectedRegionId}
+            relations={relationsHook.relations}
+            selectedRelationId={relationsHook.selectedRelationId}
+            readOnly={readOnly}
+            onAddRelation={relationsHook.addRelation}
+            onRemoveRelation={relationsHook.removeRelation}
+          />
 
-          {/* Submit */}
           {!readOnly && (
             <Button
               type="primary"
@@ -720,127 +446,15 @@ export default function AnnotationWorkspacePage() {
           )}
         </div>
 
-        {/* Guidelines */}
         <AnnotationGuideline
           project={project}
-          labels={configTree ? extractLabels(configTree) : []}
+          labels={labels}
           collapsed={guidelineCollapsed}
           onToggle={() => setGuidelineCollapsed(!guidelineCollapsed)}
         />
       </div>
 
-      <Modal
-        open={hotkeyHelpOpen}
-        title="快捷键"
-        footer={null}
-        onCancel={() => setHotkeyHelpOpen(false)}
-      >
-        <Card size="small">
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {HOTKEYS.map((h) => (
-              <Space key={h.key} style={{ width: '100%', justifyContent: 'space-between' }}>
-                <Typography.Text type="secondary">{h.label}</Typography.Text>
-                <Tag>{h.key}</Tag>
-              </Space>
-            ))}
-          </Space>
-        </Card>
-      </Modal>
-    </div>
-  )
-}
-
-// ── Classification-Only Workspace ───────────────────────────────────────────
-
-function ClassificationOnlyWorkspace({
-  task: _task,
-  project,
-  configTree,
-  context,
-  onSubmit,
-  submitting,
-  readOnly,
-  guidelineCollapsed,
-  onToggleGuideline,
-  onBack,
-  currentTaskIndex,
-  totalTasks,
-  completedTasks,
-  onPrev,
-  onNext,
-  onHotkeyHelp,
-  labels,
-}: {
-  task: AnnotationTask
-  project: NonNullable<ReturnType<typeof useQuery>['data']>
-  configTree: ConfigNode
-  context: WorkspaceContext
-  onSubmit: () => void
-  submitting: boolean
-  readOnly: boolean
-  guidelineCollapsed: boolean
-  onToggleGuideline: () => void
-  onBack: () => void
-  currentTaskIndex: number
-  totalTasks: number
-  completedTasks: number
-  onPrev: () => void
-  onNext: () => void
-  onHotkeyHelp: () => void
-  labels: string[]
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '8px 16px',
-          borderBottom: '1px solid var(--ant-color-border)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
-            返回
-          </Button>
-          <span style={{ fontWeight: 500 }}>{(project as { name: string }).name}</span>
-          {readOnly && <Tag color="green">已完成 - 只读</Tag>}
-        </div>
-        <Space>
-          <TaskNavigator
-            currentTaskIndex={currentTaskIndex}
-            totalTasks={totalTasks}
-            completedTasks={completedTasks}
-            onPrev={onPrev}
-            onNext={onNext}
-            hasPrev={currentTaskIndex > 0}
-            hasNext={true}
-          />
-          <Tooltip title="快捷键帮助">
-            <Button type="text" icon={<QuestionCircleOutlined />} onClick={onHotkeyHelp} />
-          </Tooltip>
-        </Space>
-        <Button type="text" onClick={onToggleGuideline}>
-          规范 {guidelineCollapsed ? '▸' : '▾'}
-        </Button>
-      </div>
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <div style={{ flex: 1, padding: 16, overflowY: 'auto' }}>
-          <ConfigRenderer node={configTree} context={context} />
-          {!readOnly && (
-            <Button type="primary" onClick={onSubmit} loading={submitting} block>
-              提交标注
-            </Button>
-          )}
-        </div>
-        <AnnotationGuideline
-          project={project}
-          labels={labels}
-          collapsed={guidelineCollapsed}
-          onToggle={onToggleGuideline}
-        />
-      </div>
+      <HotkeyHelpModal open={hotkeyHelpOpen} onClose={() => setHotkeyHelpOpen(false)} />
     </div>
   )
 }

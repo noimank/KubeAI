@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, Checkbox, Image, Radio, Space, Typography } from 'antd'
+import { Button, Card, Checkbox, Radio, Space, Typography } from 'antd'
 import type { AnnotationResultItem, AnnotationTask } from '@/types/annotation'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
-import type { AnnotationRegion, ImageDimensions } from '../hooks/useAnnotationRegions'
+import type { Region, ImageDimensions } from '../hooks/useAnnotationRegions'
+import { regionBoundingBox } from '../utils/regions'
 import RegionCropPreview from './RegionCropPreview'
-import { appendAuthToken } from '@/utils/constants'
+import ObjectPreview from './ObjectPreview'
 
 interface ChoicesAnnotatorProps {
   task: AnnotationTask
@@ -22,7 +23,7 @@ interface ChoicesAnnotatorProps {
   /** perRegion 结果通过回调通知父组件 */
   onPerRegionResult?: (regionId: string, result: AnnotationResultItem | null) => void
   /** Selected region for crop preview */
-  selectedRegion?: AnnotationRegion | null
+  selectedRegion?: Region | null
   imageDimensions?: ImageDimensions | null
   imageUrl?: string
 }
@@ -48,6 +49,7 @@ export default function ChoicesAnnotator({
     ? (task.data?.[objectConfig.field] as string | undefined)
     : undefined
   const multiple = controlConfig?.choice?.includes('multiple')
+  const required = controlConfig?.required
 
   // Reset on task change
   useEffect(() => {
@@ -102,7 +104,7 @@ export default function ChoicesAnnotator({
       {showCrop ? (
         <RegionCropPreview
           imageUrl={imageUrl}
-          spatial={selectedRegion.spatial}
+          bbox={selectedRegion ? regionBoundingBox(selectedRegion) : null}
           imageWidth={imageDimensions.width}
           imageHeight={imageDimensions.height}
           height={120}
@@ -130,16 +132,6 @@ export default function ChoicesAnnotator({
               ))}
             </Space>
           </Checkbox.Group>
-          {!perRegion && (
-            <Button
-              type="primary"
-              loading={submitting}
-              disabled={selected.length === 0 || readOnly}
-              onClick={() => submitChoices(selected)}
-            >
-              提交
-            </Button>
-          )}
         </>
       ) : (
         <Radio.Group
@@ -148,7 +140,7 @@ export default function ChoicesAnnotator({
           onChange={(event) => {
             const value = event.target.value
             setSelected([value])
-            submitChoices([value])
+            if (perRegion) submitChoices([value])
           }}
         >
           <Space direction="vertical">
@@ -160,34 +152,17 @@ export default function ChoicesAnnotator({
           </Space>
         </Radio.Group>
       )}
+      {/* Submit button for non-perRegion modes (aligns with LS — always explicit submit) */}
+      {!readOnly && !perRegion && (
+        <Button
+          type="primary"
+          loading={submitting}
+          disabled={selected.length === 0 || (required === true && selected.length === 0)}
+          onClick={() => submitChoices(selected)}
+        >
+          提交
+        </Button>
+      )}
     </Space>
-  )
-}
-
-function ObjectPreview({
-  objectConfig,
-  value,
-}: {
-  objectConfig?: LabelStudioObjectConfig
-  value?: string
-}) {
-  if (objectConfig?.tag === 'Image' && value) {
-    return (
-      <div style={{ textAlign: 'center' }}>
-        <Image src={appendAuthToken(value)} style={{ maxHeight: 160 }} />
-      </div>
-    )
-  }
-  if (objectConfig?.tag === 'Audio' && value)
-    return <audio src={appendAuthToken(value)} controls style={{ width: '100%' }} />
-  if (objectConfig?.tag === 'Video' && value)
-    return <video src={appendAuthToken(value)} controls style={{ width: '100%' }} />
-
-  return (
-    <Card size="small">
-      <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
-        {value || '无内容'}
-      </Typography.Paragraph>
-    </Card>
   )
 }

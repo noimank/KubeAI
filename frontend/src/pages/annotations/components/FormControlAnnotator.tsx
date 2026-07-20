@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Card, InputNumber, Rate, Space, TreeSelect, Typography } from 'antd'
+import {
+  Button,
+  Card,
+  DatePicker,
+  InputNumber,
+  Rate,
+  Space,
+  TimePicker,
+  TreeSelect,
+  Typography,
+} from 'antd'
+import dayjs, { type Dayjs } from 'dayjs'
 import type { AnnotationResultItem, AnnotationTask } from '@/types/annotation'
-import type { AnnotationRegion, ImageDimensions } from '../hooks/useAnnotationRegions'
+import type { Region, ImageDimensions } from '../hooks/useAnnotationRegions'
+import { regionBoundingBox } from '../utils/regions'
 import RegionCropPreview from './RegionCropPreview'
 import { appendAuthToken } from '@/utils/constants'
 import {
@@ -26,7 +38,7 @@ interface FormControlAnnotatorProps {
   /** perRegion 结果通过回调通知父组件 */
   onPerRegionResult?: (regionId: string, result: AnnotationResultItem | null) => void
   /** Selected region for crop preview */
-  selectedRegion?: AnnotationRegion | null
+  selectedRegion?: Region | null
   imageDimensions?: ImageDimensions | null
   imageUrl?: string
 }
@@ -54,12 +66,14 @@ export default function FormControlAnnotator({
   const [rating, setRating] = useState<number>(0)
   const [number, setNumber] = useState<number | null>(null)
   const [taxonomyPath, setTaxonomyPath] = useState<string[]>([])
+  const [dateTime, setDateTime] = useState<Dayjs | null>(null)
 
   // Reset on task change
   useEffect(() => {
     setRating(0)
     setNumber(null)
     setTaxonomyPath([])
+    setDateTime(null)
   }, [task.id])
 
   // 当选中区域变化时，回显已有值
@@ -69,6 +83,7 @@ export default function FormControlAnnotator({
         setRating(0)
         setNumber(null)
         setTaxonomyPath([])
+        setDateTime(null)
       }
       return
     }
@@ -81,6 +96,11 @@ export default function FormControlAnnotator({
       const taxArr = cv.taxonomy as unknown[][] | undefined
       if (Array.isArray(taxArr?.[0])) {
         setTaxonomyPath(taxArr![0] as string[])
+      }
+    } else if (type === 'datetime') {
+      const cv = currentRegionValue as Record<string, unknown>
+      if (typeof cv.datetime === 'string') {
+        setDateTime(dayjs(cv.datetime))
       }
     }
   }, [perRegion, selectedRegionId, currentRegionValue, type])
@@ -105,8 +125,17 @@ export default function FormControlAnnotator({
         value: { taxonomy: [taxonomyPath] },
       }
     }
+    if (type === 'datetime') {
+      if (!dateTime) return null
+      return {
+        from_name: name,
+        to_name: toName,
+        type: 'datetime',
+        value: { datetime: dateTime.toISOString() },
+      }
+    }
     return null
-  }, [type, rating, number, taxonomyPath, controlConfig, objectConfig])
+  }, [type, rating, number, taxonomyPath, dateTime, controlConfig, objectConfig])
 
   // perRegion 模式：值变更时自动保存
   const buildAndPersist = useCallback(
@@ -134,7 +163,16 @@ export default function FormControlAnnotator({
       prevResultRef.current = result
       buildAndPersist(result)
     }
-  }, [perRegion, selectedRegionId, rating, number, taxonomyPath, buildResult, buildAndPersist])
+  }, [
+    perRegion,
+    selectedRegionId,
+    rating,
+    number,
+    taxonomyPath,
+    dateTime,
+    buildResult,
+    buildAndPersist,
+  ])
 
   // perRegion 模式下，无选中区域时显示提示
   if (perRegion && !selectedRegionId) {
@@ -152,7 +190,7 @@ export default function FormControlAnnotator({
       return (
         <RegionCropPreview
           imageUrl={imageUrl}
-          spatial={selectedRegion!.spatial}
+          bbox={selectedRegion ? regionBoundingBox(selectedRegion) : null}
           imageWidth={imageDimensions!.width}
           imageHeight={imageDimensions!.height}
           height={100}
@@ -229,6 +267,45 @@ export default function FormControlAnnotator({
             style={{ width: '100%' }}
             treeDefaultExpandAll
           />
+        </Space>
+      )
+    }
+    if (type === 'datetime') {
+      const attrs = controlConfig?.attrs ?? {}
+      const only = (attrs.only ?? '') as string
+      const showDate = !only || only.includes('date')
+      const showTime = !only || only.includes('time')
+      return (
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Typography.Text>日期时间</Typography.Text>
+          {showDate && (
+            <DatePicker
+              value={dateTime}
+              onChange={(v) => setDateTime(v)}
+              disabled={readOnly}
+              style={{ width: '100%' }}
+              placeholder="选择日期"
+            />
+          )}
+          {showTime && (
+            <TimePicker
+              value={dateTime}
+              onChange={(v) => setDateTime(v)}
+              disabled={readOnly}
+              style={{ width: '100%' }}
+              placeholder="选择时间"
+              format="HH:mm"
+              showNow
+            />
+          )}
+          {dateTime && (
+            <Typography.Text type="secondary">
+              当前:{' '}
+              {dateTime.format(
+                showDate && showTime ? 'YYYY-MM-DD HH:mm' : showDate ? 'YYYY-MM-DD' : 'HH:mm',
+              )}
+            </Typography.Text>
+          )}
         </Space>
       )
     }

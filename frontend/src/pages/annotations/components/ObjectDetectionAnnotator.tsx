@@ -3,37 +3,16 @@ import { Button, List, Popconfirm, Space, Tag } from 'antd'
 import { DeleteOutlined, DragOutlined, SelectOutlined, UndoOutlined } from '@ant-design/icons'
 import { Rect, Transformer, Arrow } from 'react-konva'
 import type Konva from 'konva'
-import type { AnnotationTask } from '@/types/annotation'
 import { getMessageInstance } from '@/utils/messageHolder'
-import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
 import { useZoomPan } from './useZoomPan'
 import ZoomPanImageStage from './ZoomPanImageStage'
 import LabelPalette from './LabelPalette'
 import { labelColor } from './annotationColors'
-import type { AnnotationRegion, ImageDimensions } from '../hooks/useAnnotationRegions'
+import type { Region } from '../hooks/useAnnotationRegions'
+import { regionsOf, regionCenter } from '../utils/regions'
+import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
 
 // ── Props ───────────────────────────────────────────────────────────────────
-
-interface ObjectDetectionAnnotatorProps {
-  task: AnnotationTask
-  objectConfig?: LabelStudioObjectConfig
-  controlConfig: LabelStudioControlConfig
-  readOnly?: boolean
-  /** 共享区域状态 */
-  regions: AnnotationRegion[]
-  selectedRegionId: string | null
-  imageDimensions: ImageDimensions | null
-  onAddRegion: (region: AnnotationRegion) => void
-  onUpdateRegion: (
-    id: string,
-    updates: Partial<Pick<AnnotationRegion, 'spatial' | 'label'>>,
-  ) => void
-  onDeleteRegion: (id: string) => void
-  onSelectRegion: (id: string | null) => void
-  onImageDimensionsChange: (dims: ImageDimensions) => void
-  /** Relation arrows to render */
-  relations?: Array<{ id: string; fromRegionId: string; toRegionId: string; label?: string }>
-}
 
 type ToolMode = 'select' | 'draw'
 
@@ -48,19 +27,8 @@ interface LocalBBox {
   label: string
 }
 
-function regionToBBox(r: AnnotationRegion): LocalBBox {
-  return {
-    id: r.id,
-    x: r.spatial.x,
-    y: r.spatial.y,
-    width: r.spatial.width,
-    height: r.spatial.height,
-    label: r.label ?? '',
-  }
-}
-
 /** Stable serialization of regions for effect dependency comparison */
-function regionIds(regions: AnnotationRegion[]): string {
+function regionIds(regions: Region[]): string {
   return regions.map((r) => r.id).join(',')
 }
 
@@ -80,7 +48,7 @@ export default function ObjectDetectionAnnotator({
   onSelectRegion,
   onImageDimensionsChange,
   relations = [],
-}: ObjectDetectionAnnotatorProps) {
+}: SpatialAnnotatorProps) {
   const hasLabels = controlConfig.type === 'rectanglelabels'
   const imageField = objectConfig?.field || 'image'
   const imageUrl = task.data?.[imageField] as string | undefined
@@ -125,11 +93,27 @@ export default function ObjectDetectionAnnotator({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRegionId, regionIdSnapshot])
 
-  const bboxes = useMemo<LocalBBox[]>(() => regions.map(regionToBBox), [regions])
+  // 仅本控件的矩形区域
+  const rectRegions = useMemo(
+    () => regionsOf(regions, controlConfig.name, 'rectangle'),
+    [regions, controlConfig.name],
+  )
+  const bboxes = useMemo<LocalBBox[]>(
+    () =>
+      rectRegions.map((r) => ({
+        id: r.id,
+        x: r.value.x,
+        y: r.value.y,
+        width: r.value.width,
+        height: r.value.height,
+        label: r.label ?? '',
+      })),
+    [rectRegions],
+  )
 
   // Stable undo: ref avoids re-registering the Ctrl+Z listener on every region change
-  const regionsRef = useRef(regions)
-  regionsRef.current = regions
+  const regionsRef = useRef(rectRegions)
+  regionsRef.current = rectRegions
 
   const handleDelete = useCallback(
     (id: string) => {
@@ -193,15 +177,16 @@ export default function ObjectDetectionAnnotator({
     }
     onAddRegion({
       id: crypto.randomUUID(),
-      type: 'rectangle',
+      fromName: controlConfig.name,
       label: activeLabel ?? undefined,
-      spatial: {
+      value: {
+        kind: 'rectangle',
         x: w < 0 ? x + w : x,
         y: h < 0 ? y + h : y,
         width: Math.abs(w),
         height: Math.abs(h),
+        rotation: 0,
       },
-      sourceControlName: controlConfig.name,
       perRegionResults: {},
     })
   }, [drawing, hasLabels, activeLabel, controlConfig.name, onAddRegion])
@@ -309,7 +294,14 @@ export default function ObjectDetectionAnnotator({
                   onDragEnd={(e) => {
                     const node = e.target
                     onUpdateRegion(bbox.id, {
-                      spatial: { x: node.x(), y: node.y(), width: bbox.width, height: bbox.height },
+                      value: {
+                        kind: 'rectangle',
+                        x: node.x(),
+                        y: node.y(),
+                        width: bbox.width,
+                        height: bbox.height,
+                        rotation: 0,
+                      },
                     })
                   }}
                   onTransformEnd={(e) => {
@@ -317,7 +309,14 @@ export default function ObjectDetectionAnnotator({
                     const newW = Math.max(3, node.width() * node.scaleX())
                     const newH = Math.max(3, node.height() * node.scaleY())
                     onUpdateRegion(bbox.id, {
-                      spatial: { x: node.x(), y: node.y(), width: newW, height: newH },
+                      value: {
+                        kind: 'rectangle',
+                        x: node.x(),
+                        y: node.y(),
+                        width: newW,
+                        height: newH,
+                        rotation: 0,
+                      },
                     })
                     node.scaleX(1)
                     node.scaleY(1)
@@ -350,14 +349,13 @@ export default function ObjectDetectionAnnotator({
                 const fromRegion = regions.find((r) => r.id === rel.fromRegionId)
                 const toRegion = regions.find((r) => r.id === rel.toRegionId)
                 if (!fromRegion || !toRegion) return null
-                const fx = fromRegion.spatial.x + fromRegion.spatial.width / 2
-                const fy = fromRegion.spatial.y + fromRegion.spatial.height / 2
-                const tx = toRegion.spatial.x + toRegion.spatial.width / 2
-                const ty = toRegion.spatial.y + toRegion.spatial.height / 2
+                const from = regionCenter(fromRegion)
+                const to = regionCenter(toRegion)
+                if (!from || !to) return null
                 return (
                   <Arrow
                     key={rel.id}
-                    points={[fx, fy, tx, ty]}
+                    points={[from.x, from.y, to.x, to.y]}
                     stroke="#FF6B00"
                     fill="#FF6B00"
                     strokeWidth={visibleStrokeWidth(2)}

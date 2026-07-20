@@ -70,18 +70,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     form.resetFields()
   }, [open, form])
 
-  useEffect(() => {
-    if (open && selectedDatasetId && form.getFieldValue('datasetVersionId')) {
-      form.resetFields(['datasetVersionId'])
-    }
-  }, [selectedDatasetId, form, open])
-
-  useEffect(() => {
-    if (open && selectedGroup) {
-      form.setFieldValue('templateId', undefined)
-    }
-  }, [selectedGroup, form, open])
-
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
@@ -174,6 +162,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
                 showSearch
                 optionFilterProp="label"
                 options={datasetOptions}
+                onChange={() => form.resetFields(['datasetVersionId'])}
               />
             </Form.Item>
 
@@ -204,6 +193,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
                 placeholder="选择模板分组"
                 options={groupOptions}
                 notFoundContent="暂无分组"
+                onChange={() => form.resetFields(['templateId'])}
               />
             </Form.Item>
 

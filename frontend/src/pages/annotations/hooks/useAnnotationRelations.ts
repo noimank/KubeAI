@@ -12,8 +12,8 @@ export interface AnnotationRelation {
   label?: string
   /** Direction: left-to-right or bidirectional */
   direction?: 'left' | 'right' | 'bidirectional'
-  /** The control name that created this relation */
-  sourceControlName: string
+  /** 创建该关系的 Relations 控件 name */
+  fromName: string
 }
 
 export interface UseAnnotationRelationsOptions {

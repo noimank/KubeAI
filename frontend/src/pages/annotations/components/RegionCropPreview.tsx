@@ -4,8 +4,8 @@ import { appendAuthToken } from '@/utils/constants'
 interface RegionCropPreviewProps {
   /** Image URL (without token — will be appended internally) */
   imageUrl: string
-  /** Selected region spatial in image-pixel coordinates */
-  spatial: { x: number; y: number; width: number; height: number }
+  /** 选中区域包围盒（图像像素坐标）；null 时回退到占位 */
+  bbox: { x: number; y: number; width: number; height: number } | null
   /** Natural image dimensions */
   imageWidth: number
   imageHeight: number
@@ -25,7 +25,7 @@ interface RegionCropPreviewProps {
  */
 export default function RegionCropPreview({
   imageUrl,
-  spatial,
+  bbox,
   imageWidth,
   imageHeight,
   height = 140,
@@ -68,8 +68,8 @@ export default function RegionCropPreview({
     }
   }, [imageUrl])
 
-  // Guard against zero-dimension regions
-  if (spatial.width <= 0 || spatial.height <= 0) {
+  // 无包围盒（文本 span 等）或零尺寸区域
+  if (!bbox || bbox.width <= 0 || bbox.height <= 0) {
     return (
       <div
         style={{
@@ -93,15 +93,15 @@ export default function RegionCropPreview({
   const padding = 16 // px padding inside container
   const availW = Math.max(1, containerWidth - padding * 2)
   const availH = Math.max(1, height - padding * 2)
-  const scale = Math.min(availW / spatial.width, availH / spatial.height)
+  const scale = Math.min(availW / bbox.width, availH / bbox.height)
 
   // Center the region in the container
-  const offsetX = (containerWidth - spatial.width * scale) / 2
-  const offsetY = (height - spatial.height * scale) / 2
+  const offsetX = (containerWidth - bbox.width * scale) / 2
+  const offsetY = (height - bbox.height * scale) / 2
 
   // The image is positioned so the region appears at (offsetX, offsetY)
-  const imgTranslateX = offsetX - spatial.x * scale
-  const imgTranslateY = offsetY - spatial.y * scale
+  const imgTranslateX = offsetX - bbox.x * scale
+  const imgTranslateY = offsetY - bbox.y * scale
 
   return (
     <div
@@ -156,7 +156,7 @@ export default function RegionCropPreview({
           lineHeight: '18px',
         }}
       >
-        {Math.round(spatial.width)} × {Math.round(spatial.height)}
+        {Math.round(bbox.width)} × {Math.round(bbox.height)}
       </div>
     </div>
   )

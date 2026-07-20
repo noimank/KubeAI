@@ -32,6 +32,25 @@ export interface ConfigNode {
   choices?: { value: string; background?: string }[]
   /** Taxonomy 嵌套树 */
   taxonomy?: TaxonomyNode[]
+  /** TimeSeries 的 <Channel> 子元素 */
+  channels?: TimeSeriesChannel[]
+  /** TextArea 的 <Shortcut> 子元素 */
+  shortcuts?: ShortcutConfig[]
+}
+
+export interface TimeSeriesChannel {
+  column: string
+  units?: string
+  strokeColor?: string
+  legend?: string
+}
+
+/** TextArea 的 <Shortcut> 子元素：点击/快捷键把 value 注入光标位置 */
+export interface ShortcutConfig {
+  value: string
+  alias?: string
+  hotkey?: string
+  background?: string
 }
 
 export interface TaxonomyNode {
@@ -63,6 +82,12 @@ export interface LabelStudioControlConfig {
   visibleWhen?: string
   defaultValue?: string
   maxUsages?: number
+  /** DateTime format string */
+  format?: string
+  /** TextArea 的 <Shortcut> 子元素 */
+  shortcuts?: ShortcutConfig[]
+  /** Raw attrs preserved for control-specific attributes (e.g. DateTime 'only') */
+  attrs?: Record<string, string>
 }
 
 export interface LabelStudioRelationConfig {
@@ -93,6 +118,9 @@ export function toControlConfig(node: ConfigNode): LabelStudioControlConfig {
     visibleWhen: a.visiblewhen,
     defaultValue: a.defaultvalue,
     maxUsages: a.maxusages ? Number(a.maxusages) : undefined,
+    format: a.format,
+    shortcuts: node.shortcuts,
+    attrs: a,
   }
 }
 
@@ -119,9 +147,23 @@ export function toRelationConfig(node: ConfigNode): LabelStudioRelationConfig {
 
 // ── 标签分类常量 ──────────────────────────────────────────────────────────────
 
-const OBJECT_TAGS = new Set(['Image', 'Text', 'Audio', 'Video', 'HyperText', 'PDF'])
+export const OBJECT_TAGS = new Set([
+  'Image',
+  'Text',
+  'Audio',
+  'Video',
+  'HyperText',
+  'PDF',
+  'Pdf',
+  'Paragraphs',
+  'TimeSeries',
+  'Table',
+  'List',
+  'PagedView',
+  'Chat',
+])
 
-const CONTROL_TAG_MAP: Record<string, string> = {
+export const CONTROL_TAG_MAP: Record<string, string> = {
   Choices: 'choices',
   RectangleLabels: 'rectanglelabels',
   Rectangle: 'rectangle',
@@ -138,8 +180,22 @@ const CONTROL_TAG_MAP: Record<string, string> = {
   Rating: 'rating',
   Number: 'number',
   Taxonomy: 'taxonomy',
+  DateTime: 'datetime',
+  HyperTextLabels: 'hypertextlabels',
+  ParagraphLabels: 'paragraphlabels',
+  TimeSeriesLabels: 'timeserieslabels',
+  VideoRectangle: 'videorectangle',
+  TimelineLabels: 'timelinelabels',
+  Pairwise: 'pairwise',
+  Ranker: 'ranker',
+  MagicWand: 'magicwand',
+  VectorLabels: 'vectorlabels',
+  Vector: 'vector',
+  BitmaskLabels: 'bitmasklabels',
+  Bitmask: 'bitmask',
   Relation: 'relation',
   RelationLabels: 'relationlabels',
+  Relations: 'relations',
 }
 
 // VISUAL_TAGS 常量仅文档用途（当前解析器按 tag 名 classify，不需要此集合）
@@ -160,13 +216,39 @@ export const SPATIAL_CONTROL_TYPES = [
   'brush',
   'brushlabels',
   'labels',
+  'hypertextlabels',
+  'paragraphlabels',
+  'timeserieslabels',
+  'videorectangle',
+  'timelinelabels',
+  'magicwand',
+  'vector',
+  'vectorlabels',
+  'bitmask',
+  'bitmasklabels',
 ]
 
 /** 分类控件类型 (提供标签/文本，支持 perRegion) */
-export const CLASSIFICATION_CONTROL_TYPES = ['choices', 'textarea', 'rating', 'number', 'taxonomy']
+export const CLASSIFICATION_CONTROL_TYPES = [
+  'choices',
+  'textarea',
+  'rating',
+  'number',
+  'taxonomy',
+  'datetime',
+]
 
 /** 无内嵌标签的空间控件 */
-export const BARE_SPATIAL_CONTROL_TYPES = ['rectangle', 'polygon', 'keypoint', 'ellipse', 'brush']
+export const BARE_SPATIAL_CONTROL_TYPES = [
+  'rectangle',
+  'polygon',
+  'keypoint',
+  'ellipse',
+  'brush',
+  'magicwand',
+  'vector',
+  'bitmask',
+]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -225,7 +307,11 @@ function buildNode(element: Element): ConfigNode {
   }
 
   const name = attrs.name || null
-  const field = attrs.value ? fieldFromValue(attrs.value) : null
+  const field = attrs.value
+    ? fieldFromValue(attrs.value)
+    : attrs.valuelist
+      ? fieldFromValue(attrs.valuelist)
+      : null
 
   // 子元素分类
   const childElements = Array.from(element.children)
@@ -242,14 +328,44 @@ function buildNode(element: Element): ConfigNode {
     node.field = field
   }
 
+  if (type === 'object' && tag === 'TimeSeries') {
+    node.channels = childElements
+      .filter((c) => c.tagName === 'Channel')
+      .map((c) => {
+        const ch: TimeSeriesChannel = { column: c.getAttribute('column') || '' }
+        const units = c.getAttribute('units')
+        const strokeColor = c.getAttribute('strokeColor')
+        const legend = c.getAttribute('legend')
+        if (units) ch.units = units
+        if (strokeColor) ch.strokeColor = strokeColor
+        if (legend) ch.legend = legend
+        return ch
+      })
+  }
+
   if (type === 'control') {
     node.controlType = CONTROL_TAG_MAP[tag]
     node.choices = childElements
-      .filter((c) => c.tagName === 'Choice' || c.tagName === 'Label')
+      .filter((c) => c.tagName === 'Choice' || c.tagName === 'Label' || c.tagName === 'Relation')
       .map(parseChoiceAttributes)
       .filter((c): c is { value: string; background?: string } => c !== null)
     if (tag === 'Taxonomy') {
       node.taxonomy = buildTaxonomy(element)
+    }
+    if (tag === 'TextArea') {
+      node.shortcuts = childElements
+        .filter((c) => c.tagName === 'Shortcut')
+        .map((c) => {
+          const sc: ShortcutConfig = { value: c.getAttribute('value') || '' }
+          const alias = c.getAttribute('alias')
+          const hotkey = c.getAttribute('hotkey')
+          const background = c.getAttribute('background')
+          if (alias) sc.alias = alias
+          if (hotkey) sc.hotkey = hotkey
+          if (background) sc.background = background
+          return sc
+        })
+        .filter((s) => s.value)
     }
   }
 

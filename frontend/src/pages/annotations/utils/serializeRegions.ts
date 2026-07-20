@@ -1,5 +1,5 @@
 import type { AnnotationResultItem } from '@/types/annotation'
-import type { AnnotationRegion, ImageDimensions } from '../hooks/useAnnotationRegions'
+import type { Region, RegionValue, ImageDimensions } from '../hooks/useAnnotationRegions'
 import type { AnnotationRelation } from '../hooks/useAnnotationRelations'
 import type { LabelStudioControlConfig, LabelStudioRelationConfig } from './parseLabelConfig'
 
@@ -9,83 +9,145 @@ function toPercent(value: number, total: number): number {
   return (value / total) * 100
 }
 
-/** 根据 control type 生成结果 value 中的标签键名 */
+/** control type 是否带内嵌标签（决定 value 中输出 `<type>: [label]` 键） */
 function labelKey(ctrlType: string): string | null {
-  if (ctrlType.endsWith('labels')) return ctrlType
-  return null
+  return ctrlType.endsWith('labels') ? ctrlType : null
 }
 
-// ── Per-geometry serialization ──────────────────────────────────────────────
-
-function serializeRectangleRegion(
-  region: AnnotationRegion,
-  _ctrl: LabelStudioControlConfig,
-  dims: ImageDimensions,
-): Record<string, unknown> {
-  return {
-    x: toPercent(region.spatial.x, dims.width),
-    y: toPercent(region.spatial.y, dims.height),
-    width: toPercent(region.spatial.width, dims.width),
-    height: toPercent(region.spatial.height, dims.height),
-    rotation: region.spatial.rotation ?? 0,
+/** span 类 region（文本/时间/音频区间）→ LS value（无几何坐标） */
+function spanValue(value: RegionValue): Record<string, unknown> {
+  switch (value.kind) {
+    case 'textspan':
+    case 'paragraphspan':
+      return { start: value.start, end: value.end, text: value.text }
+    case 'timeseries':
+      return { start: value.start, end: value.end, instant: value.instant }
+    case 'audio':
+      return { start: value.start, end: value.end }
+    default:
+      return {}
   }
 }
 
-function serializePolygonRegion(
-  region: AnnotationRegion,
-  _ctrl: LabelStudioControlConfig,
-  dims: ImageDimensions,
-): Record<string, unknown> {
-  const points = region.spatial.points ?? []
-  return {
-    points: points.map(([x, y]) => [toPercent(x, dims.width), toPercent(y, dims.height)]),
+/** 视频全局元数据（从 <video> loadedmetadata 采集，序列化时注入） */
+export interface VideoSerializeMeta {
+  framerate: number
+  framesCount: number
+  duration: number
+}
+
+/**
+ * 视频 value → LS value。坐标本就是百分比（不经过 imageDims 的 toPercent）。
+ * - videorectangle：sequence 补 time=frame/framerate + framesCount + duration
+ * - timelinelabels：ranges 原样（start/end 1-based 帧号）
+ */
+function serializeVideo(
+  value: RegionValue,
+  toName: string,
+  videoMetaByObject: Record<string, VideoSerializeMeta> | undefined,
+): Record<string, unknown> | null {
+  const meta = videoMetaByObject?.[toName]
+  switch (value.kind) {
+    case 'videorectangle':
+      return {
+        sequence: value.sequence.map((kf) => ({
+          frame: kf.frame,
+          enabled: kf.enabled,
+          x: kf.x,
+          y: kf.y,
+          width: kf.width,
+          height: kf.height,
+          rotation: kf.rotation,
+          time: meta && meta.framerate > 0 ? kf.frame / meta.framerate : 0,
+        })),
+        framesCount: meta?.framesCount ?? 0,
+        duration: meta?.duration ?? 0,
+      }
+    case 'timelinelabels':
+      return { ranges: value.ranges }
+    default:
+      return null
   }
 }
 
-function serializeKeyPointRegion(
-  region: AnnotationRegion,
-  _ctrl: LabelStudioControlConfig,
-  dims: ImageDimensions,
-): Record<string, unknown> {
-  return {
-    x: toPercent(region.spatial.x, dims.width),
-    y: toPercent(region.spatial.y, dims.height),
-    width: toPercent(region.spatial.width, dims.width),
-  }
-}
-
-function serializeEllipseRegion(
-  region: AnnotationRegion,
-  _ctrl: LabelStudioControlConfig,
-  dims: ImageDimensions,
-): Record<string, unknown> {
-  return {
-    x: toPercent(region.spatial.x, dims.width),
-    y: toPercent(region.spatial.y, dims.height),
-    radiusX: toPercent(region.spatial.width / 2, dims.width),
-    radiusY: toPercent(region.spatial.height / 2, dims.height),
-    rotation: region.spatial.rotation ?? 0,
-  }
-}
-
-function serializeBrushRegion(
-  region: AnnotationRegion,
-  _ctrl: LabelStudioControlConfig,
-  _dims: ImageDimensions,
-): Record<string, unknown> {
-  return {
-    rle: region.spatial.rle ?? '',
-    original_width: region.spatial.originalWidth ?? 0,
-    original_height: region.spatial.originalHeight ?? 0,
-  }
-}
-
-/** Serialize text span region (Labels NLP control) */
-function serializeLabelsRegion(region: AnnotationRegion): Record<string, unknown> {
-  return {
-    start: region.spatial.textStart ?? 0,
-    end: region.spatial.textEnd ?? 0,
-    text: region.spatial.textContent ?? '',
+/**
+ * 几何 value → LS value（百分比坐标）。仅处理图像空间 kind；
+ * textspan / paragraphspan / timeseries 由主流程单独处理（不需要 imageDims）。
+ */
+function serializeGeometry(value: RegionValue, dims: ImageDimensions): Record<string, unknown> {
+  switch (value.kind) {
+    case 'rectangle':
+      return {
+        x: toPercent(value.x, dims.width),
+        y: toPercent(value.y, dims.height),
+        width: toPercent(value.width, dims.width),
+        height: toPercent(value.height, dims.height),
+        rotation: value.rotation,
+      }
+    case 'polygon':
+      return {
+        points: value.points.map(([x, y]) => [toPercent(x, dims.width), toPercent(y, dims.height)]),
+      }
+    case 'keypoint':
+      return {
+        x: toPercent(value.x, dims.width),
+        y: toPercent(value.y, dims.height),
+        width: toPercent(value.width, dims.width),
+      }
+    case 'ellipse':
+      return {
+        x: toPercent(value.x, dims.width),
+        y: toPercent(value.y, dims.height),
+        radiusX: toPercent(value.width / 2, dims.width),
+        radiusY: toPercent(value.height / 2, dims.height),
+        rotation: value.rotation,
+      }
+    case 'brush':
+      return {
+        rle: value.rle,
+        original_width: value.originalWidth,
+        original_height: value.originalHeight,
+      }
+    case 'vector':
+      return {
+        vertices: value.vertices.map((v) => ({
+          id: v.id,
+          x: toPercent(v.x, dims.width),
+          y: toPercent(v.y, dims.height),
+          prevPointId: v.prevPointId,
+          isBezier: v.isBezier,
+          ...(v.controlPoint1
+            ? {
+                controlPoint1: {
+                  x: toPercent(v.controlPoint1.x, dims.width),
+                  y: toPercent(v.controlPoint1.y, dims.height),
+                },
+              }
+            : {}),
+          ...(v.controlPoint2
+            ? {
+                controlPoint2: {
+                  x: toPercent(v.controlPoint2.x, dims.width),
+                  y: toPercent(v.controlPoint2.y, dims.height),
+                },
+              }
+            : {}),
+        })),
+        closed: value.closed,
+      }
+    case 'bitmask':
+      return { imageDataURL: value.dataURL }
+    case 'magicwand':
+      return { format: 'rle', rle: value.rle }
+    case 'textspan':
+    case 'paragraphspan':
+    case 'timeseries':
+    case 'audio':
+    case 'message':
+    case 'videorectangle':
+    case 'timelinelabels':
+      // 由主流程处理；此处不应到达
+      return {}
   }
 }
 
@@ -96,7 +158,7 @@ export function serializeRelations(
 ): AnnotationResultItem[] {
   const ctrlMap = new Map(relationControls.map((c) => [c.name, c]))
   return relations.map((rel) => {
-    const ctrl = ctrlMap.get(rel.sourceControlName)
+    const ctrl = ctrlMap.get(rel.fromName)
     const value: Record<string, unknown> = {
       from_id: rel.fromRegionId,
       to_id: rel.toRegionId,
@@ -108,7 +170,7 @@ export function serializeRelations(
     }
     return {
       id: rel.id,
-      from_name: ctrl?.name ?? rel.sourceControlName,
+      from_name: ctrl?.name ?? rel.fromName,
       to_name: ctrl?.toName ?? '',
       type: ctrl?.type ?? 'relation',
       value,
@@ -126,80 +188,69 @@ export function serializeRelations(
  * - 全局分类结果原样附加
  */
 export function serializeRegions(
-  regions: AnnotationRegion[],
+  regions: Region[],
   controls: LabelStudioControlConfig[],
   imageDims: ImageDimensions | null,
   globalResults: Record<string, AnnotationResultItem[]>,
   relations?: AnnotationRelation[],
   relationControls?: LabelStudioRelationConfig[],
+  videoMetaByObject?: Record<string, VideoSerializeMeta>,
 ): AnnotationResultItem[] {
   const results: AnnotationResultItem[] = []
   const controlMap = new Map(controls.map((c) => [c.name, c]))
-  const SERIALIZERS: Record<
-    string,
-    (
-      r: AnnotationRegion,
-      ctrl: LabelStudioControlConfig,
-      dims: ImageDimensions,
-    ) => Record<string, unknown>
-  > = {
-    rectangle: serializeRectangleRegion,
-    rectanglelabels: serializeRectangleRegion,
-    polygon: serializePolygonRegion,
-    polygonlabels: serializePolygonRegion,
-    keypoint: serializeKeyPointRegion,
-    keypointlabels: serializeKeyPointRegion,
-    ellipse: serializeEllipseRegion,
-    ellipselabels: serializeEllipseRegion,
-    brush: serializeBrushRegion,
-    brushlabels: serializeBrushRegion,
-  }
 
   for (const region of regions) {
-    const areaId = region.id
-    const sourceCtrl = controlMap.get(region.sourceControlName)
+    const ctrl = controlMap.get(region.fromName)
+    const isTextLike = region.value.kind === 'textspan' || region.value.kind === 'paragraphspan'
+    const isTimeSpan = region.value.kind === 'timeseries'
+    const isAudioSpan = region.value.kind === 'audio'
+    const isVideoRect = region.value.kind === 'videorectangle'
+    const isTimeline = region.value.kind === 'timelinelabels'
 
-    // Text span regions (Labels control) don't need image dimensions
-    if (sourceCtrl?.type === 'labels') {
-      const value = serializeLabelsRegion(region)
-      if (region.label) {
-        value.labels = [region.label]
+    if (ctrl && (isVideoRect || isTimeline)) {
+      // 视频 region：百分比坐标独立序列化（不经过 imageDims）
+      const value = serializeVideo(region.value, ctrl.toName, videoMetaByObject)
+      if (value) {
+        const lk = labelKey(ctrl.type) ?? 'labels' // videorectangle→labels, timelinelabels→timelinelabels
+        if (region.label) value[lk] = [region.label]
+        results.push({
+          id: region.id,
+          from_name: ctrl.name,
+          to_name: ctrl.toName,
+          type: ctrl.type,
+          value,
+        })
       }
+    } else if (ctrl && (isTextLike || isTimeSpan || isAudioSpan)) {
+      // 文本 span / 时间区间（Labels / HyperTextLabels / ParagraphLabels / TimeSeriesLabels）— 不需 imageDims
+      const value = spanValue(region.value)
+      const lk = labelKey(ctrl.type) ?? 'labels'
+      if (region.label) value[lk] = [region.label]
       results.push({
-        id: areaId,
-        from_name: sourceCtrl.name,
-        to_name: sourceCtrl.toName,
-        type: 'labels',
+        id: region.id,
+        from_name: ctrl.name,
+        to_name: ctrl.toName,
+        type: ctrl.type,
         value,
       })
-      // perRegion results
-      for (const resultItem of Object.values(region.perRegionResults)) {
-        results.push({ ...resultItem, id: areaId })
-      }
-      continue
-    }
-
-    if (sourceCtrl && imageDims && SERIALIZERS[sourceCtrl.type]) {
-      const value = SERIALIZERS[sourceCtrl.type](region, sourceCtrl, imageDims)
-
-      // 附加标签（仅 Labels 变体）
-      const lk = labelKey(sourceCtrl.type)
-      if (lk && region.label) {
-        value[lk] = [region.label]
-      }
-
+    } else if (ctrl && imageDims) {
+      const value = serializeGeometry(region.value, imageDims)
+      const lk = labelKey(ctrl.type)
+      if (lk && region.label) value[lk] = [region.label]
       results.push({
-        id: areaId,
-        from_name: sourceCtrl.name,
-        to_name: sourceCtrl.toName,
-        type: sourceCtrl.type,
+        id: region.id,
+        from_name: ctrl.name,
+        to_name: ctrl.toName,
+        type: ctrl.type,
         value,
       })
     }
+    // message 区域：fromName 为 Chat 对象名（无对应 ctrl），不产出几何结果，
+    // 仅其上的 perRegion 控件结果会序列化（共享 message 区域 id）。
 
-    // perRegion 结果共享同一个 area id
+    // perRegion 结果共享同一个区域 id（即使几何未序列化也保留）
     for (const resultItem of Object.values(region.perRegionResults)) {
-      results.push({ ...resultItem, id: areaId })
+      results.push({ ...resultItem, id: region.id })
     }
   }
 

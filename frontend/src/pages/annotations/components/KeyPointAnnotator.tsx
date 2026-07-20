@@ -8,8 +8,9 @@ import { useZoomPan } from './useZoomPan'
 import ZoomPanImageStage from './ZoomPanImageStage'
 import LabelPalette from './LabelPalette'
 import { labelColor } from './annotationColors'
-import type { AnnotationRegion } from '../hooks/useAnnotationRegions'
+import type { Region } from '../hooks/useAnnotationRegions'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
+import { regionsOf } from '../utils/regions'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -54,8 +55,7 @@ export default function KeyPointAnnotator({
 
   // Filter keypoint regions from this control
   const kpRegions = useMemo(
-    () =>
-      regions.filter((r) => r.sourceControlName === controlConfig.name && r.type === 'keypoint'),
+    () => regionsOf(regions, controlConfig.name, 'keypoint'),
     [regions, controlConfig.name],
   )
 
@@ -73,15 +73,9 @@ export default function KeyPointAnnotator({
       }
       onAddRegion({
         id: crypto.randomUUID(),
-        type: 'keypoint',
+        fromName: controlConfig.name,
         label: activeLabel ?? undefined,
-        spatial: {
-          x: p.x,
-          y: p.y,
-          width: KEYPOINT_VISUAL_RADIUS * 2,
-          height: KEYPOINT_VISUAL_RADIUS * 2,
-        },
-        sourceControlName: controlConfig.name,
+        value: { kind: 'keypoint', x: p.x, y: p.y, width: KEYPOINT_VISUAL_RADIUS * 2 },
         perRegionResults: {},
       })
     },
@@ -165,8 +159,8 @@ export default function KeyPointAnnotator({
                     <Circle
                       key={kp.id}
                       id={kp.id}
-                      x={kp.spatial.x}
-                      y={kp.spatial.y}
+                      x={kp.value.x}
+                      y={kp.value.y}
                       radius={radius}
                       fill={color}
                       stroke="#fff"
@@ -182,11 +176,11 @@ export default function KeyPointAnnotator({
                       onDragEnd={(e) => {
                         const node = e.target
                         onUpdateRegion(kp.id, {
-                          spatial: {
+                          value: {
+                            kind: 'keypoint',
                             x: node.x(),
                             y: node.y(),
                             width: KEYPOINT_VISUAL_RADIUS * 2,
-                            height: KEYPOINT_VISUAL_RADIUS * 2,
                           },
                         })
                       }}
@@ -213,7 +207,7 @@ export default function KeyPointAnnotator({
           <List
             size="small"
             dataSource={kpRegions}
-            renderItem={(region: AnnotationRegion, i: number) => {
+            renderItem={(region: Region, i: number) => {
               const idx = controlConfig.choices.findIndex((c) => c.value === region.label)
               const color = labelColor(Math.max(0, idx >= 0 ? idx : i))
               return (

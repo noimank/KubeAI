@@ -8,13 +8,14 @@ import { useZoomPan } from './useZoomPan'
 import ZoomPanImageStage from './ZoomPanImageStage'
 import LabelPalette from './LabelPalette'
 import { labelColor } from './annotationColors'
-import type { AnnotationRegion } from '../hooks/useAnnotationRegions'
+import type { Region } from '../hooks/useAnnotationRegions'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
+import { regionsOf } from '../utils/regions'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Stable serialization of region ids for effect dependency comparison */
-function regionIds(regions: AnnotationRegion[]): string {
+function regionIds(regions: Region[]): string {
   return regions.map((r) => r.id).join(',')
 }
 
@@ -67,7 +68,7 @@ export default function EllipseAnnotator({
 
   // Filter ellipse regions from this control
   const ellipseRegions = useMemo(
-    () => regions.filter((r) => r.sourceControlName === controlConfig.name && r.type === 'ellipse'),
+    () => regionsOf(regions, controlConfig.name, 'ellipse'),
     [regions, controlConfig.name],
   )
 
@@ -155,15 +156,16 @@ export default function EllipseAnnotator({
     const cy = ry < 0 ? y + ry : y
     onAddRegion({
       id: crypto.randomUUID(),
-      type: 'ellipse',
+      fromName: controlConfig.name,
       label: activeLabel ?? undefined,
-      spatial: {
+      value: {
+        kind: 'ellipse',
         x: cx,
         y: cy,
         width: Math.abs(rx),
         height: Math.abs(ry),
+        rotation: 0,
       },
-      sourceControlName: controlConfig.name,
       perRegionResults: {},
     })
   }, [drawing, hasLabels, activeLabel, controlConfig.name, onAddRegion])
@@ -240,10 +242,10 @@ export default function EllipseAnnotator({
                 <Ellipse
                   key={region.id}
                   id={region.id}
-                  x={region.spatial.x + region.spatial.width / 2}
-                  y={region.spatial.y + region.spatial.height / 2}
-                  radiusX={region.spatial.width / 2}
-                  radiusY={region.spatial.height / 2}
+                  x={region.value.x + region.value.width / 2}
+                  y={region.value.y + region.value.height / 2}
+                  radiusX={region.value.width / 2}
+                  radiusY={region.value.height / 2}
                   stroke={labelColor(i)}
                   strokeWidth={visibleStrokeWidth(2)}
                   fill={`${labelColor(i)}20`}
@@ -269,10 +271,17 @@ export default function EllipseAnnotator({
                   }}
                   onDragEnd={(e) => {
                     const node = e.target
-                    const x = node.x() - region.spatial.width / 2
-                    const y = node.y() - region.spatial.height / 2
+                    const x = node.x() - region.value.width / 2
+                    const y = node.y() - region.value.height / 2
                     onUpdateRegion(region.id, {
-                      spatial: { ...region.spatial, x, y },
+                      value: {
+                        kind: 'ellipse',
+                        x,
+                        y,
+                        width: region.value.width,
+                        height: region.value.height,
+                        rotation: region.value.rotation,
+                      },
                     })
                   }}
                   onTransformEnd={(e) => {
@@ -281,7 +290,8 @@ export default function EllipseAnnotator({
                     const newRY = Math.max(3, node.radiusY() * node.scaleY())
                     const rot = node.rotation()
                     onUpdateRegion(region.id, {
-                      spatial: {
+                      value: {
+                        kind: 'ellipse',
                         x: node.x() - newRX,
                         y: node.y() - newRY,
                         width: newRX * 2,
@@ -335,7 +345,7 @@ export default function EllipseAnnotator({
           <List
             size="small"
             dataSource={ellipseRegions}
-            renderItem={(region: AnnotationRegion, i: number) => (
+            renderItem={(region: Region, i: number) => (
               <List.Item
                 style={{
                   padding: '4px 12px',
