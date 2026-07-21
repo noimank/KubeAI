@@ -38,7 +38,9 @@ export default function AnnotationProjectTable({
     {
       title: '项目名称',
       dataIndex: 'name',
+      width: 220,
       ellipsis: true,
+      fixed: 'left',
       render: (name: string, record: AnnotationProject) => (
         <Link to={`/annotations/${record.id}`}>{name}</Link>
       ),
@@ -60,7 +62,20 @@ export default function AnnotationProjectTable({
       title: '标注模板',
       dataIndex: 'templateName',
       width: 120,
-      render: (name: string | null | undefined) => <Tag color="blue">{name || '—'}</Tag>,
+      ellipsis: true,
+      render: (name: string | null | undefined) => (
+        <Tag
+          color="blue"
+          style={{
+            maxWidth: '100%',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {name || '—'}
+        </Tag>
+      ),
     },
     {
       title: '进度',
@@ -122,6 +137,7 @@ export default function AnnotationProjectTable({
       columns={columns}
       dataSource={data}
       loading={loading}
+      scroll={{ x: 1200 }}
       locale={{
         emptyText: (
           <Empty

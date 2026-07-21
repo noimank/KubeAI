@@ -116,7 +116,9 @@ export default function TrainingJobsPage() {
     {
       title: '名称',
       dataIndex: 'name',
+      width: 220,
       ellipsis: true,
+      fixed: 'left',
       render: (name: string, record: TrainingJob) => (
         <Link to={`/training-jobs/${record.id}`}>{name}</Link>
       ),
@@ -272,6 +274,7 @@ export default function TrainingJobsPage() {
         columns={columns}
         dataSource={data?.items}
         loading={isLoading}
+        scroll={{ x: 1160 }}
         pagination={{
           current: page,
           pageSize,
