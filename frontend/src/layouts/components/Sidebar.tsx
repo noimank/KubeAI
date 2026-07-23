@@ -1,4 +1,5 @@
 import {
+  SearchOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   ExperimentOutlined,
@@ -61,6 +62,12 @@ const MENU_CONFIG: MenuEntry[] = [
         name: '数据标注',
         icon: <EditOutlined />,
         permission: 'annotations:read',
+      },
+      {
+        path: '/data-explore',
+        name: '数据探索',
+        icon: <SearchOutlined />,
+        permission: 'data_explore:read',
       },
     ],
   },

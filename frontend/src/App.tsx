@@ -38,6 +38,7 @@ const AlgorithmsPage = lazy(() => import('./pages/algorithms'))
 const AlgorithmDetailPage = lazy(() => import('./pages/algorithms/detail'))
 const AnnotationDetailPage = lazy(() => import('./pages/annotations/detail'))
 const AnnotationWorkspacePage = lazy(() => import('./pages/annotations/workspace'))
+const DataExplorePage = lazy(() => import('./pages/data-explore'))
 const MonitoringPage = lazy(() => import('./pages/monitoring'))
 const NotificationsPage = lazy(() => import('./pages/notifications'))
 const ForbiddenPage = lazy(() => import('./pages/403'))
@@ -277,6 +278,14 @@ export default function App() {
                         element={<AnnotationWorkspacePage />}
                       />
                     </Route>
+                    <Route
+                      path="data-explore"
+                      element={
+                        <PermissionGuard permission="data_explore:read">
+                          <DataExplorePage />
+                        </PermissionGuard>
+                      }
+                    />
                     <Route
                       path="monitoring"
                       element={

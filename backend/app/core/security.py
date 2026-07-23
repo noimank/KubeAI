@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import secrets
 import uuid
@@ -6,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
+from cryptography.fernet import Fernet
 from jose import JWTError, jwt  # type: ignore[import-untyped]
 
 from app.core.config import settings
@@ -57,3 +59,32 @@ def decode_token(token: str) -> dict[str, Any]:
         return payload
     except JWTError as e:
         raise ValueError("无效或过期的 Token") from e
+
+
+# ── Fernet 对称加密（数据库连接密码等敏感字段） ──
+
+_fernet: Fernet | None = None
+
+
+def _derive_fernet_key(secret_key: str) -> bytes:
+    """从 SECRET_KEY 派生 32 字节 Fernet 密钥（SHA256 → base64url）。"""
+    digest = hashlib.sha256(secret_key.encode()).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
+def get_fernet() -> Fernet:
+    """惰性获取全局 Fernet 实例。"""
+    global _fernet
+    if _fernet is None:
+        _fernet = Fernet(_derive_fernet_key(settings.SECRET_KEY))
+    return _fernet
+
+
+def encrypt_password(plain: str) -> str:
+    """加密明文密码。"""
+    return get_fernet().encrypt(plain.encode()).decode()
+
+
+def decrypt_password(cipher: str) -> str:
+    """解密密文密码。"""
+    return get_fernet().decrypt(cipher.encode()).decode()

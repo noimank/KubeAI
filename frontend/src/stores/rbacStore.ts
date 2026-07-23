@@ -18,6 +18,7 @@ interface RbacState {
 const ROLE_OWN_PERMISSIONS: Record<Role, string[]> = {
   admin: ['*'], // 管理员通配，无需走继承链
   mlops: [
+    'data_explore:manage',
     'datasets:write',
     'annotations:manage',
     'annotation_templates:manage',
@@ -34,6 +35,8 @@ const ROLE_OWN_PERMISSIONS: Record<Role, string[]> = {
     'algorithms:manage',
   ],
   engineer: [
+    'data_explore:read',
+    'data_explore:write',
     'training_jobs:read',
     'training_jobs:write',
     'experiments:read',
@@ -51,6 +54,7 @@ const ROLE_OWN_PERMISSIONS: Record<Role, string[]> = {
     'algorithms:write',
   ],
   annotator: [
+    'data_explore:read',
     'datasets:read',
     'annotations:read',
     'annotations:write',

@@ -20,6 +20,7 @@ class RESOURCE(enum.StrEnum):
     DASHBOARD = "dashboard"
     ALGORITHMS = "algorithms"
     ANNOTATION_TEMPLATES = "annotation_templates"
+    DATA_EXPLORE = "data_explore"
 
 
 class ACTION(enum.StrEnum):
@@ -93,6 +94,12 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("admin", "experiments", "manage"),
     ("admin", "algorithms", "manage"),
     ("admin", "annotation_templates", "manage"),
+    # data_explore
+    ("annotator", "data_explore", "read"),
+    ("engineer", "data_explore", "read"),
+    ("engineer", "data_explore", "write"),
+    ("mlops", "data_explore", "manage"),
+    ("admin", "data_explore", "manage"),
 ]
 
 # (parent_role, child_role)

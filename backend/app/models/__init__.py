@@ -4,6 +4,7 @@ from app.models.annotation_task import AnnotationTask
 from app.models.annotation_template import AnnotationTemplate
 from app.models.audit_log import AuditLog
 from app.models.dataset import Dataset, DatasetFile, DatasetVersion
+from app.models.db_connection import DbConnection
 from app.models.dev_environment import DevEnvironment
 from app.models.dev_environment_image import DevEnvironmentImage
 from app.models.experiment import Experiment
@@ -25,6 +26,7 @@ __all__ = [
     "Dataset",
     "DatasetFile",
     "DatasetVersion",
+    "DbConnection",
     "DevEnvironment",
     "DevEnvironmentImage",
     "Experiment",

@@ -110,7 +110,8 @@ export default function FileBrowser({
     setExpandedKeys([])
     setCheckedKeys([])
     onChange([])
-  }, [roots, onChange])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onChange 变化不应触发重置，仅 roots 变更时重置
+  }, [roots])
 
   useEffect(() => {
     setCheckedKeys(value)

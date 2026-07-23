@@ -14,6 +14,7 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
   { path: '/dev-environments', permission: 'dev_environments:read' },
   { path: '/images', permission: 'images:read' },
   { path: '/annotations', permission: 'annotations:read' },
+  { path: '/data-explore', permission: 'data_explore:read' },
   { path: '/monitoring', permission: 'monitoring:read' },
   { path: '/admin/tenants', permission: 'tenants:manage' },
   { path: '/admin/users', permission: 'users:manage' },

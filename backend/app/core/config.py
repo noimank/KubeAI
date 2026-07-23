@@ -110,5 +110,9 @@ class Settings(BaseSettings):
     TENSORBOARD_IMAGE: str = "kubeai-tensorboard:latest"
     TENSORBOARD_PORT: int = 6006
 
+    # -- 数据探索
+    DATA_EXPLORE_MAX_ROWS: int = 1000
+    DATA_EXPLORE_QUERY_TIMEOUT: int = 30
+
 
 settings = Settings()
