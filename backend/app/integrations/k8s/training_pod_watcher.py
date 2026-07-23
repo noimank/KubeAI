@@ -296,7 +296,7 @@ async def _handle_deleted(job: TrainingJob, db: AsyncSession) -> None:
     # Pod deleted while RUNNING — crash / eviction / node failure
     job.status = TrainingJobStatus.FAILED
     _update_timestamps(job, TrainingJobStatus.FAILED)
-    job.error_message = "训练 Pod 被删除（节点故障或被驱逐）"  # noqa: RUF001
+    job.error_message = "训练 Pod 被删除（节点故障或被驱逐）"
     await db.commit()
     await _on_terminal_status(job, current_status, TrainingJobStatus.FAILED)
     logger.warning(

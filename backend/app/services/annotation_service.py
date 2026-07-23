@@ -739,7 +739,7 @@ class AnnotationService:
         if task.status == "in_progress":
             return await self._refresh_download_url(task)
         if task.status != "assigned":
-            raise ForbiddenException("任务状态不是「已分配」，无法开始标注")  # noqa: RUF001
+            raise ForbiddenException("任务状态不是「已分配」，无法开始标注")
         task.status = "in_progress"
         task = await self._refresh_download_url(task)
         await self.db.flush()
@@ -759,7 +759,7 @@ class AnnotationService:
         if task.assigned_to != user_id:
             raise ForbiddenException("只能提交分配给自己的任务")
         if task.status not in ("assigned", "in_progress"):
-            raise ForbiddenException("任务状态不是「已分配」或「进行中」，无法提交")  # noqa: RUF001
+            raise ForbiddenException("任务状态不是「已分配」或「进行中」，无法提交")
 
         # 1. Mirror to Label Studio.
         if task.label_studio_task_id:

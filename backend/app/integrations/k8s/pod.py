@@ -191,18 +191,18 @@ def map_failure_message(failure: dict[str, Any]) -> str:
     exit_code = failure.get("exit_code", -1)
 
     if reason == "OOMKilled":
-        return "内存不足 (OOM)：训练容器因超出内存限制被终止。建议增加内存配置或优化训练脚本。"  # noqa: RUF001
+        return "内存不足 (OOM)：训练容器因超出内存限制被终止。建议增加内存配置或优化训练脚本。"
     if reason in ("ImagePullBackOff", "ErrImagePull"):
-        return "镜像拉取失败：请检查镜像地址是否正确，以及是否具有拉取权限。"  # noqa: RUF001
+        return "镜像拉取失败：请检查镜像地址是否正确，以及是否具有拉取权限。"
     if reason == "ContainerCannotRun":
-        return "容器启动失败：请检查镜像和启动命令是否正确。"  # noqa: RUF001
+        return "容器启动失败：请检查镜像和启动命令是否正确。"
     if exit_code == 137:
-        return "进程被终止 (SIGKILL)：可能是内存不足。建议增加内存或检查训练脚本。"  # noqa: RUF001
+        return "进程被终止 (SIGKILL)：可能是内存不足。建议增加内存或检查训练脚本。"
     if exit_code == 1:
-        return "训练脚本执行错误：请查看日志获取详细错误信息。"  # noqa: RUF001
+        return "训练脚本执行错误：请查看日志获取详细错误信息。"
     if exit_code != 0:
-        return f"训练异常退出 (退出码: {exit_code})：请查看日志获取详细信息。"  # noqa: RUF001
-    return f"训练任务失败 (原因: {reason})：请查看日志获取详细信息。"  # noqa: RUF001
+        return f"训练异常退出 (退出码: {exit_code})：请查看日志获取详细信息。"
+    return f"训练任务失败 (原因: {reason})：请查看日志获取详细信息。"
 
 
 async def resolve_pod_failure_reason(namespace: str, vcjob_name: str | None) -> str:
@@ -217,10 +217,10 @@ async def resolve_pod_failure_reason(namespace: str, vcjob_name: str | None) -> 
     try:
         pods = await list_vcjob_pods(namespace, vcjob_name)
     except Exception:
-        return "训练任务已失败，但失败详情不可用（无法查询 Pod 信息）。"  # noqa: RUF001
+        return "训练任务已失败，但失败详情不可用（无法查询 Pod 信息）。"
 
     if not pods:
-        return "训练任务已失败，但失败详情不可用（任务资源已被清理）。"  # noqa: RUF001
+        return "训练任务已失败，但失败详情不可用（任务资源已被清理）。"
 
     for pod_info in pods:
         try:
@@ -230,4 +230,4 @@ async def resolve_pod_failure_reason(namespace: str, vcjob_name: str | None) -> 
         if failure:
             return map_failure_message(failure)
 
-    return "训练任务已失败，但未能获取具体失败原因。"  # noqa: RUF001
+    return "训练任务已失败，但未能获取具体失败原因。"

@@ -122,7 +122,7 @@ class TrainingJobService:
 
         final_description = description
         if source_experiment_id:
-            suffix = f"（基于实验 #{source_experiment_id} 复现）"  # noqa: RUF001
+            suffix = f"（基于实验 #{source_experiment_id} 复现）"
             final_description = f"{description}{suffix}" if final_description else suffix
             source = "experiment_reproduction"
 
@@ -681,7 +681,7 @@ class TrainingJobService:
         if not pod_name:
             pods = await list_vcjob_pods(namespace, job.vcjob_name)
             if not pods:
-                raise NotFoundException("未找到任务关联的 Pod（任务可能已结束）")  # noqa: RUF001
+                raise NotFoundException("未找到任务关联的 Pod（任务可能已结束）")
             pod_name = pods[0]["pod_name"]
 
         async for line in stream_pod_logs(namespace, pod_name, tail_lines=tail_lines):
@@ -879,7 +879,7 @@ class TrainingJobService:
         image = result.scalar_one_or_none()
         if not image:
             raise BadRequestException(
-                f"开发环境的镜像 '{env.image}' 未在平台镜像仓库中注册，请通过 image_id 参数指定镜像"  # noqa: RUF001
+                f"开发环境的镜像 '{env.image}' 未在平台镜像仓库中注册，请通过 image_id 参数指定镜像"
             )
         return image.id
 

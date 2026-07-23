@@ -614,7 +614,7 @@ class TestSyncJobStatusWithFailureReason:
         tenant = _make_tenant()
         mock_db.execute.return_value = _sync_result(tenant)
         mock_phases.return_value = {"training-test-job": "failed"}
-        mock_extract.return_value = "内存不足 (OOM)：训练容器因超出内存限制被终止。"  # noqa: RUF001
+        mock_extract.return_value = "内存不足 (OOM)：训练容器因超出内存限制被终止。"
 
         await service._sync_job_status(job)
 
@@ -707,7 +707,7 @@ class TestCreateTrainingJobWithSourceExperiment:
             source_experiment_id=source_exp_id,
         )
 
-        assert job.description == f"原始描述（基于实验 #{source_exp_id} 复现）"  # noqa: RUF001
+        assert job.description == f"原始描述（基于实验 #{source_exp_id} 复现）"
 
     async def test_no_source_experiment_id_keeps_description(self, service, mock_db):
         tenant = _make_tenant()
