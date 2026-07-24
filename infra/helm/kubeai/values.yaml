@@ -4,7 +4,7 @@ global:
   imageRegistry: ""
   imagePullSecrets: []
 
-# -- cert-manager (required by KServe webhooks)
+# -- cert-manager (TLS 证书管理，供 Harbor / APISIX 等组件使用)
 certmanager:
   enabled: false
   crds:

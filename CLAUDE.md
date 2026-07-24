@@ -66,7 +66,7 @@ React 18 + TS strict + Ant Design 5 + ProComponents + Zustand + TanStack Query +
 ### Infrastructure (`infra/`)
 
 - **Helm** (`helm/kubeai/`): dev-only, full dependency stack — **不要用于生产**
-- **K8s manifests** (`k8s/`): prod — `backend/` (`deployment`=FastAPI / `worker`=Taskiq worker / `beat`=scheduler, sharing `backend-config` ConfigMap + `backend-secret`), plus `volcano/`, `keda/`, `kserve/`. All deployed on `kubeai-prod-env`:`/root/kubeai` — 改生产配置需经该服务器
+- **K8s manifests** (`k8s/`): prod — `backend/` (`deployment`=FastAPI / `worker`=Taskiq worker / `beat`=scheduler, sharing `backend-config` ConfigMap + `backend-secret`), plus `volcano/`, `keda/`. All deployed on `kubeai-prod-env`:`/root/kubeai` — 改生产配置需经该服务器
 - **Images** (`images/`): backend/frontend + Jupyter/VS Code/RStudio dev env images
 - **CI/CD** (`.github/workflows/`): `ci.yml` (PR lint+test), `build.yml` (push main/dev→GHCR), `release.yml` (v* tag→versioned images + Helm)
 

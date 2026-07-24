@@ -1,6 +1,6 @@
 # cert-manager — 证书管理
 
-cert-manager 为 KServe 等组件的 Webhook 自动签发和管理 TLS 证书。
+cert-manager 为 Harbor、APISIX 等组件的 Webhook 自动签发和管理 TLS 证书。
 
 ## 对集群其他业务的影响
 
@@ -50,4 +50,4 @@ kubectl get crd | grep cert-manager
 kubectl delete -f infra/k8s/cert-manager/cert-manager.yaml
 ```
 
-> ⚠️ 卸载前确保没有其他组件依赖 cert-manager（如 KServe 的 Certificate 资源）。
+> ⚠️ 卸载前确保没有其他组件依赖 cert-manager（如 Harbor / APISIX 的 Certificate 资源）。
