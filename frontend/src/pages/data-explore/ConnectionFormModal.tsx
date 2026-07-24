@@ -90,7 +90,7 @@ export default function ConnectionFormModal({
       width={560}
       destroyOnHidden
       footer={(
-        originNode: ReactNode,
+        _originNode: ReactNode,
         { OkBtn, CancelBtn }: { OkBtn: React.FC; CancelBtn: React.FC },
       ) => (
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
