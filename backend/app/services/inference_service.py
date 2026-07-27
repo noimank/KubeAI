@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import (
     ConflictException,
@@ -236,7 +237,12 @@ class InferenceServiceService:
 
         svc = InferenceService(**svc_kwargs)
         self.db.add(svc)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"推理服务名称 '{name}' 已存在, 请更换名称") from exc
+
         svc.proxy_endpoint = inference_access_url(svc.id)
         await self.db.commit()
         await self.db.refresh(svc)

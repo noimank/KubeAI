@@ -4,8 +4,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import AppException, NotFoundException
+from app.core.exceptions import AppException, ConflictException, NotFoundException
 from app.integrations.labelstudio.templates import parse_label_config
 from app.models.annotation import AnnotationProject
 from app.models.annotation_template import AnnotationTemplate
@@ -118,7 +119,12 @@ class AnnotationTemplateService:
             group=group.strip() or "其他",
         )
         self.db.add(tpl)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"标注模板名称 '{name.strip()}' 已存在, 请更换名称") from exc
+
         await self.db.refresh(tpl)
 
         if audit_context:
@@ -162,7 +168,12 @@ class AnnotationTemplateService:
         if not any(x is not None for x in (name, description, tags, label_config, group)):
             raise AppException("至少需要传入一个可编辑字段", status_code=400)
 
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"标注模板名称 '{tpl.name}' 已存在, 请更换名称") from exc
+
         await self.db.refresh(tpl)
 
         if audit_context:

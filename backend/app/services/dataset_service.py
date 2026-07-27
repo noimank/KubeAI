@@ -61,7 +61,12 @@ class DatasetService:
             created_by=user_id,
         )
         self.db.add(dataset)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"数据集名称 '{name}' 已存在, 请更换名称") from exc
+
         await self.db.refresh(dataset)
 
         if audit_context:

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.exceptions import ConflictException, ForbiddenException, UnauthorizedException
@@ -57,7 +58,11 @@ class AuthService:
             hashed_password=await hash_password(req.password),
         )
         self.db.add(user)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException("用户名或邮箱已被占用") from exc
 
         if audit_context:
             audit_svc = AuditService(self.db)

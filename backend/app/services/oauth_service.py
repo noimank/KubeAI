@@ -8,9 +8,10 @@ import httpx
 import structlog
 from authlib.integrations.httpx_client import AsyncOAuth2Client  # type: ignore[import-untyped]
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
-from app.core.exceptions import ExternalServiceException, UnauthorizedException
+from app.core.exceptions import ConflictException, ExternalServiceException, UnauthorizedException
 from app.core.security import create_access_token, create_refresh_token, hash_password
 from app.models.enums import UserRole
 from app.models.tenant import Tenant
@@ -198,7 +199,11 @@ class OAuthService:
             role=role if role is not None else UserRole.ENGINEER,
         )
         self.db.add(user)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"OIDC 用户 '{username}' 已存在, 请直接登录") from exc
 
         logger.info(
             "oauth_user_created",

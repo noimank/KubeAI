@@ -4,6 +4,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, NotFoundException
@@ -39,7 +40,12 @@ class DbConnectionService:
             description=data.description,
         )
         self.db.add(conn)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException("连接名称已存在") from exc
+
         await self.db.refresh(conn)
         return self._to_dict(conn)
 

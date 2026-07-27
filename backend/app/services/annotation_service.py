@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import case, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import ExternalServiceException, ForbiddenException, NotFoundException
+from app.core.exceptions import ConflictException, ExternalServiceException, ForbiddenException, NotFoundException
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.labelstudio.templates import (
     TEXT_OBJECT_TAGS,
@@ -134,7 +135,12 @@ class AnnotationService:
             created_by=user_id,
         )
         self.db.add(project)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"标注项目名称 '{name}' 已存在, 请更换名称") from exc
+
         await self.db.refresh(project)
 
         if audit_context:

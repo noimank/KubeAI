@@ -9,13 +9,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 if TYPE_CHECKING:
     import uuid
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AppException, NotFoundException
+from app.core.exceptions import AppException, ConflictException, NotFoundException
 from app.integrations.storage.filesystem_browser import FilesystemBrowserSecurity
 from app.models.algorithm import Algorithm
 from app.models.enums import AuditAction, ResourceType
@@ -81,7 +82,12 @@ class AlgorithmService:
             status="uploading",
         )
         self.db.add(algo)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"算法名称 '{name}' 已存在, 请更换名称") from exc
+
         await self.db.refresh(algo)
 
         zip_path = _compress_local_to_zip(file_bytes, filename, algo.id)
@@ -130,7 +136,11 @@ class AlgorithmService:
             status="uploading",
         )
         self.db.add(algo)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"算法名称 '{name}' 已存在, 请更换名称") from exc
         await self.db.refresh(algo)
 
         tenant_name = await self._get_tenant_name(tenant_id)
@@ -275,7 +285,12 @@ class AlgorithmService:
         if tags is not None:
             algo.tags = tags
 
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"算法名称 '{algo.name}' 已存在, 请更换名称") from exc
+
         await self.db.refresh(algo)
 
         if audit_context:

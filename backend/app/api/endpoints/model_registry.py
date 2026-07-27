@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
@@ -590,7 +591,14 @@ async def _get_or_create_registered_model(
         return model
     model = RegisteredModel(tenant_id=tenant_id, name=name, created_by=user_id)
     db.add(model)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        result = await db.execute(
+            select(RegisteredModel).where(RegisteredModel.tenant_id == tenant_id, RegisteredModel.name == name)
+        )
+        return result.scalar_one()
     return model
 
 

@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import ConflictException, NotFoundException
 from app.models.dev_environment_image import DevEnvironmentImage
 from app.models.enums import AuditAction, ResourceType
 from app.services.audit_service import AuditService
@@ -94,7 +95,12 @@ class DevEnvironmentImageService:
             tenant_id=tenant_id,
         )
         self.db.add(img)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"开发环境镜像 '{name}' (类型: {environment_type}) 已存在, 请更换名称") from exc
+
         await self.db.refresh(img)
 
         if audit_context:
@@ -120,7 +126,14 @@ class DevEnvironmentImageService:
         for key, value in kwargs.items():
             if value is not None:
                 setattr(img, key, value)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(
+                f"开发环境镜像 '{img.name}' (类型: {img.environment_type}) 已存在, 请更换名称"
+            ) from exc
+
         await self.db.refresh(img)
 
         if audit_context:

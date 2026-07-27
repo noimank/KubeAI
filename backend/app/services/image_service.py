@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.clients import get_harbor_client
 from app.core.config import settings
@@ -119,7 +120,12 @@ class ImageService:
             is_enabled=True,
         )
         self.db.add(image)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"镜像 '{name}:{tag}' 在该分类下已存在, 请更换名称或标签") from exc
+
         await self.db.refresh(image)
 
         if audit_context:
@@ -157,7 +163,12 @@ class ImageService:
         for key, value in kwargs.items():
             if value is not None:
                 setattr(image, key, value)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"镜像 '{image.name}:{image.tag}' 在该分类下已存在, 请更换名称或标签") from exc
+
         await self.db.refresh(image)
 
         if audit_context:
@@ -241,7 +252,12 @@ class ImageService:
             is_enabled=False,
         )
         self.db.add(image)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ConflictException(f"镜像 '{name}:{tag}' 在该分类下已存在, 请更换名称或标签") from exc
+
         await self.db.refresh(image)
 
         # 设置 build_job_name (K8s 资源名, 确定性生成)
