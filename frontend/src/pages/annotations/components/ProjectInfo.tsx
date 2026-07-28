@@ -7,7 +7,17 @@ interface ProjectInfoProps {
   project: AnnotationProjectDetail
 }
 
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  draft: { label: '草稿', color: 'default' },
+  pending: { label: '初始化中', color: 'blue' },
+  active: { label: '活跃', color: 'processing' },
+  completed: { label: '已完成', color: 'success' },
+  failed: { label: '失败', color: 'error' },
+  archived: { label: '已归档', color: 'warning' },
+}
+
 export default function ProjectInfo({ project }: ProjectInfoProps) {
+  const statusInfo = STATUS_CONFIG[project.status] || { label: project.status, color: 'default' }
   return (
     <Card style={{ marginBottom: 16 }}>
       <Row gutter={[24, 12]} align="middle">
@@ -23,6 +33,11 @@ export default function ProjectInfo({ project }: ProjectInfoProps) {
           <Text type="secondary">标注模板</Text>
           <br />
           <Tag color="blue">{project.templateName || '—'}</Tag>
+        </Col>
+        <Col>
+          <Text type="secondary">状态</Text>
+          <br />
+          <Tag color={statusInfo.color}>{statusInfo.label}</Tag>
         </Col>
         <Col flex="auto">
           <Text type="secondary">进度</Text>

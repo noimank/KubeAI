@@ -1,10 +1,14 @@
 import { useState, useCallback } from 'react'
 import { Button, Input, Tabs } from 'antd'
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { useRbacStore } from '@/stores/rbacStore'
-import { deleteAnnotationProject, getAnnotationProjects } from '@/services/annotations'
+import {
+  deleteAnnotationProject,
+  getAnnotationProjects,
+  retryAnnotationProject,
+} from '@/services/annotations'
 import AnnotationProjectTable from './components/AnnotationProjectTable'
 import AnnotationTemplatesTab from './components/AnnotationTemplatesTab'
 import CreateProjectModal from './components/CreateProjectModal'
@@ -31,6 +35,18 @@ export default function AnnotationsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['annotationProjects', page, pageSize, keyword],
     queryFn: () => getAnnotationProjects({ current: page, pageSize, keyword }),
+  })
+
+  const [retryingId, setRetryingId] = useState<string | null>(null)
+
+  const retryMutation = useMutation({
+    mutationFn: (projectId: string) => retryAnnotationProject(projectId),
+    onMutate: (projectId) => setRetryingId(projectId),
+    onSettled: () => setRetryingId(null),
+    onSuccess: () => {
+      getMessageInstance()?.success('项目重试已启动')
+      queryClient.invalidateQueries({ queryKey: ['annotationProjects'] })
+    },
   })
 
   const handleSearch = useCallback((value: string) => {
@@ -109,6 +125,8 @@ export default function AnnotationsPage() {
             pageSize={pageSize}
             onPageChange={handlePageChange}
             onDelete={handleDelete}
+            onRetry={(id) => retryMutation.mutate(id)}
+            retryingId={retryingId}
             canManage={canManage}
             onCreateClick={() => setCreateModalOpen(true)}
           />

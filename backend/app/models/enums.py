@@ -108,8 +108,10 @@ class AnnotationType(enum.StrEnum):
 
 class AnnotationProjectStatus(enum.StrEnum):
     DRAFT = "draft"
+    PENDING = "pending"
     ACTIVE = "active"
     COMPLETED = "completed"
+    FAILED = "failed"
     ARCHIVED = "archived"
 
 

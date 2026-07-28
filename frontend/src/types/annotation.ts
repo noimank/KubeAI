@@ -1,4 +1,10 @@
-export type AnnotationProjectStatus = 'draft' | 'active' | 'completed' | 'archived'
+export type AnnotationProjectStatus =
+  | 'draft'
+  | 'pending'
+  | 'active'
+  | 'completed'
+  | 'failed'
+  | 'archived'
 
 export interface AnnotationProject {
   id: string

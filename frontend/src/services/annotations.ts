@@ -147,3 +147,10 @@ export async function syncAnnotationProjectTasks(
   )
   return res.data
 }
+
+export async function retryAnnotationProject(projectId: string): Promise<AnnotationProjectDetail> {
+  const res = await api.post<BaseResponse<AnnotationProjectDetail>>(
+    `/annotations/projects/${projectId}/retry`,
+  )
+  return res.data.data!
+}

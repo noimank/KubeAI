@@ -6,8 +6,10 @@ import { formatDate } from '@/utils/format'
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   draft: { label: '草稿', color: 'default' },
+  pending: { label: '初始化中', color: 'blue' },
   active: { label: '活跃', color: 'processing' },
   completed: { label: '已完成', color: 'success' },
+  failed: { label: '失败', color: 'error' },
   archived: { label: '已归档', color: 'warning' },
 }
 
@@ -19,6 +21,8 @@ interface AnnotationProjectTableProps {
   pageSize: number
   onPageChange: (page: number, pageSize: number) => void
   onDelete: (id: string) => void
+  onRetry?: (id: string) => void
+  retryingId?: string | null
   canManage: boolean
   onCreateClick?: () => void
 }
@@ -31,6 +35,8 @@ export default function AnnotationProjectTable({
   pageSize,
   onPageChange,
   onDelete,
+  onRetry,
+  retryingId,
   canManage,
   onCreateClick,
 }: AnnotationProjectTableProps) {
@@ -113,6 +119,16 @@ export default function AnnotationProjectTable({
               详情
             </Button>
           </Link>
+          {canManage && record.status === 'failed' && onRetry && (
+            <Button
+              type="link"
+              size="small"
+              loading={retryingId === record.id}
+              onClick={() => onRetry(record.id)}
+            >
+              重试
+            </Button>
+          )}
           {canManage && (
             <Popconfirm
               title="确认删除该标注项目？"

@@ -84,15 +84,18 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   })
 
   // Fetch template detail to show multi-object field hints
-  useQuery({
+  const { data: templateDetail } = useQuery({
     queryKey: ['annotationTemplate', selectedTemplateId],
     queryFn: () => getAnnotationTemplate(selectedTemplateId!),
     enabled: open && !!selectedTemplateId,
-    onSettled: (data) => {
-      const fields = data?.labelConfig ? extractObjectFields(data.labelConfig) : []
-      setFieldHint(fields.length > 1 ? fields : [])
-    },
   })
+
+  useEffect(() => {
+    const fields = templateDetail?.labelConfig
+      ? extractObjectFields(templateDetail.labelConfig)
+      : []
+    setFieldHint(fields.length > 1 ? fields : [])
+  }, [templateDetail])
 
   const createMutation = useMutation({
     mutationFn: createAnnotationProject,

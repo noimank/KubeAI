@@ -488,3 +488,23 @@ async def sync_project_tasks(
         data=SyncTasksResponse(synced_count=0),
         message="任务同步已提交",
     )
+
+
+@router.post("/projects/{project_id}/retry", response_model=BaseResponse[AnnotationProjectDetailResponse])
+async def retry_project(
+    project_id: uuid.UUID,
+    db: DbDep,
+    ls: LabelStudioDep,
+    user: Annotated[CurrentUser, Depends(require_permission("annotations", "manage"))],
+) -> BaseResponse[AnnotationProjectDetailResponse]:
+    tenant_id = _require_tenant_id(user)
+    service = AnnotationService(db, ls)
+    project = await service.retry_project(project_id=project_id, tenant_id=tenant_id)
+    await enqueue_annotation_project_create(project.id, tenant_id)
+    base = _build_project_response(project)
+    detail = AnnotationProjectDetailResponse(
+        **base.model_dump(),
+        label_config=project.label_config,
+        labeling_template_description=None,
+    )
+    return BaseResponse(data=detail, message="项目重试已启动")

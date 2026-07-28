@@ -24,7 +24,7 @@ from app.integrations.storage.filesystem import FileSystemStorage
 from app.models.annotation import AnnotationProject
 from app.models.annotation_task import AnnotationTask
 from app.models.dataset import Dataset, DatasetVersion
-from app.models.enums import AuditAction, ResourceType
+from app.models.enums import AnnotationProjectStatus, AuditAction, ResourceType
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.audit_service import AuditService
@@ -132,7 +132,7 @@ class AnnotationService:
             label_config=tpl.label_config,  # 拍快照, 模板后续编辑不影响该项目
             total_tasks=0,
             completed_tasks=0,
-            status="pending",
+            status=AnnotationProjectStatus.PENDING,
             tenant_id=tenant_id,
             created_by=user_id,
         )
@@ -179,7 +179,7 @@ class AnnotationService:
         # Enumerate files from filesystem
         files = await self.storage.list_files(tenant_name, dataset.name, version.version_number)
         if not files:
-            project.status = "active"
+            project.status = AnnotationProjectStatus.ACTIVE
             await self.db.commit()
             return
 
@@ -203,11 +203,11 @@ class AnnotationService:
                 project.label_config or "",
             )
         except ExternalServiceException:
-            project.status = "failed"
+            project.status = AnnotationProjectStatus.FAILED
             await self.db.commit()
             raise
         except Exception as e:
-            project.status = "failed"
+            project.status = AnnotationProjectStatus.FAILED
             await self.db.commit()
             raise ExternalServiceException(f"创建 LabelStudio 项目失败: {e}") from e
 
@@ -235,11 +235,11 @@ class AnnotationService:
             except Exception as e:
                 logger.warning("导入 LabelStudio tasks 失败, 准备清理项目: %s", e)
                 await self.ls_client.delete_project(ls_project_id)
-                project.status = "failed"
+                project.status = AnnotationProjectStatus.FAILED
                 await self.db.commit()
                 raise ExternalServiceException(f"导入 LabelStudio tasks 失败: {e}") from e
 
-        project.status = "active"
+        project.status = AnnotationProjectStatus.ACTIVE
         await self.db.commit()
 
     async def execute_sync_tasks(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> int:
@@ -558,6 +558,46 @@ class AnnotationService:
 
         await self.db.delete(project)
         await self.db.commit()
+
+    async def retry_project(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> AnnotationProject:
+        """Reset a failed annotation project to pending and prepare for retry.
+
+        Only projects in 'failed' status can be retried. Stale LabelStudio
+        resources from the prior attempt are cleaned up on a best-effort basis.
+        """
+        project = await self._validate_project_membership(project_id, tenant_id)
+
+        if project.status != AnnotationProjectStatus.FAILED:
+            raise ConflictException(f"当前状态为 {project.status}，仅失败的项目可以重试")
+
+        # Best-effort cleanup of stale LabelStudio project from prior attempt.
+        if project.label_studio_project_id is not None:
+            try:
+                await self.ls_client.delete_project(project.label_studio_project_id)
+                logger.info(
+                    "Cleaned up LabelStudio project %d for retry of project %s",
+                    project.label_studio_project_id,
+                    project.id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to clean up LabelStudio project %d on retry: %s",
+                    project.label_studio_project_id,
+                    e,
+                )
+
+        # Reset project state for a fresh setup attempt.
+        project.status = AnnotationProjectStatus.PENDING
+        project.label_studio_project_id = None
+        project.total_tasks = 0
+        project.completed_tasks = 0
+        await self.db.commit()
+
+        return project
 
     async def _sync_project_stats(self, project: AnnotationProject) -> None:
         if project.label_studio_project_id is None:
@@ -929,8 +969,12 @@ class AnnotationService:
         # 4. Update task + project counters.
         task.status = "completed"
         project.completed_tasks = (project.completed_tasks or 0) + 1
-        if project.total_tasks > 0 and project.completed_tasks >= project.total_tasks and project.status == "active":
-            project.status = "completed"
+        if (
+            project.total_tasks > 0
+            and project.completed_tasks >= project.total_tasks
+            and project.status == AnnotationProjectStatus.ACTIVE
+        ):
+            project.status = AnnotationProjectStatus.COMPLETED
 
         if audit_context:
             await self._log_audit(
@@ -976,8 +1020,8 @@ class AnnotationService:
 
         task.status = "in_progress"
         project.completed_tasks = max(0, (project.completed_tasks or 0) - 1)
-        if project.completed_tasks < project.total_tasks and project.status == "completed":
-            project.status = "active"
+        if project.completed_tasks < project.total_tasks and project.status == AnnotationProjectStatus.COMPLETED:
+            project.status = AnnotationProjectStatus.ACTIVE
 
         if audit_context:
             await self._log_audit(
