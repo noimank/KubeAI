@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 from datetime import datetime, timezone
@@ -307,6 +309,8 @@ class AnnotationService:
         await self.db.commit()
         return len(ls_tasks)
 
+    _STRUCTURED_EXTENSIONS = frozenset({".json", ".jsonl", ".csv"})
+
     async def _prepare_task_data(
         self,
         files: list[dict[str, Any]],
@@ -317,7 +321,42 @@ class AnnotationService:
         dataset_name: str,
         version_number: int,
     ) -> list[dict[str, Any]]:
-        """Build task data dicts from filesystem files."""
+        """Build task data dicts from filesystem files.
+
+        Single-object config (1 $field): one task per file, file content → the field.
+        Multi-object config (>1 $field): only structured files (JSON/JSONL/CSV),
+        each record → one task with all fields populated from the record.
+        """
+        if len(config_info.objects) > 1:
+            return await self._prepare_multi_object_tasks(
+                files,
+                dataset_id,
+                version_id,
+                config_info,
+                tenant_name,
+                dataset_name,
+                version_number,
+            )
+        return await self._prepare_single_object_tasks(
+            files,
+            dataset_id,
+            version_id,
+            config_info,
+            tenant_name,
+            dataset_name,
+            version_number,
+        )
+
+    async def _prepare_single_object_tasks(
+        self,
+        files: list[dict[str, Any]],
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        config_info: Any,
+        tenant_name: str,
+        dataset_name: str,
+        version_number: int,
+    ) -> list[dict[str, Any]]:
         data_object = get_primary_data_object(config_info)
 
         results: list[dict[str, Any]] = []
@@ -340,6 +379,95 @@ class AnnotationService:
             results.append({"data": data})
 
         return results
+
+    async def _prepare_multi_object_tasks(
+        self,
+        files: list[dict[str, Any]],
+        dataset_id: uuid.UUID,
+        version_id: uuid.UUID,
+        config_info: Any,
+        tenant_name: str,
+        dataset_name: str,
+        version_number: int,
+    ) -> list[dict[str, Any]]:
+        """Multi-object: parse structured files, each record = one task with all fields."""
+        field_map: dict[str, str] = {obj.field: obj.tag for obj in config_info.objects}
+        required_fields: list[str] = list(field_map)
+
+        results: list[dict[str, Any]] = []
+        for f in files:
+            file_name: str = f["file_name"]
+            ext = Path(file_name).suffix.lower()
+            if ext not in self._STRUCTURED_EXTENSIONS:
+                logger.warning("multi_object_skip_non_structured file=%s", file_name)
+                continue
+
+            file_path = self.storage.get_file_path(tenant_name, dataset_name, version_number, file_name)
+            raw = await self.storage.get_file_content(file_path)
+            records = self._parse_structured_content(raw, file_name, ext)
+
+            for idx, record in enumerate(records):
+                missing = [k for k in required_fields if k not in record]
+                if missing:
+                    raise ExternalServiceException(
+                        f"文件 '{file_name}' 第 {idx + 1} 条记录缺少必填字段: {', '.join(missing)}"
+                    )
+
+                object_name = (
+                    f"datasets/{sanitize_k8s_name(tenant_name)}/{sanitize_k8s_name(dataset_name)}"
+                    f"/v{version_number}/{file_name}#row{idx}"
+                )
+                data: dict[str, Any] = {
+                    "kubeai_object_name": object_name,
+                    "kubeai_file_name": file_name,
+                    "kubeai_content_type": "application/json",
+                }
+
+                for field_name, tag in field_map.items():
+                    value = record[field_name]
+                    if tag in URL_OBJECT_TAGS:
+                        # Resolve relative paths to download URLs, pass absolute URLs through
+                        value_str = str(value)
+                        if not (
+                            value_str.startswith("http://")
+                            or value_str.startswith("https://")
+                            or value_str.startswith("/")
+                        ):
+                            value = self._build_download_url(dataset_id, version_id, value_str)
+                    data[field_name] = value
+
+                results.append({"data": data})
+
+        if not results:
+            logger.warning(
+                "multi_object_no_structured_files files=%d objects=%s",
+                len(files),
+                [obj.field for obj in config_info.objects],
+            )
+
+        return results
+
+    @staticmethod
+    def _parse_structured_content(raw: bytes, file_name: str, ext: str) -> list[dict[str, Any]]:
+        """Parse structured file content into list of record dicts."""
+        text = raw.decode("utf-8", errors="replace")
+        try:
+            if ext == ".json":
+                records: Any = json.loads(text)
+                if isinstance(records, dict):
+                    records = [records]
+                if not isinstance(records, list):
+                    raise ValueError("JSON 文件顶层必须是对象或数组")
+                return records
+            elif ext == ".jsonl":
+                return [json.loads(line) for line in text.splitlines() if line.strip()]
+            elif ext == ".csv":
+                reader = csv.DictReader(io.StringIO(text))
+                return list(reader)
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ExternalServiceException(f"解析文件 '{file_name}' 失败: {e}") from e
+
+        raise ValueError(f"不支持的文件类型: {ext}")
 
     async def _import_tasks_batched(self, ls_project_id: int, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Import tasks to LabelStudio in batches and return all LS task records."""
@@ -939,13 +1067,26 @@ class AnnotationService:
         object_name = data.get("kubeai_object_name")
 
         if object_name:
+            # Strip "#rowN" suffix for multi-object tasks to get the source file name
+            file_name = object_name.rsplit("/", 1)[-1] if "/" in object_name else object_name
+            if "#" in file_name:
+                file_name = file_name.rsplit("#", 1)[0]
+
             for data_object in config_info.objects:
                 if data_object.tag in URL_OBJECT_TAGS:
-                    # Extract file_name from object_name path
-                    file_name = object_name.rsplit("/", 1)[-1] if "/" in object_name else object_name
-                    data[data_object.field] = self._build_download_url(
-                        project.dataset.id, project.dataset_version.id, file_name
-                    )
+                    # For multi-object tasks, the field value may already reference a specific file
+                    current = data.get(data_object.field)
+                    if isinstance(current, str) and not (
+                        current.startswith("http://") or current.startswith("https://") or current.startswith("/")
+                    ):
+                        data[data_object.field] = self._build_download_url(
+                            project.dataset.id, project.dataset_version.id, current
+                        )
+                    elif current is None:
+                        # Single-object fallback: rebuild from the source file
+                        data[data_object.field] = self._build_download_url(
+                            project.dataset.id, project.dataset_version.id, file_name
+                        )
 
         task.data = data
         return task

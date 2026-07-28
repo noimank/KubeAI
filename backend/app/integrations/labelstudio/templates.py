@@ -249,8 +249,14 @@ def parse_label_config(label_config: str) -> LabelConfigInfo:
 
 
 def get_primary_data_object(info: LabelConfigInfo) -> LabelObject:
+    """Return the first data object targeted by the first control.
+
+    Handles comma-separated toName (e.g. Pairwise "text1,text2") by matching
+    against individual names, not the raw string.
+    """
     first_control = info.controls[0]
+    target_names = [t.strip() for t in first_control.to_name.split(",")]
     for obj in info.objects:
-        if obj.name == first_control.to_name:
+        if obj.name in target_names:
             return obj
     return info.objects[0]

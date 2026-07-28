@@ -1,13 +1,41 @@
-import { useEffect, useMemo } from 'react'
-import { Form, Input, Modal, Select, Space } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, Form, Input, Modal, Select, Space, Tag } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createAnnotationProject } from '@/services/annotations'
 import {
+  getAnnotationTemplate,
   listAnnotationTemplateGroups,
   listAnnotationTemplates,
 } from '@/services/annotation-templates'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
 import { getMessageInstance } from '@/utils/messageHolder'
+
+/** Extract unique $field references from object tags in a label config XML string. */
+function extractObjectFields(labelConfig: string): string[] {
+  const seen = new Set<string>()
+  // Match value attributes on data-object tags: <Text value="$fieldName"/>, <Image value="$img"/>, etc.
+  const OBJECT_TAGS = new Set([
+    'Image',
+    'Text',
+    'Audio',
+    'Video',
+    'HyperText',
+    'PDF',
+    'Pdf',
+    'Paragraphs',
+    'TimeSeries',
+    'Table',
+    'List',
+    'PagedView',
+    'Chat',
+  ])
+  const tagRe = new RegExp(`<(${[...OBJECT_TAGS].join('|')})[^>]*value\\s*=\\s*"\\$([^"]+)"`, 'gi')
+  let m: RegExpExecArray | null
+  while ((m = tagRe.exec(labelConfig)) !== null) {
+    seen.add(m[2])
+  }
+  return [...seen]
+}
 
 interface CreateProjectModalProps {
   open: boolean
@@ -28,6 +56,8 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   const queryClient = useQueryClient()
   const selectedDatasetId = Form.useWatch('datasetId', form)
   const selectedGroup = Form.useWatch('templateGroup', form)
+  const selectedTemplateId: string | undefined = Form.useWatch('templateId', form)
+  const [fieldHint, setFieldHint] = useState<string[]>([])
 
   const { data: datasetsData } = useQuery({
     queryKey: ['datasets', 1, 100],
@@ -51,6 +81,17 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     queryKey: ['annotationTemplates', 'byGroup', selectedGroup],
     queryFn: () => listAnnotationTemplates({ current: 1, pageSize: 200, group: selectedGroup! }),
     enabled: open && !!selectedGroup,
+  })
+
+  // Fetch template detail to show multi-object field hints
+  useQuery({
+    queryKey: ['annotationTemplate', selectedTemplateId],
+    queryFn: () => getAnnotationTemplate(selectedTemplateId!),
+    enabled: open && !!selectedTemplateId,
+    onSettled: (data) => {
+      const fields = data?.labelConfig ? extractObjectFields(data.labelConfig) : []
+      setFieldHint(fields.length > 1 ? fields : [])
+    },
   })
 
   const createMutation = useMutation({
@@ -214,6 +255,32 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               />
             </Form.Item>
           </Space>
+
+          {fieldHint.length > 0 && (
+            <Alert
+              type="info"
+              showIcon
+              message="多字段标注模板"
+              description={
+                <span>
+                  该模板需要结构化数据文件 (JSON / JSONL / CSV)。每条记录需包含以下{' '}
+                  {fieldHint.length} 个字段：
+                  <Space wrap style={{ marginLeft: 8 }}>
+                    {fieldHint.map((f) => (
+                      <Tag key={f} color="blue">
+                        ${f}
+                      </Tag>
+                    ))}
+                  </Space>
+                  <br />
+                  <span style={{ color: '#faad14', fontSize: 12 }}>
+                    非结构化文件（图片、音频、纯文本等）将自动跳过。
+                  </span>
+                </span>
+              }
+              style={{ marginBottom: 0 }}
+            />
+          )}
         </Space>
       </Form>
     </Modal>

@@ -451,7 +451,7 @@
     "key": "ls:ranking & scoring:document retrieval",
     "label": "Document Retrieval",
     "description": "文档检索 — 选出与查询相关的文档",
-    "config": "<View>\n  <Text name=\"query\" value=\"$query\" />\n  <Header value=\"Select document related to the query:\" />\n  <View style=\"display: flex\">\n    <View style=\"width:50%\">\n      <Text name=\"text1\" value=\"$text1\" />\n      <Text name=\"text2\" value=\"$text2\" />\n      <Text name=\"text3\" value=\"$text3\" />\n    </View>\n    <View>\n      <Choices name=\"selection\" toName=\"query\" required=\"true\" choice=\"multiple\">\n        <Choice value=\"One\" />\n        <Choice value=\"Two\" />\n        <Choice value=\"Two\" />\n      </Choices>\n    </View>\n  </View>\n</View>\n",
+    "config": "<View>\n  <Text name=\"query\" value=\"$query\" />\n  <Header value=\"Select document related to the query:\" />\n  <View style=\"display: flex\">\n    <View style=\"width:50%\">\n      <Text name=\"text1\" value=\"$text1\" />\n      <Text name=\"text2\" value=\"$text2\" />\n      <Text name=\"text3\" value=\"$text3\" />\n    </View>\n    <View>\n      <Choices name=\"selection\" toName=\"query\" required=\"true\" choice=\"multiple\">\n        <Choice value=\"One\" />\n        <Choice value=\"Two\" />\n        <Choice value=\"Three\" />\n      </Choices>\n    </View>\n  </View>\n</View>\n",
     "group": "排序与评分"
   },
   {
