@@ -1170,9 +1170,13 @@ class AnnotationService:
 
     async def _validate_project_membership(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> AnnotationProject:
         result = await self.db.execute(
-            select(AnnotationProject).where(
-                AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id
+            select(AnnotationProject)
+            .options(
+                selectinload(AnnotationProject.dataset),
+                selectinload(AnnotationProject.dataset_version),
+                selectinload(AnnotationProject.template),
             )
+            .where(AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id)
         )
         project = result.scalar_one_or_none()
         if not project:
