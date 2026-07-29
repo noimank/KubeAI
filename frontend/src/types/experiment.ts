@@ -37,6 +37,7 @@ export interface TrainingJobInfo {
   priority: string | null
   mlflowEnabled: boolean | null
   tensorboardEnabled: boolean | null
+  envVars: Record<string, string> | null
 }
 
 export interface ExperimentDetail extends Experiment {
