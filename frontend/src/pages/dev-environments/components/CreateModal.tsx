@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react'
-import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space } from 'antd'
+import { Alert, Form, Input, InputNumber, Modal, Select, Space } from 'antd'
 import { CodeOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { getSelectableDevEnvironmentImages } from '@/services/dev-environment-images'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
 import { getAlgorithm } from '@/services/algorithms'
+import { getBusinessConfigs } from '@/services/business-configs'
+import EnvVarEditor from '@/components/EnvVarEditor'
 import type { DevEnvironmentCreateParams } from '@/types/dev-environment'
 import type { EnvironmentType } from '@/types/dev-environment-image'
 import { ENVIRONMENT_TYPE_LABELS } from '@/types/dev-environment-image'
@@ -69,6 +71,13 @@ export function CreateModal({
     queryFn: () => getAlgorithm(algorithmId!),
     enabled: !!algorithmId && open,
   })
+
+  const { data: configsData } = useQuery({
+    queryKey: ['business-configs-list', 1, 100],
+    queryFn: () => getBusinessConfigs({ current: 1, pageSize: 100 }),
+    enabled: open,
+  })
+  const configs = configsData?.items ?? []
 
   const filteredImages = useMemo(
     () =>
@@ -235,32 +244,13 @@ export function CreateModal({
           </Form.Item>
         ) : null}
         <Form.Item label="环境变量">
-          <Form.List name="envVars">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'key']}
-                      rules={[{ required: true, message: '请输入 Key' }]}
-                    >
-                      <Input placeholder="Key" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'value']}>
-                      <Input placeholder="Value" />
-                    </Form.Item>
-                    <Button type="link" danger onClick={() => remove(name)}>
-                      删除
-                    </Button>
-                  </Space>
-                ))}
-                <Button type="dashed" onClick={() => add({ key: '', value: '' })} block>
-                  + 添加环境变量
-                </Button>
-              </>
-            )}
-          </Form.List>
+          <EnvVarEditor
+            name="envVars"
+            keyPlaceholder="Key"
+            valuePlaceholder="Value"
+            addButtonText="+ 添加环境变量"
+            presets={configs}
+          />
         </Form.Item>
       </Form>
     </Modal>

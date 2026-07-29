@@ -19,10 +19,12 @@ import { useQuery } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import ResourceAwarePanel from '@/components/ResourceAwarePanel'
 import ImageSelect from '@/components/ImageSelect'
+import EnvVarEditor from '@/components/EnvVarEditor'
 import { createInferenceService } from '@/services/inference'
 import type { InferenceServiceCreateResult } from '@/services/inference'
 import { getSelectableImages } from '@/services/images'
 import { getModels, getModel } from '@/services/models'
+import { getBusinessConfigs } from '@/services/business-configs'
 
 interface FormValues {
   name: string
@@ -83,6 +85,12 @@ export default function CreateInferenceServicePage() {
     enabled: !!selectedModelId,
   })
   const versions = modelDetail?.versions ?? []
+
+  const { data: configsData } = useQuery({
+    queryKey: ['business-configs-list', 1, 100],
+    queryFn: () => getBusinessConfigs({ current: 1, pageSize: 100 }),
+  })
+  const configs = configsData?.items ?? []
 
   const handleNext = async () => {
     try {
@@ -212,32 +220,13 @@ export default function CreateInferenceServicePage() {
           </Form.Item>
 
           <Form.Item label="环境变量">
-            <Form.List name="envVars">
-              {(fields, { add, remove }) => (
-                <>
-                  {fields.map(({ key, name, ...restField }) => (
-                    <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'key']}
-                        rules={[{ required: true, message: '请输入变量名' }]}
-                      >
-                        <Input placeholder="变量名" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item {...restField} name={[name, 'value']}>
-                        <Input placeholder="变量值" style={{ width: 280 }} />
-                      </Form.Item>
-                      <Button type="link" danger onClick={() => remove(name)}>
-                        删除
-                      </Button>
-                    </Space>
-                  ))}
-                  <Button type="dashed" onClick={() => add({ key: '', value: '' })} block>
-                    + 添加环境变量
-                  </Button>
-                </>
-              )}
-            </Form.List>
+            <EnvVarEditor
+              name="envVars"
+              keyPlaceholder="变量名"
+              valuePlaceholder="变量值"
+              addButtonText="+ 添加环境变量"
+              presets={configs}
+            />
           </Form.Item>
 
           {/* 可选: 从模型注册仓库选择模型版本 (模型文件经共享存储卷直接挂载到 /kubeai/models/). */}
