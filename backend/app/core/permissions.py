@@ -21,6 +21,7 @@ class RESOURCE(enum.StrEnum):
     ALGORITHMS = "algorithms"
     ANNOTATION_TEMPLATES = "annotation_templates"
     DATA_EXPLORE = "data_explore"
+    BUSINESS_CONFIGS = "business_configs"
 
 
 class ACTION(enum.StrEnum):
@@ -40,6 +41,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("annotator", "annotation_templates", "read"),
     ("annotator", "notifications", "read"),
     ("annotator", "notifications", "write"),
+    ("annotator", "business_configs", "read"),
     # engineer
     ("engineer", "dashboard", "read"),
     ("engineer", "datasets", "read"),
@@ -59,6 +61,8 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("engineer", "algorithms", "write"),
     ("engineer", "annotation_templates", "read"),
     ("engineer", "annotation_templates", "write"),
+    ("engineer", "business_configs", "read"),
+    ("engineer", "business_configs", "write"),
     # mlops (inherits engineer + additional)
     ("mlops", "dashboard", "read"),
     ("mlops", "annotations", "manage"),
@@ -76,6 +80,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("mlops", "experiments", "manage"),
     ("mlops", "algorithms", "manage"),
     ("mlops", "annotation_templates", "manage"),
+    ("mlops", "business_configs", "manage"),
     # admin (inherits mlops + additional)
     ("admin", "dashboard", "read"),
     ("admin", "tenants", "manage"),
@@ -94,6 +99,7 @@ SEED_POLICIES: list[tuple[str, str, str]] = [
     ("admin", "experiments", "manage"),
     ("admin", "algorithms", "manage"),
     ("admin", "annotation_templates", "manage"),
+    ("admin", "business_configs", "manage"),
     # data_explore
     ("annotator", "data_explore", "read"),
     ("engineer", "data_explore", "read"),

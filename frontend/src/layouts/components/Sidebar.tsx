@@ -17,6 +17,7 @@ import {
   CalculatorOutlined,
   ThunderboltOutlined,
   BuildOutlined,
+  SettingOutlined,
 } from '@ant-design/icons'
 import type { MenuDataItem } from '@ant-design/pro-components'
 import { filterMenuItems, toMenuDataItem } from './sidebar-utils'
@@ -68,6 +69,12 @@ const MENU_CONFIG: MenuEntry[] = [
         name: '数据探索',
         icon: <SearchOutlined />,
         permission: 'data_explore:read',
+      },
+      {
+        path: '/business-configs',
+        name: '业务配置',
+        icon: <SettingOutlined />,
+        permission: 'business_configs:read',
       },
     ],
   },

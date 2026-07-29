@@ -3,6 +3,7 @@ from app.models.annotation import AnnotationProject
 from app.models.annotation_task import AnnotationTask
 from app.models.annotation_template import AnnotationTemplate
 from app.models.audit_log import AuditLog
+from app.models.business_config import BusinessConfig
 from app.models.dataset import Dataset, DatasetFile, DatasetVersion
 from app.models.db_connection import DbConnection
 from app.models.dev_environment import DevEnvironment
@@ -23,6 +24,7 @@ __all__ = [
     "AnnotationTask",
     "AnnotationTemplate",
     "AuditLog",
+    "BusinessConfig",
     "Dataset",
     "DatasetFile",
     "DatasetVersion",
