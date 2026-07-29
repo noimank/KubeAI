@@ -42,6 +42,16 @@ _bearer = HTTPBearer()
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 RedisDep = Annotated[aioredis.Redis, Depends(get_redis)]
 
+# -- Auth-check cache: forward-auth fires on every request to the guarded
+#    upstream.  Identity is already cached (IDENTITY_CACHE_TTL=300s) by
+#    IdentityResolver, so on cache-hit the remaining cost is 2 Redis GETs
+#    (identity + tenant_status) + 1 Casbin enforce().  Caching the final
+#    verdict eliminates even that for 30 s — enough to ride out concurrency
+#    bursts from SPA static-file loads. --------------------------------------------------
+
+_AUTH_CHECK_CACHE_PREFIX = "auth_check"
+_AUTH_CHECK_CACHE_TTL = 30
+
 
 def _audit_ctx(request: Request) -> dict[str, Any]:
     return {
@@ -174,8 +184,17 @@ async def auth_check(
         raise UnauthorizedException("未登录或 Token 无效")
     if not identity.tenant_id:
         raise ForbiddenException("需要租户上下文")
+
+    cache_key = f"{_AUTH_CHECK_CACHE_PREFIX}:{identity.id.hex}:{resource}:{action}"
+
+    if redis is not None and await redis.get(cache_key) == b"1":
+        return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
+
     if not CasbinEnforcer.enforce(identity.role.value, resource, action):
         raise ForbiddenException(f"权限不足: 无法对 {resource} 执行 {action} 操作")
+
+    if redis is not None:
+        await redis.setex(cache_key, _AUTH_CHECK_CACHE_TTL, "1")
 
     return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
 

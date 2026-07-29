@@ -35,6 +35,22 @@ _name_query = Query(None)
 
 logger = structlog.get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Auth-check cache — avoid hammering the DB on every static-file sub-request.
+# Jupyter alone fires ~30 forward-auth checks per page load, all for the same
+# (env, user) pair.  Caching the "allowed" verdict for 30 s eliminates the DB
+# query on every subsequent sub-request while remaining short enough that
+# stop/delete is promptly effective.  (When the env is stopped its APISIX route
+# is deleted anyway, so no new auth-checks arrive.)
+# ---------------------------------------------------------------------------
+
+_DEV_ENV_AUTH_CACHE_PREFIX = "dev_env_auth"
+_DEV_ENV_AUTH_CACHE_TTL = 30
+
+
+def _env_auth_cache_key(env_id: uuid.UUID, user_id: uuid.UUID) -> str:
+    return f"{_DEV_ENV_AUTH_CACHE_PREFIX}:{env_id.hex}:{user_id.hex}"
+
 
 def _require_tenant_id(user: object) -> uuid.UUID:
     tenant_id = getattr(user, "tenant_id", None)
@@ -134,6 +150,14 @@ async def auth_check_dev_environment(
     if not identity.tenant_id:
         raise ForbiddenException("需要租户上下文")
 
+    # Short-circuit: if this (env, user) pair was recently authorized, skip the
+    # DB query.  Cached for 30 s — enough to cover a Jupyter page-load burst
+    # while still reflecting stop/delete within a reasonable window.
+    if redis is not None:
+        cache_key = _env_auth_cache_key(env_id, identity.id)
+        if await redis.get(cache_key) == b"1":
+            return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
+
     service = DevEnvironmentService(db)
     env = await service.get_environment(env_id, identity.tenant_id)
     if env.status != DevEnvironmentStatus.RUNNING:
@@ -142,7 +166,12 @@ async def auth_check_dev_environment(
     if env.created_by != identity.id and identity.role not in (UserRole.ADMIN, UserRole.MLOPS):
         raise ForbiddenException("无权访问此环境")
 
-    logger.info("dev_env_auth_check_success", env_id=str(env_id), username=identity.username)
+    if redis is not None:
+        await redis.setex(_env_auth_cache_key(env_id, identity.id), _DEV_ENV_AUTH_CACHE_TTL, "1")
+
+    # debug — forward-auth fires on every sub-request; logging every success at
+    # info level drowns the log in noise.
+    logger.debug("dev_env_auth_check_success", env_id=str(env_id), username=identity.username)
     return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
 
 

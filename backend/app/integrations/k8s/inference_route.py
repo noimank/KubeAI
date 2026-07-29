@@ -119,6 +119,10 @@ def _build_apisix_route_payload(*, svc: InferenceService, namespace: str) -> dic
             "uri": auth_uri,
             "request_headers": ["Cookie", "Authorization"],
             "upstream_headers": ["X-KubeAI-User"],
+            # Match dev_pod forward-auth tuning: prevent timeout-driven
+            # 403 during concurrent request bursts.
+            "timeout": 10000,
+            "keepalive_pool": 16,
         },
     }
     # rewrite 模式: 剥 /inference/<hex> 前缀, 上游收到原生路径.

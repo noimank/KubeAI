@@ -369,6 +369,14 @@ def _build_apisix_route_payload(
             # the JWT — extra_headers/$cookie_xxx does NOT work in APISIX.
             "request_headers": ["Cookie"],
             "upstream_headers": ["X-KubeAI-User"],
+            # Default timeout (3000ms) is too tight when Jupyter fires a burst
+            # of concurrent requests — a single-replica backend can't keep up
+            # and APISIX returns 403.  Bump to 10s, which is still well below
+            # the plugin max (60000ms) but enough for transient queueing.
+            "timeout": 10000,
+            # Default keepalive_pool (5) is too small for 8+ APISIX workers
+            # each trying to reuse connections to the auth backend.
+            "keepalive_pool": 16,
         },
     }
 

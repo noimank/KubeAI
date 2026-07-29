@@ -149,6 +149,10 @@ def _build_apisix_route_payload(*, job_id: uuid.UUID, namespace: str) -> dict[st
             "uri": auth_uri,
             "request_headers": ["Cookie"],
             "upstream_headers": ["X-KubeAI-User"],
+            # Match dev_pod forward-auth tuning: prevent timeout-driven
+            # 403 during concurrent request bursts.
+            "timeout": 10000,
+            "keepalive_pool": 16,
         }
     }
 

@@ -44,6 +44,14 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
 _status_query = Query(None)
 _name_query = Query(None)
 
+# Auth-check cache — avoid DB query on every sub-request from the same user.
+_INFERENCE_AUTH_CACHE_PREFIX = "inf_svc_auth"
+_INFERENCE_AUTH_CACHE_TTL = 30
+
+
+def _inf_auth_cache_key(service_id: uuid.UUID, user_id: uuid.UUID) -> str:
+    return f"{_INFERENCE_AUTH_CACHE_PREFIX}:{service_id.hex}:{user_id.hex}"
+
 
 def _require_tenant_id(user: object) -> uuid.UUID:
     tenant_id = getattr(user, "tenant_id", None)
@@ -187,6 +195,14 @@ async def auth_check_inference_service(
     if identity:
         if not identity.tenant_id:
             raise ForbiddenException("需要租户上下文")
+
+        # Short-circuit: reuse cached verdict for 30 s to skip DB query on
+        # concurrent / repeated sub-requests from the same user.
+        if redis is not None:
+            cache_key = _inf_auth_cache_key(service_id, identity.id)
+            if await redis.get(cache_key) == b"1":
+                return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
+
         service = InferenceServiceService(db)
         try:
             svc = await service.get_inference_service(service_id, identity.tenant_id)
@@ -196,6 +212,10 @@ async def auth_check_inference_service(
             raise ForbiddenException("推理服务未运行")
         if svc.created_by != identity.id and identity.role not in (UserRole.ADMIN, UserRole.MLOPS):
             raise ForbiddenException("无权访问此推理服务")
+
+        if redis is not None:
+            await redis.setex(_inf_auth_cache_key(service_id, identity.id), _INFERENCE_AUTH_CACHE_TTL, "1")
+
         return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
 
     # 通道 2 — 服务级 sk-token (程序化对外调用).
