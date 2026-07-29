@@ -17,6 +17,7 @@ class TrainingJobCreateRequest(BaseModel):
     image_id: uuid.UUID
     command: str = Field(..., min_length=1)
     hyperparameters: list[HyperparameterItem] | None = None
+    env_vars: dict[str, str] | None = None
     gpu_count: int = Field(default=1, ge=0)
     gpu_mode: str = Field(default="exclusive", pattern="^(exclusive|shared)$")
     cpu: str = Field(default="4")
@@ -41,6 +42,7 @@ class TrainingJobResponse(BaseModel):
     image_id: uuid.UUID
     command: str
     hyperparameters: dict[str, str] | None
+    env_vars: dict[str, str] | None = None
     gpu_count: int
     gpu_mode: str
     cpu: str
@@ -97,5 +99,6 @@ class TrainingJobFromEnvironmentRequest(BaseModel):
     priority: str = Field(default="normal", pattern="^(low|normal|high)$")
     worker_count: int = Field(default=1, ge=1, le=16)
     hyperparameters: list[HyperparameterItem] | None = None
+    env_vars: dict[str, str] | None = None
     mlflow_enabled: bool = Field(default=False, description="是否启用 MLflow 实验追踪 (默认关闭)")
     tensorboard_enabled: bool = Field(default=False, description="是否启用 TensorBoard 可视化 (默认关闭)")

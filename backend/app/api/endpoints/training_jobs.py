@@ -41,6 +41,15 @@ _status_query = Query(None)
 _name_query = Query(None)
 logger = structlog.get_logger(__name__)
 
+# Auth-check cache — TensorBoard sidecar fires forward-auth on every static-file
+# sub-request.  Cache the "allowed" verdict briefly to skip redundant DB queries.
+_TB_AUTH_CACHE_PREFIX = "tb_auth"
+_TB_AUTH_CACHE_TTL = 30
+
+
+def _tb_auth_cache_key(job_id: uuid.UUID, user_id: uuid.UUID) -> str:
+    return f"{_TB_AUTH_CACHE_PREFIX}:{job_id.hex}:{user_id.hex}"
+
 
 def _require_tenant_id(user: object) -> uuid.UUID:
     tenant_id = getattr(user, "tenant_id", None)
@@ -77,6 +86,7 @@ async def create_training_job(
         image_id=req.image_id,
         command=req.command,
         hyperparameters=hyperparams,
+        env_vars=req.env_vars,
         gpu_count=req.gpu_count,
         gpu_mode=req.gpu_mode,
         cpu=req.cpu,
@@ -122,6 +132,7 @@ async def create_from_environment(
         priority=req.priority,
         worker_count=req.worker_count,
         hyperparameters=hyperparams,
+        env_vars=req.env_vars,
         mlflow_enabled=req.mlflow_enabled,
         tensorboard_enabled=req.tensorboard_enabled,
     )
@@ -179,6 +190,13 @@ async def auth_check_training_job(
     if not identity.tenant_id:
         raise ForbiddenException("需要租户上下文")
 
+    # Short-circuit: cache verdict for 30 s to skip redundant DB queries during
+    # TensorBoard page-load bursts.
+    if redis is not None:
+        cache_key = _tb_auth_cache_key(job_id, identity.id)
+        if await redis.get(cache_key) == b"1":
+            return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
+
     service = TrainingJobService(db)
     try:
         # DB-only fetch: forward-auth fires on every TensorBoard sub-request, so a
@@ -198,7 +216,10 @@ async def auth_check_training_job(
     if job.created_by != identity.id and identity.role not in (UserRole.ADMIN, UserRole.MLOPS):
         raise ForbiddenException("无权访问此任务的 TensorBoard")
 
-    logger.info("training_job_tensorboard_auth_check_success", job_id=str(job_id), username=identity.username)
+    if redis is not None:
+        await redis.setex(_tb_auth_cache_key(job_id, identity.id), _TB_AUTH_CACHE_TTL, "1")
+
+    logger.debug("training_job_tensorboard_auth_check_success", job_id=str(job_id), username=identity.username)
     return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
 
 

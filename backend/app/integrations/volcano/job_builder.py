@@ -25,6 +25,7 @@ def build_vcjob(
     job_id: str,
     worker_count: int = 1,
     hyperparameters: dict[str, str] | None = None,
+    env_vars: dict[str, str] | None = None,
     priority: str = "normal",
     dataset_host_path: str | None = None,
     dataset_mount_path: str | None = None,
@@ -51,6 +52,9 @@ def build_vcjob(
         env.append({"name": "KUBEAI_HOME_PATH", "value": f"{KUBEAI_CONTAINER_ROOT}/home"})
     if hyperparameters:
         for key, value in hyperparameters.items():
+            env.append({"name": key, "value": value})
+    if env_vars:
+        for key, value in env_vars.items():
             env.append({"name": key, "value": value})
     if mlflow_tracking_uri:
         env.append({"name": "MLFLOW_TRACKING_URI", "value": mlflow_tracking_uri})

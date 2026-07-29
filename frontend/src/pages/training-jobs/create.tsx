@@ -28,10 +28,12 @@ import { useQuery } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import ImageSelect from '@/components/ImageSelect'
 import ResourceAwarePanel from '@/components/ResourceAwarePanel'
+import EnvVarEditor from '@/components/EnvVarEditor'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
 import { getSelectableImages } from '@/services/images'
 import { createTrainingJob } from '@/services/training-jobs'
 import { getExperiment } from '@/services/experiments'
+import { getBusinessConfigs } from '@/services/business-configs'
 
 interface FormValues {
   name: string
@@ -50,6 +52,7 @@ interface FormValues {
   mlflowEnabled?: boolean
   tensorboardEnabled?: boolean
   hyperparameters?: { key: string; value: string }[]
+  envVars?: { key: string; value: string }[]
 }
 
 const PRIORITY_OPTIONS = [
@@ -107,6 +110,12 @@ export default function CreateTrainingJobPage() {
   const versions = datasetDetail?.versions ?? []
   const images = imagesData ?? []
 
+  const { data: configsData } = useQuery({
+    queryKey: ['business-configs-list', 1, 100],
+    queryFn: () => getBusinessConfigs({ current: 1, pageSize: 100 }),
+  })
+  const configs = configsData?.items ?? []
+
   const { data: experimentDetail } = useQuery({
     queryKey: ['experiment-reproduce', fromExperimentId],
     queryFn: () => getExperiment(fromExperimentId!),
@@ -137,6 +146,9 @@ export default function CreateTrainingJobPage() {
       mlflowEnabled: job?.mlflowEnabled ?? false,
       tensorboardEnabled: job?.tensorboardEnabled ?? false,
       hyperparameters: hyperParams.length > 0 ? hyperParams : undefined,
+      envVars: job?.envVars
+        ? Object.entries(job.envVars).map(([key, value]) => ({ key, value }))
+        : undefined,
     }
     form.setFieldsValue(values)
   }, [experimentDetail, fromExperimentId, form])
@@ -165,6 +177,14 @@ export default function CreateTrainingJobPage() {
       setSubmitting(true)
       const values = await form.validateFields()
       const gpuEnabled = values.useGpu ?? true
+      const envVars = values.envVars?.reduce(
+        (acc: Record<string, string>, item) => {
+          const key = item.key?.trim()
+          if (key) acc[key] = item.value ?? ''
+          return acc
+        },
+        {} as Record<string, string>,
+      )
       const res = await createTrainingJob({
         name: values.name,
         description: values.description,
@@ -173,6 +193,7 @@ export default function CreateTrainingJobPage() {
         imageId: values.imageId,
         command: values.command,
         hyperparameters: values.hyperparameters?.filter((h) => h?.key && h?.value),
+        envVars: envVars && Object.keys(envVars).length > 0 ? envVars : undefined,
         gpuCount: gpuEnabled ? values.gpuCount : 0,
         gpuMode: gpuEnabled ? values.gpuMode : undefined,
         cpu: String(values.cpu),
@@ -392,6 +413,28 @@ export default function CreateTrainingJobPage() {
                 ),
               },
               {
+                key: 'envVars',
+                label: (
+                  <Space size={4}>
+                    环境变量
+                    <Tooltip title="通用的容器环境变量（非超参数），可用于传递 API Key、服务地址等配置。支持从业务配置预设中快速加载。">
+                      <InfoCircleOutlined style={{ color: '#999' }} />
+                    </Tooltip>
+                  </Space>
+                ),
+                children: (
+                  <Form.Item>
+                    <EnvVarEditor
+                      name="envVars"
+                      keyPlaceholder="变量名"
+                      valuePlaceholder="变量值"
+                      addButtonText="+ 添加环境变量"
+                      presets={configs}
+                    />
+                  </Form.Item>
+                ),
+              },
+              {
                 key: 'advanced',
                 label: '高级配置',
                 children: (
@@ -526,6 +569,7 @@ function ConfirmStep({
   const image = values.imageId ? images.find((i) => i.id === values.imageId) : null
   const imageLabel = image ? `${image.name}:${image.tag}` : '未选择'
   const hp = values.hyperparameters?.filter((h) => h?.key && h?.value) ?? []
+  const ev = values.envVars?.filter((e) => e?.key?.trim()) ?? []
   const gpuEnabled = values.useGpu ?? true
 
   return (
@@ -580,6 +624,15 @@ function ConfirmStep({
           {hp.map((h) => (
             <Tag key={h.key} style={{ marginBottom: 4 }}>
               {h.key}={h.value}
+            </Tag>
+          ))}
+        </Descriptions.Item>
+      )}
+      {ev.length > 0 && (
+        <Descriptions.Item label="环境变量" span={2}>
+          {ev.map((e) => (
+            <Tag key={e.key} style={{ marginBottom: 4 }}>
+              {e.key}={e.value}
             </Tag>
           ))}
         </Descriptions.Item>

@@ -23,6 +23,7 @@ export interface TrainingJob {
   imageId: string
   command: string
   hyperparameters?: Record<string, string>
+  envVars?: Record<string, string>
   gpuCount: number
   gpuMode: string
   cpu: string
@@ -53,6 +54,7 @@ export interface TrainingJobCreate {
   imageId: string
   command: string
   hyperparameters?: Hyperparameter[]
+  envVars?: Record<string, string>
   gpuCount?: number
   gpuMode?: string
   cpu?: string
