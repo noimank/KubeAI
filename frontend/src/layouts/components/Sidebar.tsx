@@ -96,6 +96,12 @@ const MENU_CONFIG: MenuEntry[] = [
         permission: 'training_jobs:read',
       },
       {
+        path: '/tuning',
+        name: '超参调优',
+        icon: <ThunderboltOutlined />,
+        permission: 'tuning:read',
+      },
+      {
         path: '/experiments',
         name: '实验追踪',
         icon: <FileSearchOutlined />,

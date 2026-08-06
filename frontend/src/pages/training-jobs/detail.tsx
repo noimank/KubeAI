@@ -623,6 +623,8 @@ export default function TrainingJobDetailPage() {
                   <Tag color="blue">开发环境</Tag>
                 ) : job.source === 'experiment_reproduction' ? (
                   <Tag color="green">实验复现</Tag>
+                ) : job.source === 'tuning' ? (
+                  <Tag color="purple">超参调优</Tag>
                 ) : (
                   <Tag>手动创建</Tag>
                 )}

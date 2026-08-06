@@ -33,6 +33,7 @@ const ROLE_OWN_PERMISSIONS: Record<Role, string[]> = {
     'audit_logs:read',
     'users:read',
     'algorithms:manage',
+    'tuning:manage',
   ],
   engineer: [
     'data_explore:read',
@@ -52,6 +53,8 @@ const ROLE_OWN_PERMISSIONS: Record<Role, string[]> = {
     'annotation_templates:write',
     'algorithms:read',
     'algorithms:write',
+    'tuning:read',
+    'tuning:write',
   ],
   annotator: [
     'data_explore:read',
