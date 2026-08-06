@@ -50,7 +50,7 @@ repos:
 
       - id: frontend-typecheck
         name: "frontend: typecheck"
-        entry: pnpm -C frontend exec tsc --noEmit
+        entry: pnpm -C frontend exec tsc -b
         language: system
         types_or: [ts, tsx]
         files: ^frontend/
