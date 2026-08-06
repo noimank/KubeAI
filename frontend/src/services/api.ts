@@ -15,9 +15,17 @@ function toCamelCase(str: string): string {
   return str.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
 }
 
-// 不递归转换其内部键名的白名单字段 —— 例如 env_vars 的值是以用户自定义
-// 环境变量名为 key 的 dict，不应被驼峰/下划线风格转换。
-const SKIP_RECURSE_KEYS = new Set(['env_vars', 'envVars'])
+// 不递归转换其内部键名的白名单字段 —— 值是以用户自定义字符串为 key 的 dict, 不应被驼峰/下划线转换:
+//   - env_vars: 环境变量名 (用户自定义)
+//   - search_space / params: 超参搜索空间的参数名 / trial 参数名 (训练脚本约定 snake_case, 须原样透传,
+//     否则 learning_rate 等会被改成 learningRate, 与训练脚本实际收到的参数名不一致)
+export const SKIP_RECURSE_KEYS = new Set([
+  'env_vars',
+  'envVars',
+  'search_space',
+  'searchSpace',
+  'params',
+])
 
 function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)

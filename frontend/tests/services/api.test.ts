@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { transformKeys, toCamelCase, toSnakeCase } from '@/services/api'
+import { transformKeys, toCamelCase, toSnakeCase, SKIP_RECURSE_KEYS } from '@/services/api'
 
 describe('toCamelCase', () => {
   it('should convert snake_case to camelCase', () => {
@@ -53,5 +53,33 @@ describe('transformKeys', () => {
     expect(transformKeys('hello', toCamelCase)).toBe('hello')
     expect(transformKeys(42, toCamelCase)).toBe(42)
     expect(transformKeys(true, toCamelCase)).toBe(true)
+  })
+
+  it('should not transform user-defined keys inside skip-list fields (env_vars / search_space / params)', () => {
+    const input = {
+      env_vars: { CUSTOM_VAR: 'x', other_key: 'y' },
+      search_space: { learning_rate: { type: 'float', low: 1e-4 } },
+      params: { learning_rate: 0.01, batch_size: 32, num_layers: 4 },
+      normal_field: { sub_key: 1 },
+    }
+    const result = transformKeys(input, toCamelCase, SKIP_RECURSE_KEYS)
+    expect(result).toEqual({
+      envVars: { CUSTOM_VAR: 'x', other_key: 'y' },
+      searchSpace: { learning_rate: { type: 'float', low: 1e-4 } },
+      params: { learning_rate: 0.01, batch_size: 32, num_layers: 4 },
+      normalField: { subKey: 1 },
+    })
+  })
+
+  it('should skip-list keys symmetrically on the request (snake) transform', () => {
+    const input = {
+      searchSpace: { learning_rate: 0.01 },
+      params: { batch_size: 32 },
+    }
+    const result = transformKeys(input, toSnakeCase, SKIP_RECURSE_KEYS)
+    expect(result).toEqual({
+      search_space: { learning_rate: 0.01 },
+      params: { batch_size: 32 },
+    })
   })
 })
