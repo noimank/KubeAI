@@ -150,6 +150,21 @@ class NotificationPriority(enum.StrEnum):
     HIGH = "high"
 
 
+class TuningStudyStatus(enum.StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    STOPPED = "stopped"
+    FAILED = "failed"
+
+
+class TuningTrialState(enum.StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETE = "complete"
+    FAILED = "failed"
+    PRUNED = "pruned"
+
+
 class AlgorithmSourceType(enum.StrEnum):
     UPLOAD = "upload"
     GIT = "git"

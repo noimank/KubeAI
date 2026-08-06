@@ -444,6 +444,15 @@ async def _on_terminal_status(
     # ── Push WebSocket event ───────────────────────────────────────────
     await _publish_training_status_change(job.tenant_id, job.id, old_status, new_status)
 
+    # ── Trigger tuning reconcile (trial job 终态 → 立即收尾 + 补发) ──────
+    if job.source == "tuning":
+        try:
+            from app.tasks.tuning_tasks import enqueue_finalize_trial
+
+            await enqueue_finalize_trial(job.id)
+        except Exception:
+            logger.exception("watcher_tuning_finalize_enqueue_error", job_id=str(job.id))
+
 
 async def _publish_training_status_change(
     tenant_id: uuid.UUID,

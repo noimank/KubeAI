@@ -16,6 +16,7 @@ from app.models.notification import Notification
 from app.models.registered_model import ModelVersion, RegisteredModel
 from app.models.tenant import Tenant
 from app.models.training_job import TrainingJob
+from app.models.tuning import TuningStudy, TuningTrial
 from app.models.user import User
 
 __all__ = [
@@ -40,5 +41,7 @@ __all__ = [
     "Tenant",
     "TenantInvitation",
     "TrainingJob",
+    "TuningStudy",
+    "TuningTrial",
     "User",
 ]

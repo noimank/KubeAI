@@ -34,6 +34,11 @@ postgresql:
     extraVolumeMounts:
       - name: run
         mountPath: /var/run/postgresql
+    # Optuna 必须独立数据库 (与 kubeai 库物理隔离, 避免 alembic_version 冲突).
+    # 仅在首次初始化 (空数据卷) 时执行; 已有数据卷需手动 CREATE DATABASE optuna;
+    initdbScripts:
+      create-optuna-db.sql: |
+        CREATE DATABASE optuna;
 
 redis:
   service:

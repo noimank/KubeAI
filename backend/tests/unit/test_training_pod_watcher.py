@@ -255,3 +255,45 @@ class TestOnTerminalStatusTensorboardCleanup:
         _, mock_exp_cls, _ = await self._invoke(job, tenant)
 
         mock_exp_cls.return_value.terminate_experiments_for_job.assert_awaited_once_with(job.id)
+
+
+class TestOnTerminalStatusTuningFinalize:
+    """trial job (source='tuning') 终态 → 触发 study reconcile (enqueue_finalize_trial)."""
+
+    async def test_tuning_job_enqueues_finalize_trial(self):
+        from app.integrations.k8s.training_pod_watcher import _on_terminal_status
+
+        job = _make_job(source="tuning")
+        tenant = _make_tenant(id=job.tenant_id, k8s_namespace_name="kubeai-default")
+        mock_exp_cls, mock_notif_cls = _mock_service_classes()
+
+        with (
+            patch(f"{_WATCHER_PATH}.async_session_factory", _patched_factory_returning(tenant)),
+            patch("app.services.experiment_service.ExperimentService", mock_exp_cls),
+            patch("app.services.notification_service.NotificationService", mock_notif_cls),
+            patch(f"{_WATCHER_PATH}._publish_training_status_change", AsyncMock()),
+            patch(f"{_WATCHER_PATH}.publish_ws_event", AsyncMock()),
+            patch("app.tasks.tuning_tasks.enqueue_finalize_trial", AsyncMock()) as mock_enqueue,
+        ):
+            await _on_terminal_status(job, old_status=TrainingJobStatus.RUNNING, new_status=TrainingJobStatus.SUCCEEDED)
+
+        mock_enqueue.assert_awaited_once_with(job.id)
+
+    async def test_manual_job_does_not_enqueue_finalize(self):
+        from app.integrations.k8s.training_pod_watcher import _on_terminal_status
+
+        job = _make_job(source="manual")
+        tenant = _make_tenant(id=job.tenant_id, k8s_namespace_name="kubeai-default")
+        mock_exp_cls, mock_notif_cls = _mock_service_classes()
+
+        with (
+            patch(f"{_WATCHER_PATH}.async_session_factory", _patched_factory_returning(tenant)),
+            patch("app.services.experiment_service.ExperimentService", mock_exp_cls),
+            patch("app.services.notification_service.NotificationService", mock_notif_cls),
+            patch(f"{_WATCHER_PATH}._publish_training_status_change", AsyncMock()),
+            patch(f"{_WATCHER_PATH}.publish_ws_event", AsyncMock()),
+            patch("app.tasks.tuning_tasks.enqueue_finalize_trial", AsyncMock()) as mock_enqueue,
+        ):
+            await _on_terminal_status(job, old_status=TrainingJobStatus.RUNNING, new_status=TrainingJobStatus.SUCCEEDED)
+
+        mock_enqueue.assert_not_awaited()

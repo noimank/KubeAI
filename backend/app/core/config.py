@@ -114,5 +114,17 @@ class Settings(BaseSettings):
     DATA_EXPLORE_MAX_ROWS: int = 1000
     DATA_EXPLORE_QUERY_TIMEOUT: int = 30
 
+    # -- 自动超参调优 (Optuna)
+    # 兜底驱动周期 (秒): 主路径为 trial job 终态事件触发的 finalize_trial_task, 此处仅作 safety-net
+    # (覆盖 watcher 漏事件 / 补发新 trial). interval_to_cron 最细到分钟.
+    TUNING_DRIVE_INTERVAL_SECONDS: int = 180
+    # trial job 成功但 MLflow 指标暂不可读时, 在此秒数内反复重试 (读不到就留到下个 tick),
+    # 超时仍未上报则判 FAIL, 避免 MLflow 延迟导致 trial 误判永久失败.
+    TUNING_METRIC_GRACE_SECONDS: int = 600
+    # Optuna RDBStorage 同步 URL. 必须指向独立数据库 (与 DATABASE_URL 不同库), 不得留空:
+    # Optuna 与平台各自走 Alembic, 共库会共用 alembic_version 导致建表/迁移冲突.
+    OPTUNA_DATABASE_URL: str = ""
+    OPTUNA_STORAGE_HEARTBEAT_SECONDS: int = 60
+
 
 settings = Settings()

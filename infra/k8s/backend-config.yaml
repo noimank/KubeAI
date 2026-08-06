@@ -103,6 +103,10 @@ data:
   # -- MLflow 实验追踪 (必选基础依赖; 训练任务可选择是否启用, 通过创建任务表单的 "实验追踪" 开关)
   MLFLOW_TRACKING_URI: "http://mlflow.kubeai.svc.cluster.local:5000"
 
+  # -- 自动超参调优 (Optuna)
+  # Optuna RDBStorage 必须独立数据库 (与平台 kubeai 库不同), 避免 alembic_version 冲突.
+  # 部署前需在 PostgreSQL 中创建该库: CREATE DATABASE optuna; (URL/凭证见 backend-secret OPTUNA_DATABASE_URL)
+
   # -- Label Studio 数据标注 (部署 labelstudio/ 后启用)
   LABEL_STUDIO_URL: "http://labelstudio.kubeai.svc.cluster.local:8080"
 
@@ -149,6 +153,9 @@ stringData:
 
   # -- 数据库连接 (密码与 postgresql/postgresql.yaml 中一致)
   DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgresql.kubeai.svc.cluster.local:5432/kubeai"
+
+  # -- Optuna 独立数据库 (与 kubeai 库不同; 部署前须 CREATE DATABASE optuna;)
+  OPTUNA_DATABASE_URL: "postgresql+psycopg2://postgres:postgres@postgresql.kubeai.svc.cluster.local:5432/optuna"
 
   # -- Redis 连接
   REDIS_URL: "redis://redis.kubeai.svc.cluster.local:6379/0"

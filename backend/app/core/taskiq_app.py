@@ -64,4 +64,5 @@ import app.tasks.image_tasks  # noqa: E402
 import app.tasks.inference_service_tasks  # noqa: E402
 import app.tasks.monitoring_tasks  # noqa: E402
 import app.tasks.resource_cleanup_tasks  # noqa: E402
-import app.tasks.training_job_tasks  # noqa: E402, F401
+import app.tasks.training_job_tasks  # noqa: E402
+import app.tasks.tuning_tasks  # noqa: E402, F401

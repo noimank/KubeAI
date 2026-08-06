@@ -23,6 +23,7 @@ from app.api.endpoints.notifications import router as notifications_router
 from app.api.endpoints.query_results import router as query_results_router
 from app.api.endpoints.tenants import router as tenants_router
 from app.api.endpoints.training_jobs import router as training_jobs_router
+from app.api.endpoints.tuning_studies import router as tuning_studies_router
 from app.api.endpoints.users import router as users_router
 from app.schemas.base import BaseResponse
 
@@ -58,5 +59,6 @@ api_router.include_router(notifications_router)
 api_router.include_router(query_results_router)
 api_router.include_router(tenants_router)
 api_router.include_router(training_jobs_router)
+api_router.include_router(tuning_studies_router)
 api_router.include_router(users_router)
 api_router.include_router(audit_logs_router)

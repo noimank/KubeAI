@@ -367,6 +367,15 @@ class TrainingJobService:
         await self.db.commit()
         await self.db.refresh(job)
         self._publish_status_change(job.tenant_id, job.id, old_status, job.status)
+
+        # tuning trial job 停止 → 触发 study reconcile (收尾该 trial)
+        if job.source == "tuning":
+            try:
+                from app.tasks.tuning_tasks import enqueue_finalize_trial
+
+                await enqueue_finalize_trial(job.id)
+            except Exception:
+                logger.exception("stop_tuning_finalize_enqueue_error: %s", str(job.id))
         return job
 
     async def execute_training_job_stop(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
@@ -802,6 +811,20 @@ class TrainingJobService:
             raise QuotaExceededException(
                 f"GPU 配额不足: 已使用 {gpu_used} 张, 配额 {gpu_limit} 张, 请求 {requested} 张"
             )
+
+    async def validate_training_image(self, image_id: uuid.UUID) -> Image:
+        """公开的镜像校验 (训练类 + 已启用), 供调优等服务创建前 fail-fast."""
+        return await self._get_image_or_fail(image_id)
+
+    async def check_gpu_quota_for_tenant(self, tenant_id: uuid.UUID, requested_gpu: int) -> None:
+        """公开的 GPU 配额预检 (供调优调度器等批量提交方复用).
+
+        不足时抛 QuotaExceededException. 提交侧 (execute_training_job_submission) 仍会
+        做一次真实检查兜底竞态.
+        """
+        tenant = await self._get_tenant_or_fail(tenant_id)
+        namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
+        await self._check_gpu_quota(namespace, tenant.gpu_limit, requested_gpu)
 
     async def _get_job_or_fail(self, job_id: uuid.UUID, tenant_id: uuid.UUID) -> TrainingJob:
         result = await self.db.execute(
