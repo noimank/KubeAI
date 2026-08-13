@@ -7,6 +7,7 @@ import {
   Empty,
   Input,
   Modal,
+  Popconfirm,
   Progress,
   Row,
   Space,
@@ -25,7 +26,14 @@ import { useAuthStore } from '@/stores/authStore'
 import { useTenantStore } from '@/stores/tenantStore'
 import FileBrowser from '@/components/FileBrowser'
 import { registerModel } from '@/services/models'
-import { getBestTrial, getTuningInsights, getTuningStudy, getTuningTrials } from '@/services/tuning'
+import {
+  getBestTrial,
+  getTuningInsights,
+  getTuningStudy,
+  getTuningTrials,
+  pauseTuningStudy,
+  resumeTuningStudy,
+} from '@/services/tuning'
 import OptimizationHistoryChart from './components/OptimizationHistoryChart'
 import HyperparameterImportanceChart from './components/HyperparameterImportanceChart'
 import ParallelCoordinatesChart from './components/ParallelCoordinatesChart'
@@ -36,6 +44,7 @@ const STUDY_STATUS_CONFIG: Record<TuningStudyStatus, { color: string; text: stri
   completed: { color: 'success', text: '已完成' },
   stopped: { color: 'default', text: '已停止' },
   failed: { color: 'error', text: '已失败' },
+  paused: { color: 'warning', text: '已暂停' },
 }
 
 const TRIAL_STATE_CONFIG: Record<TuningTrialState, { color: string; text: string }> = {
@@ -50,6 +59,7 @@ export default function TuningDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const hasPermission = useRbacStore((s) => s.hasPermission)
+  const canWrite = hasPermission('tuning:write')
   const canWriteModels = hasPermission('models:write')
 
   const [registerOpen, setRegisterOpen] = useState(false)
@@ -105,6 +115,22 @@ export default function TuningDetailPage() {
       getMessageInstance()?.success('模型注册成功')
       setRegisterOpen(false)
       queryClient.invalidateQueries({ queryKey: ['models'] })
+    },
+  })
+
+  const pauseMutation = useMutation({
+    mutationFn: pauseTuningStudy,
+    onSuccess: () => {
+      getMessageInstance()?.success('调优任务已暂停')
+      queryClient.invalidateQueries({ queryKey: ['tuningStudy', id] })
+    },
+  })
+
+  const resumeMutation = useMutation({
+    mutationFn: resumeTuningStudy,
+    onSuccess: () => {
+      getMessageInstance()?.success('调优任务已恢复')
+      queryClient.invalidateQueries({ queryKey: ['tuningStudy', id] })
     },
   })
 
@@ -210,6 +236,30 @@ export default function TuningDetailPage() {
             <Tag color={statusCfg.color}>{statusCfg.text}</Tag>
           </Space>
         }
+        extra={
+          canWrite && (
+            <Space>
+              {study.status === 'running' && (
+                <Popconfirm
+                  title="确认暂停该调优任务？运行中的 trial 会被停止并释放资源。"
+                  onConfirm={() => pauseMutation.mutate(study.id)}
+                >
+                  <Button size="small">暂停</Button>
+                </Popconfirm>
+              )}
+              {study.status === 'paused' && (
+                <Popconfirm
+                  title="确认恢复该调优任务？将从此前进度继续补发 trial。"
+                  onConfirm={() => resumeMutation.mutate(study.id)}
+                >
+                  <Button type="primary" size="small">
+                    恢复
+                  </Button>
+                </Popconfirm>
+              )}
+            </Space>
+          )
+        }
         style={{ marginBottom: 16 }}
       >
         <Descriptions bordered size="small" column={3}>
@@ -286,6 +336,7 @@ export default function TuningDetailPage() {
             <ParallelCoordinatesChart
               history={insights?.history ?? []}
               importance={insights?.importance}
+              metricName={study.metricName}
             />
           </Card>
         </Col>

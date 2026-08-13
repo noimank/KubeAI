@@ -21,6 +21,8 @@ export interface SearchSpaceRowValue {
   low?: number
   high?: number
   log?: boolean
+  /** float/int 采样步长 (可选) */
+  step?: number
   /** categorical 候选值，逗号分隔字符串 */
   choices?: string
   /** fixed 固定值 */
@@ -77,6 +79,9 @@ function SearchSpaceRowFields({
           <Form.Item name={[fieldName, 'log']} valuePropName="checked" style={{ marginBottom: 0 }}>
             <Switch checkedChildren="log" unCheckedChildren="线性" />
           </Form.Item>
+          <Form.Item name={[fieldName, 'step']} style={{ marginBottom: 0 }}>
+            <InputNumber placeholder="步长" step="any" min={0} style={{ width: 90 }} />
+          </Form.Item>
         </>
       )}
 
@@ -98,6 +103,9 @@ function SearchSpaceRowFields({
           </Form.Item>
           <Form.Item name={[fieldName, 'log']} valuePropName="checked" style={{ marginBottom: 0 }}>
             <Switch checkedChildren="log" unCheckedChildren="线性" />
+          </Form.Item>
+          <Form.Item name={[fieldName, 'step']} style={{ marginBottom: 0 }}>
+            <InputNumber placeholder="步长" precision={0} min={1} style={{ width: 90 }} />
           </Form.Item>
         </>
       )}

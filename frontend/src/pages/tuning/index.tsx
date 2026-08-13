@@ -12,7 +12,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { formatDate } from '@/utils/format'
 import { useRbacStore } from '@/stores/rbacStore'
-import { deleteTuningStudy, getTuningStudies, stopTuningStudy } from '@/services/tuning'
+import {
+  deleteTuningStudy,
+  getTuningStudies,
+  pauseTuningStudy,
+  resumeTuningStudy,
+  stopTuningStudy,
+} from '@/services/tuning'
 import type { TuningStudy, TuningStudyStatus } from '@/types/tuning'
 
 const STATUS_CONFIG: Record<TuningStudyStatus, { color: string; text: string }> = {
@@ -20,6 +26,7 @@ const STATUS_CONFIG: Record<TuningStudyStatus, { color: string; text: string }> 
   completed: { color: 'success', text: '已完成' },
   stopped: { color: 'default', text: '已停止' },
   failed: { color: 'error', text: '已失败' },
+  paused: { color: 'warning', text: '已暂停' },
 }
 
 const STATUS_TABS = [
@@ -28,6 +35,7 @@ const STATUS_TABS = [
   { label: '已完成', value: 'completed' },
   { label: '已失败', value: 'failed' },
   { label: '已停止', value: 'stopped' },
+  { label: '已暂停', value: 'paused' },
 ]
 
 function formatBest(value?: number): string {
@@ -67,6 +75,22 @@ export default function TuningPage() {
     mutationFn: stopTuningStudy,
     onSuccess: () => {
       getMessageInstance()?.success('调优任务已停止')
+      queryClient.invalidateQueries({ queryKey: ['tuningStudies'] })
+    },
+  })
+
+  const pauseMutation = useMutation({
+    mutationFn: pauseTuningStudy,
+    onSuccess: () => {
+      getMessageInstance()?.success('调优任务已暂停')
+      queryClient.invalidateQueries({ queryKey: ['tuningStudies'] })
+    },
+  })
+
+  const resumeMutation = useMutation({
+    mutationFn: resumeTuningStudy,
+    onSuccess: () => {
+      getMessageInstance()?.success('调优任务已恢复')
       queryClient.invalidateQueries({ queryKey: ['tuningStudies'] })
     },
   })
@@ -153,10 +177,30 @@ export default function TuningPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 260,
       render: (_, record: TuningStudy) => (
         <Space>
           <Link to={`/tuning/${record.id}`}>详情</Link>
+          {record.status === 'running' && canWrite && (
+            <Popconfirm
+              title="确认暂停该调优任务？运行中的 trial 会被停止并释放资源。"
+              onConfirm={() => pauseMutation.mutate(record.id)}
+            >
+              <Button type="link" size="small">
+                暂停
+              </Button>
+            </Popconfirm>
+          )}
+          {record.status === 'paused' && canWrite && (
+            <Popconfirm
+              title="确认恢复该调优任务？将从此前进度继续补发 trial。"
+              onConfirm={() => resumeMutation.mutate(record.id)}
+            >
+              <Button type="link" size="small">
+                恢复
+              </Button>
+            </Popconfirm>
+          )}
           {record.status === 'running' && canWrite && (
             <Popconfirm
               title="确认停止该调优任务？"

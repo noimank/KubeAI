@@ -34,7 +34,7 @@ import { getDatasets, getDatasetDetail } from '@/services/datasets'
 import { getSelectableImages } from '@/services/images'
 import { getBusinessConfigs } from '@/services/business-configs'
 import { createTuningStudy } from '@/services/tuning'
-import type { SearchSpaceItem, TuningDirection } from '@/types/tuning'
+import type { SearchSpaceItem, SamplerType, TuningDirection } from '@/types/tuning'
 
 interface FormValues {
   name: string
@@ -62,6 +62,18 @@ interface FormValues {
     nWarmupSteps?: number
     interval?: number
     nMinTrials?: number
+    prunePercentile?: number
+  }
+  samplerConfig?: {
+    type?: SamplerType
+    seed?: number
+    multivariate?: boolean
+    nStartupTrials?: number
+  }
+  stoppingConfig?: {
+    studyTimeoutSeconds?: number
+    trialTimeoutSeconds?: number
+    earlyStopPatience?: number
   }
 }
 
@@ -90,6 +102,7 @@ function toSearchSpaceDict(rows: SearchSpaceRowValue[]): Record<string, SearchSp
     if (item.type === 'float' || item.type === 'int') {
       if (row.low !== undefined) item.low = row.low
       if (row.high !== undefined) item.high = row.high
+      if (row.step !== undefined) item.step = row.step
       item.log = row.log ?? false
     } else if (item.type === 'categorical') {
       item.choices = (row.choices ?? '')
@@ -201,6 +214,26 @@ export default function CreateTuningPage() {
         envVars: envVars && Object.keys(envVars).length > 0 ? envVars : undefined,
         pruningEnabled: values.pruningEnabled ?? false,
         pruningConfig: values.pruningEnabled ? values.pruningConfig : undefined,
+        samplerConfig: values.samplerConfig?.type
+          ? {
+              type: values.samplerConfig.type,
+              ...(values.samplerConfig.seed !== undefined
+                ? { seed: values.samplerConfig.seed }
+                : {}),
+              ...(values.samplerConfig.multivariate !== undefined
+                ? { multivariate: values.samplerConfig.multivariate }
+                : {}),
+              ...(values.samplerConfig.nStartupTrials !== undefined
+                ? { nStartupTrials: values.samplerConfig.nStartupTrials }
+                : {}),
+            }
+          : undefined,
+        stoppingConfig:
+          values.stoppingConfig?.studyTimeoutSeconds ||
+          values.stoppingConfig?.trialTimeoutSeconds ||
+          values.stoppingConfig?.earlyStopPatience
+            ? values.stoppingConfig
+            : undefined,
       })
       getMessageInstance()?.success('调优任务创建成功')
       navigate('/tuning')
@@ -345,11 +378,122 @@ export default function CreateTuningPage() {
                             >
                               <InputNumber min={1} style={{ width: '100%' }} />
                             </Form.Item>
+                            <Form.Item
+                              name={['pruningConfig', 'prunePercentile']}
+                              label="剪枝百分位"
+                              initialValue={50}
+                              tooltip="与已完成 trial 终值在此百分位的参考值比较 (默认 50 = 中位数)；百分位越低剪枝越激进"
+                              style={{ flex: '1 1 200px' }}
+                            >
+                              <InputNumber min={0} max={100} style={{ width: '100%' }} />
+                            </Form.Item>
                           </div>
                         ) : null
                       }
                     </Form.Item>
                   </>
+                ),
+              },
+            ]}
+          />
+          <Collapse
+            ghost
+            items={[
+              {
+                key: 'advanced',
+                label: (
+                  <Space size={4}>
+                    高级配置 (搜索策略 & 终止条件)
+                    <Tooltip title="搜索策略选择采样器；终止条件到点后停止补发新 trial（运行中的 trial 自然结束后任务完成）。任务超时若配合 trial 超时使用，可避免单个 trial 卡住阻塞完成。">
+                      <InfoCircleOutlined style={{ color: '#999' }} />
+                    </Tooltip>
+                  </Space>
+                ),
+                children: (
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, cur) =>
+                      prev.samplerConfig?.type !== cur.samplerConfig?.type
+                    }
+                  >
+                    {({ getFieldValue }) => (
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                        <Form.Item
+                          name={['samplerConfig', 'type']}
+                          label="搜索策略"
+                          initialValue="tpe"
+                          tooltip="TPE 是贝叶斯优化的默认选择；CMA-ES 对连续参数收敛快但仅支持连续/整数空间；Random 用于基线对照"
+                          style={{ flex: '1 1 200px' }}
+                        >
+                          <Select
+                            options={[
+                              { label: 'TPE（默认）', value: 'tpe' },
+                              { label: 'CMA-ES', value: 'cmaes' },
+                              { label: '随机（Random）', value: 'random' },
+                            ]}
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          name={['samplerConfig', 'seed']}
+                          label="随机种子"
+                          tooltip="设置后采样可复现，便于对比实验"
+                          style={{ flex: '1 1 200px' }}
+                        >
+                          <InputNumber min={0} style={{ width: '100%' }} placeholder="留空不固定" />
+                        </Form.Item>
+                        {getFieldValue('samplerConfig')?.type === 'tpe' && (
+                          <>
+                            <Form.Item
+                              name={['samplerConfig', 'multivariate']}
+                              label="多变量采样"
+                              valuePropName="checked"
+                              initialValue={false}
+                              tooltip="TPE 建模参数间相关，参数相互影响时效果更好"
+                              style={{ flex: '1 1 200px' }}
+                            >
+                              <Switch checkedChildren="开" unCheckedChildren="关" />
+                            </Form.Item>
+                            <Form.Item
+                              name={['samplerConfig', 'nStartupTrials']}
+                              label="随机预热数"
+                              tooltip="前 N 个 trial 随机采样，用于积累初始分布"
+                              style={{ flex: '1 1 200px' }}
+                            >
+                              <InputNumber
+                                min={0}
+                                placeholder="默认 10"
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                          </>
+                        )}
+                        <Form.Item
+                          name={['stoppingConfig', 'studyTimeoutSeconds']}
+                          label="任务超时（秒）"
+                          tooltip="整个调优任务的最长运行时间，到点停止补发新 trial"
+                          style={{ flex: '1 1 200px' }}
+                        >
+                          <InputNumber min={1} style={{ width: '100%' }} placeholder="不限" />
+                        </Form.Item>
+                        <Form.Item
+                          name={['stoppingConfig', 'trialTimeoutSeconds']}
+                          label="单试超时（秒）"
+                          tooltip="单个 trial 训练超过此时长则判失败并停止，避免卡死"
+                          style={{ flex: '1 1 200px' }}
+                        >
+                          <InputNumber min={1} style={{ width: '100%' }} placeholder="不限" />
+                        </Form.Item>
+                        <Form.Item
+                          name={['stoppingConfig', 'earlyStopPatience']}
+                          label="早停耐心"
+                          tooltip="连续 N 个已完成 trial 无改进则提前结束调优"
+                          style={{ flex: '1 1 200px' }}
+                        >
+                          <InputNumber min={1} style={{ width: '100%' }} placeholder="不限" />
+                        </Form.Item>
+                      </div>
+                    )}
+                  </Form.Item>
                 ),
               },
             ]}
@@ -603,7 +747,45 @@ function ConfirmStep({
       <Descriptions.Item label="剪枝">
         {values.pruningEnabled ? <Tag color="green">启用</Tag> : <Tag>未启用</Tag>}
       </Descriptions.Item>
+      <Descriptions.Item label="搜索策略">
+        {values.samplerConfig?.type ? (
+          <Space size={4}>
+            <Tag color="blue">
+              {values.samplerConfig.type === 'tpe'
+                ? 'TPE'
+                : values.samplerConfig.type === 'cmaes'
+                  ? 'CMA-ES'
+                  : '随机'}
+            </Tag>
+            {values.samplerConfig.seed !== undefined && (
+              <span style={{ fontSize: 12 }}>seed={values.samplerConfig.seed}</span>
+            )}
+          </Space>
+        ) : (
+          <Tag>默认 (TPE)</Tag>
+        )}
+      </Descriptions.Item>
       <Descriptions.Item label="数据集">{datasetName}</Descriptions.Item>
+      <Descriptions.Item label="终止条件" span={2}>
+        {(() => {
+          const s = values.stoppingConfig
+          const parts: string[] = []
+          if (s?.studyTimeoutSeconds) parts.push(`任务超时 ${s.studyTimeoutSeconds}s`)
+          if (s?.trialTimeoutSeconds) parts.push(`单试超时 ${s.trialTimeoutSeconds}s`)
+          if (s?.earlyStopPatience) parts.push(`无改进 ${s.earlyStopPatience} 次早停`)
+          return parts.length > 0 ? (
+            <Space wrap size={[4, 4]}>
+              {parts.map((p) => (
+                <Tag key={p} color="orange">
+                  {p}
+                </Tag>
+              ))}
+            </Space>
+          ) : (
+            <Tag>未配置</Tag>
+          )
+        })()}
+      </Descriptions.Item>
       <Descriptions.Item label="镜像">{imageLabel}</Descriptions.Item>
       <Descriptions.Item label="GPU">
         {gpuEnabled ? (

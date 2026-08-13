@@ -55,6 +55,16 @@ export async function stopTuningStudy(id: string): Promise<TuningStudy> {
   return res.data.data!
 }
 
+export async function pauseTuningStudy(id: string): Promise<TuningStudy> {
+  const res = await api.post(`/tuning/studies/${id}/pause`)
+  return res.data.data!
+}
+
+export async function resumeTuningStudy(id: string): Promise<TuningStudy> {
+  const res = await api.post(`/tuning/studies/${id}/resume`)
+  return res.data.data!
+}
+
 export async function deleteTuningStudy(id: string): Promise<void> {
   await api.delete(`/tuning/studies/${id}`)
 }

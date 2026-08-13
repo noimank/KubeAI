@@ -1,7 +1,8 @@
 export type SearchSpaceParamType = 'float' | 'int' | 'categorical' | 'fixed'
 export type TuningDirection = 'minimize' | 'maximize'
-export type TuningStudyStatus = 'running' | 'completed' | 'stopped' | 'failed'
+export type TuningStudyStatus = 'running' | 'completed' | 'stopped' | 'failed' | 'paused'
 export type TuningTrialState = 'pending' | 'running' | 'complete' | 'failed' | 'pruned'
+export type SamplerType = 'tpe' | 'cmaes' | 'random'
 
 export interface SearchSpaceItem {
   type: SearchSpaceParamType
@@ -40,6 +41,8 @@ export interface TuningStudy {
   bestValue?: number
   pruningEnabled: boolean
   pruningConfig?: PruningConfig
+  samplerConfig?: SamplerConfig
+  stoppingConfig?: StoppingConfig
   errorMessage?: string
   createdAt: string
   updatedAt: string
@@ -84,6 +87,8 @@ export interface TuningStudyCreate {
   envVars?: Record<string, string>
   pruningEnabled?: boolean
   pruningConfig?: PruningConfig
+  samplerConfig?: SamplerConfig
+  stoppingConfig?: StoppingConfig
 }
 
 export interface PruningConfig {
@@ -91,6 +96,22 @@ export interface PruningConfig {
   nWarmupSteps?: number
   interval?: number
   nMinTrials?: number
+  prunePercentile?: number
+}
+
+/** 采样器配置 (搜索策略). multivariate / nStartupTrials 仅对 tpe 生效. */
+export interface SamplerConfig {
+  type: SamplerType
+  seed?: number
+  multivariate?: boolean
+  nStartupTrials?: number
+}
+
+/** 终止条件配置. 三者均可独立为空. */
+export interface StoppingConfig {
+  studyTimeoutSeconds?: number
+  trialTimeoutSeconds?: number
+  earlyStopPatience?: number
 }
 
 export interface BestTrial {

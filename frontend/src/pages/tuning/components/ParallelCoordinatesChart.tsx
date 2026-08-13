@@ -13,6 +13,8 @@ interface ParallelCoordinatesChartProps {
   history: TuningTrialPoint[]
   /** 用于维度排序: 重要性高的参数排前, 无值时按出现顺序. */
   importance?: Record<string, number>
+  /** 目标指标名, 作为末轴 (目标值轴) 的轴名. */
+  metricName?: string
 }
 
 /** 数值轴 min==max 时扩张区间, 避免 echarts 退化布局. */
@@ -22,12 +24,13 @@ function expandRange(min: number, max: number): [number, number] {
 }
 
 /**
- * 平行坐标: 每个已完成 trial 一条线, 各超参为一条平行轴, 按目标值连续着色.
+ * 平行坐标: 每个已完成 trial 一条线, 各超参 + 目标指标各为一条平行轴, 末轴=目标值 (着色依据).
  * 完成 trial <2 时展示空态.
  */
 export default function ParallelCoordinatesChart({
   history,
   importance,
+  metricName,
 }: ParallelCoordinatesChartProps) {
   const { token } = theme.useToken()
   const { ref, chartRef } = useEcharts()
@@ -62,17 +65,18 @@ export default function ParallelCoordinatesChart({
     if (dims.length === 0) return null
     const axisColor = token.colorTextSecondary
 
-    const parallelAxis = dims.map((d, i) => {
+    // 各超参轴 (dim 0..n-1)
+    const paramAxes = dims.map((d, i) => {
       const col = data.map((row) => row[i])
       if (col.every((v) => typeof v === 'number')) {
         const nums = col as number[]
-        const [min, max] = expandRange(Math.min(...nums), Math.max(...nums))
+        const [colMin, colMax] = expandRange(Math.min(...nums), Math.max(...nums))
         return {
           dim: i,
           name: d,
           type: 'value',
-          min,
-          max,
+          min: colMin,
+          max: colMax,
           nameTextStyle: { color: token.colorText },
         }
       }
@@ -84,6 +88,19 @@ export default function ParallelCoordinatesChart({
         nameTextStyle: { color: token.colorText },
       }
     })
+    // 目标指标轴 (末维 dim=n): data 每项 = [各超参..., 目标值], visualMap 据此连续着色.
+    // 必须显式声明, 否则该维无轴承载 → 线条无法落点 → 图退化空白.
+    const parallelAxis = [
+      ...paramAxes,
+      {
+        dim: dims.length,
+        name: metricName ?? '目标值',
+        type: 'value',
+        min,
+        max,
+        nameTextStyle: { color: token.colorText },
+      },
+    ]
 
     return {
       backgroundColor: 'transparent',
@@ -119,7 +136,7 @@ export default function ParallelCoordinatesChart({
       },
       series: [{ type: 'parallel', lineStyle: { width: 1.5 }, data }],
     }
-  }, [dims, data, min, max, token])
+  }, [dims, data, min, max, metricName, token])
 
   useEffect(() => {
     if (option && chartRef.current) chartRef.current.setOption(option, { notMerge: true })
