@@ -90,6 +90,10 @@ class TuningStudy(Base, TimestampMixin, TenantMixin):
     )
     pruning_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, comment="剪枝配置")
 
+    # ── 搜索策略 / 终止条件 (均可选, 为空走默认 TPE / 无额外终止) ───
+    sampler_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, comment="采样器配置")
+    stopping_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, comment="终止条件配置")
+
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True, comment="错误信息")
 
     def __init__(self, **kwargs: object) -> None:

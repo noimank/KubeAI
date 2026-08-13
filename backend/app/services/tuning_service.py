@@ -19,6 +19,7 @@ from app.core.exceptions import (
 )
 from app.core.optuna import (
     best_trial,
+    build_sampler,
     json_search_space_to_distributions,
     load_study,
     study_ask,
@@ -37,6 +38,7 @@ from app.models.enums import TrainingJobStatus, TuningStudyStatus, TuningTrialSt
 from app.models.experiment import Experiment
 from app.models.training_job import TrainingJob
 from app.models.tuning import TuningStudy, TuningTrial
+from app.schemas.tuning import SamplerConfig
 from app.services.training_job_service import ALLOWED_STOP_STATUSES, TrainingJobService
 
 if TYPE_CHECKING:
@@ -55,6 +57,16 @@ _OPTUNA_FINISHED_STATES = frozenset({TrialState.COMPLETE, TrialState.FAIL, Trial
 # 平台 trial 终态字符串 (用于进度统计的 finalized_count).
 _TRIAL_FINAL_STATES = frozenset(
     {TuningTrialState.COMPLETE.value, TuningTrialState.FAILED.value, TuningTrialState.PRUNED.value}
+)
+
+# drive 中仅收尾 (reconcile) 不 prune/complete/spawn 的 study 状态.
+_RECONCILE_ONLY_STATUSES = frozenset(
+    {
+        TuningStudyStatus.COMPLETED.value,
+        TuningStudyStatus.STOPPED.value,
+        TuningStudyStatus.FAILED.value,
+        TuningStudyStatus.PAUSED.value,
+    }
 )
 
 # Optuna TrialState → 平台 trial 状态字符串 (insights / 平台表同步).
@@ -81,13 +93,57 @@ def _within_metric_grace(job: TrainingJob) -> bool:
     return datetime.now(UTC) - finished_at < timedelta(seconds=settings.TUNING_METRIC_GRACE_SECONDS)
 
 
-def _median(values: list[float]) -> float:
+def _percentile(values: list[float], percentile: float) -> float:
+    """线性插值百分位 (等价 numpy.percentile(method='linear')), 避免新增 numpy 直接依赖."""
     s = sorted(values)
     n = len(s)
-    mid = n // 2
-    if n % 2:
-        return s[mid]
-    return (s[mid - 1] + s[mid]) / 2
+    rank = (n - 1) * (percentile / 100.0)
+    lo = int(rank)
+    hi = min(lo + 1, n - 1)
+    frac = rank - lo
+    return s[lo] * (1.0 - frac) + s[hi] * frac
+
+
+def _study_timeout_reached(study: TuningStudy) -> bool:
+    """study 级超时判定: 距创建已超过 stopping_config.study_timeout_seconds."""
+    cfg = study.stopping_config or {}
+    timeout = cfg.get("study_timeout_seconds")
+    if not timeout or study.created_at is None:
+        return False
+    created = study.created_at
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=UTC)
+    return datetime.now(UTC) - created > timedelta(seconds=int(timeout))
+
+
+def _trial_timeout_seconds(study: TuningStudy) -> int | None:
+    """trial 级超时秒数 (stopping_config.trial_timeout_seconds), 未配置返回 None."""
+    cfg = study.stopping_config or {}
+    value = cfg.get("trial_timeout_seconds")
+    return int(value) if value else None
+
+
+def _no_improvement_streak(direction: str, trials: list[Any]) -> int:
+    """从 Optuna 已完成 trial 在线计算当前连续无改进最大连数 (幂等, 无需持久化).
+
+    只统计 COMPLETE trial; failed/pruned 不重置连数. 首个有值 trial 视为改进 (streak 归零).
+    """
+    best: float | None = None
+    streak = 0
+    max_streak = 0
+    minimize = direction == "minimize"
+    for t in trials:
+        if t.state != TrialState.COMPLETE or not t.values:
+            continue
+        value = float(t.values[0])
+        improved = best is None or (value < best if minimize else value > best)
+        if improved:
+            best = value
+            streak = 0
+        else:
+            streak += 1
+        max_streak = max(max_streak, streak)
+    return max_streak
 
 
 class TuningService:
@@ -156,17 +212,21 @@ class TuningService:
         trial 提交由调度器/终态事件驱动 (drive_study); 端点随后 kiq 一次驱动让首个 trial 尽快启动.
         """
         try:
-            json_search_space_to_distributions(
-                {k: v.model_dump(exclude_none=True) for k, v in req.search_space.items()}
-            )
+            search_space_dump = {k: v.model_dump(exclude_none=True) for k, v in req.search_space.items()}
+            distributions, _ = json_search_space_to_distributions(search_space_dump)
         except ValueError as exc:
             raise BadRequestException(f"搜索空间非法: {exc}") from exc
+
+        try:
+            sampler = build_sampler(req.sampler_config, distributions=distributions)
+        except ValueError as exc:
+            raise BadRequestException(f"采样器配置非法: {exc}") from exc
 
         await self.training_service.validate_training_image(req.image_id)
 
         study_id = uuid.uuid4()
         optuna_study_name = f"tuning-{str(tenant_id)[:8]}-{study_id.hex[:8]}"
-        await optuna_create_study(study_name=optuna_study_name, direction=req.direction)
+        await optuna_create_study(study_name=optuna_study_name, direction=req.direction, sampler=sampler)
 
         study = TuningStudy(
             id=study_id,
@@ -179,7 +239,7 @@ class TuningService:
             metric_name=req.metric_name,
             n_trials=req.n_trials,
             n_jobs=req.n_jobs,
-            search_space={k: v.model_dump(exclude_none=True) for k, v in req.search_space.items()},
+            search_space=search_space_dump,
             image_id=req.image_id,
             dataset_id=req.dataset_id,
             dataset_version_id=req.dataset_version_id,
@@ -194,6 +254,8 @@ class TuningService:
             optuna_study_name=optuna_study_name,
             pruning_enabled=req.pruning_enabled,
             pruning_config=req.pruning_config.model_dump() if req.pruning_config else None,
+            sampler_config=req.sampler_config.model_dump(exclude_none=True) if req.sampler_config else None,
+            stopping_config=req.stopping_config.model_dump(exclude_none=True) if req.stopping_config else None,
         )
         self.db.add(study)
         await self.db.commit()
@@ -349,6 +411,41 @@ class TuningService:
         await self.db.refresh(study)
         return study
 
+    async def pause_study(self, study_id: uuid.UUID, tenant_id: uuid.UUID) -> TuningStudy:
+        """暂停调优任务: 停止所有运行中 trial 并释放 GPU (中断 trial 由后续 reconcile 记 FAILED).
+
+        先置 PAUSED 再停 trial job, 避免停止窗口内并发 drive 仍看到 RUNNING 而补发新 trial.
+        """
+        study = await self._get_study_or_fail(study_id, tenant_id)
+        if study.status != TuningStudyStatus.RUNNING.value:
+            raise ConflictException(f"当前状态为 {study.status}, 无法暂停")
+
+        study.status = TuningStudyStatus.PAUSED.value
+        await self.db.commit()
+        await self.db.refresh(study)
+        await self._stop_trial_jobs(study.id, tenant_id)
+        # 尽快驱动一次 reconcile 收尾中断 trial (幂等, 拿不到锁则下个触发接).
+        with contextlib.suppress(Exception):
+            from app.tasks.tuning_tasks import enqueue_drive_study
+
+            await enqueue_drive_study(study.id)
+        return study
+
+    async def resume_study(self, study_id: uuid.UUID, tenant_id: uuid.UUID) -> TuningStudy:
+        """恢复暂停的调优任务: 置 RUNNING 并立即驱动一次, 补发新 trial 填充 n_jobs."""
+        study = await self._get_study_or_fail(study_id, tenant_id)
+        if study.status != TuningStudyStatus.PAUSED.value:
+            raise ConflictException(f"当前状态为 {study.status}, 无法恢复")
+
+        study.status = TuningStudyStatus.RUNNING.value
+        await self.db.commit()
+        await self.db.refresh(study)
+        with contextlib.suppress(Exception):
+            from app.tasks.tuning_tasks import enqueue_drive_study
+
+            await enqueue_drive_study(study.id)
+        return study
+
     async def delete_study(self, study_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
         study = await self._get_study_or_fail(study_id, tenant_id)
         trials = await self._list_trials(study.id)
@@ -382,30 +479,58 @@ class TuningService:
     async def drive_study(self, study: TuningStudy) -> None:
         """单个 study 的一次驱动.
 
-        顶层 setup 异常 (study 被删 / search_space 损坏) → mark FAILED (永久错误);
+        顶层 setup 异常 (study 被删 / search_space 损坏 / sampler 配置非法) → mark FAILED (永久错误);
         循环内单点异常 → per-trial/per-step 隔离 (log + continue, study 保持 RUNNING).
-        RUNNING: reconcile → prune(若启用) → 完成判定 → 补发.
-        STOPPED/COMPLETED: 仅 reconcile (收尾残留 trial, 避免 Optuna 僵尸 RUNNING).
+        RUNNING: reconcile → prune(若启用) → 完成判定 (n_trials / 超时 / 早停) → 补发.
+        COMPLETED/STOPPED/FAILED/PAUSED: 仅 reconcile (收尾残留 trial, 避免 Optuna 僵尸 RUNNING).
         """
         try:
-            optuna_study = await load_study(study.optuna_study_name)
             distributions, fixed_params = json_search_space_to_distributions(study.search_space)
+            optuna_study = await load_study(study.optuna_study_name)
         except Exception as exc:
             logger.exception("tuning_drive_setup_error", extra={"study_id": str(study.id)})
             await self.mark_study_failed(study.id, f"驱动初始化失败: {exc}")
             return
 
         trials = await study_trials(optuna_study)
+
+        # RDB 不持久化 sampler → 每次 tick 重建. 固定 seed 时按已 ask 数派生种子 (seed + 已 ask),
+        # 否则每次重建都采出 RNG 首值 → 每次 tick 只 ask 一次 → 所有 trial 参数恒等 (见 build_sampler).
+        try:
+            sampler = build_sampler(
+                SamplerConfig(**(study.sampler_config or {})) if study.sampler_config else None,
+                distributions=distributions,
+                asked_trials=len(trials),
+            )
+            optuna_study.sampler = sampler
+        except Exception as exc:
+            logger.exception("tuning_drive_setup_error", extra={"study_id": str(study.id)})
+            await self.mark_study_failed(study.id, f"驱动初始化失败: {exc}")
+            return
+
         still_running = await self._reconcile_trials(study, optuna_study, trials)
 
-        if study.status != TuningStudyStatus.RUNNING.value:
+        # PAUSED/COMPLETED/STOPPED/FAILED: reconcile 已同步终态/中断 trial, 不再 prune/complete/spawn.
+        if study.status in _RECONCILE_ONLY_STATUSES:
             return
 
         if study.pruning_enabled:
             await self._prune_running_trials(study, optuna_study, trials)
 
-        await self._check_completion(study, len(trials), still_running)
-        if study.status == TuningStudyStatus.RUNNING.value:
+        timeout_reached = _study_timeout_reached(study)
+        stopping = study.stopping_config or {}
+        early_stop_reached = bool(
+            stopping.get("early_stop_patience")
+            and _no_improvement_streak(study.direction, trials) >= int(stopping["early_stop_patience"])
+        )
+        await self._check_completion(
+            study,
+            len(trials),
+            still_running,
+            timeout_reached=timeout_reached,
+            early_stop_reached=early_stop_reached,
+        )
+        if study.status == TuningStudyStatus.RUNNING.value and not timeout_reached:
             await self._spawn_trials(study, optuna_study, distributions, fixed_params, len(trials))
 
     async def mark_study_failed(self, study_id: uuid.UUID, error: str) -> None:
@@ -497,6 +622,19 @@ class TuningService:
             return "fail", None
 
         if job.status not in TERMINAL_JOB_STATUSES:
+            # trial 超时: job 已开始且超出时限 → FAIL + 停 VCJob (与 prune 停 job 一致).
+            # started_at 为空 (排队未起) 则跳过, 交由正常 reconcile/停止路径处理.
+            trial_timeout = _trial_timeout_seconds(study)
+            if trial_timeout is not None and job.started_at is not None:
+                started = job.started_at
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=UTC)
+                if datetime.now(UTC) - started > timedelta(seconds=trial_timeout):
+                    await study_tell(optuna_study, frozen_trial.number, None)
+                    platform_trial.state = TuningTrialState.FAILED.value
+                    platform_trial.error_message = f"trial 训练超时 (> {trial_timeout}s)"
+                    await self._stop_trial_job(platform_trial.training_job_id, study.tenant_id)
+                    return "fail", None
             return "skip", None  # 仍运行, 留给 prune
 
         if job.status == TrainingJobStatus.SUCCEEDED:
@@ -543,9 +681,20 @@ class TuningService:
             return None
         return min(values) if direction == "minimize" else max(values)
 
-    async def _check_completion(self, study: TuningStudy, asked: int, still_running: int) -> None:
-        """已 ask ≥ n_trials 且无运行中 trial → COMPLETED (best_value 已在 reconcile 折算)."""
-        if asked >= study.n_trials and still_running == 0:
+    async def _check_completion(
+        self,
+        study: TuningStudy,
+        asked: int,
+        still_running: int,
+        *,
+        timeout_reached: bool = False,
+        early_stop_reached: bool = False,
+    ) -> None:
+        """已 ask ≥ n_trials 或命中终止条件 (超时/早停), 且无运行中 trial → COMPLETED.
+
+        best_value 已在 reconcile 折算. 命中 study 超时后只停补发, 等运行中 trial 自然结束后才完成.
+        """
+        if still_running == 0 and (asked >= study.n_trials or timeout_reached or early_stop_reached):
             study.status = TuningStudyStatus.COMPLETED.value
             await self.db.commit()
 
@@ -556,18 +705,19 @@ class TuningService:
         optuna_study: Any,
         trials: list[Any],
     ) -> None:
-        """阈值剪枝: 对运行中 trial 读 MLflow intermediate, 与已完成 trial 终值的中位数比较,
-        差于中位数则 tell PRUNED + 停 job. 仅在 study.pruning_enabled 时由 drive_study 调用."""
+        """阈值剪枝: 对运行中 trial 读 MLflow intermediate, 与已完成 trial 终值的百分位参考比较,
+        差于参考值则 tell PRUNED + 停 job. 仅在 study.pruning_enabled 时由 drive_study 调用."""
         config = study.pruning_config or {}
         n_startup = int(config.get("n_startup_trials", 5))
         n_warmup = int(config.get("n_warmup_steps", 3))
         interval = int(config.get("interval", 1))
         n_min = int(config.get("n_min_trials", 3))
+        percentile = float(config.get("prune_percentile", 50.0))
 
         completed_values = await self._completed_values(study.id)
         if len(completed_values) < max(n_startup, n_min):
             return  # 参考样本不足, 不剪
-        threshold = _median(completed_values)
+        threshold = _percentile(completed_values, percentile)
         minimize = study.direction == "minimize"
 
         for t in trials:

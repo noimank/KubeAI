@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from optuna.distributions import FloatDistribution
 from optuna.trial import TrialState
 
 from app.core.exceptions import QuotaExceededException
@@ -32,6 +33,8 @@ def _make_study(**overrides):
         "optuna_study_name": "tuning-abc-123",
         "pruning_enabled": False,
         "pruning_config": None,
+        "sampler_config": None,
+        "stopping_config": None,
     }
     defaults.update(overrides)
     return TuningStudy(**defaults)
@@ -169,6 +172,67 @@ class TestResolveRunningTrial:
 
         assert action == "skip"  # 留给 prune
         mock_tell.assert_not_awaited()
+
+    async def test_running_job_within_trial_timeout_skips(self):
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(stopping_config={"trial_timeout_seconds": 600})
+        frozen = _make_frozen_trial(2, TrialState.RUNNING)
+        trial = _make_trial(study.id, trial_number=2)
+        job = MagicMock()
+        job.id = trial.training_job_id
+        job.status = TrainingJobStatus.RUNNING
+        job.started_at = datetime.now(UTC) - timedelta(seconds=60)  # 1 分钟内, 未超时
+
+        with patch("app.services.tuning_service.study_tell", AsyncMock()) as mock_tell:
+            action, _ = await service._resolve_running_trial(study, MagicMock(), frozen, trial, {job.id: job})
+
+        assert action == "skip"
+        mock_tell.assert_not_awaited()
+        service._stop_trial_job = AsyncMock()
+        service._stop_trial_job.assert_not_awaited()
+
+    async def test_running_job_past_trial_timeout_fails_and_stops(self):
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(stopping_config={"trial_timeout_seconds": 600})
+        frozen = _make_frozen_trial(2, TrialState.RUNNING)
+        trial = _make_trial(study.id, trial_number=2)
+        job = MagicMock()
+        job.id = trial.training_job_id
+        job.status = TrainingJobStatus.RUNNING
+        job.started_at = datetime.now(UTC) - timedelta(seconds=3600)  # 1 小时, 超时
+        service._stop_trial_job = AsyncMock()
+        optuna_study = MagicMock()
+
+        with patch("app.services.tuning_service.study_tell", AsyncMock()) as mock_tell:
+            action, _ = await service._resolve_running_trial(study, optuna_study, frozen, trial, {job.id: job})
+
+        assert action == "fail"
+        mock_tell.assert_awaited_once_with(optuna_study, 2, None)
+        assert trial.state == TuningTrialState.FAILED.value
+        assert "超时" in trial.error_message
+        service._stop_trial_job.assert_awaited_once_with(trial.training_job_id, study.tenant_id)
+
+    async def test_running_job_without_started_at_skips_timeout(self):
+        # started_at 为 None (排队未起) → 跳过超时判定, 交正常 reconcile.
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(stopping_config={"trial_timeout_seconds": 600})
+        frozen = _make_frozen_trial(2, TrialState.RUNNING)
+        trial = _make_trial(study.id, trial_number=2)
+        job = MagicMock()
+        job.id = trial.training_job_id
+        job.status = TrainingJobStatus.RUNNING
+        job.started_at = None
+        service._stop_trial_job = AsyncMock()
+
+        with patch("app.services.tuning_service.study_tell", AsyncMock()) as mock_tell:
+            action, _ = await service._resolve_running_trial(study, MagicMock(), frozen, trial, {job.id: job})
+
+        assert action == "skip"
+        mock_tell.assert_not_awaited()
+        service._stop_trial_job.assert_not_awaited()
 
     async def test_no_platform_trial_fails(self):
         db = _mock_db()
@@ -401,6 +465,157 @@ class TestDriveStudy:
         mock_spawn.assert_awaited_once()
         assert mock_spawn.await_args.args[-1] == 1  # asked = len(trials)
 
+    async def test_seeded_sampler_derives_seed_from_asked_trials(self):
+        """RDB 不持久化 sampler → 每次 drive 重建并挂到 study.sampler; 固定 seed 按已 ask 数派生."""
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(sampler_config={"type": "random", "seed": 3})
+        frozens = [_make_frozen_trial(0, TrialState.COMPLETE, value=0.5)]  # 已 ask 1 个
+
+        import optuna
+        from optuna.samplers import RandomSampler
+
+        d = {"lr": FloatDistribution(1e-4, 0.1)}
+        optuna_study = MagicMock()
+        with (
+            patch("app.services.tuning_service.load_study", AsyncMock(return_value=optuna_study)),
+            patch("app.services.tuning_service.study_trials", AsyncMock(return_value=frozens)),
+            patch.object(service, "_reconcile_trials", AsyncMock(return_value=0)),
+            patch.object(service, "_spawn_trials", AsyncMock()),
+        ):
+            await service.drive_study(study)
+
+        sampler = optuna_study.sampler
+        assert isinstance(sampler, RandomSampler)
+        # 派生种子 = seed(3) + 已 ask(1) = 4 → 与 RandomSampler(4) 首值一致.
+        assert (
+            optuna.create_study(sampler=sampler).ask(d).params["lr"]
+            == optuna.create_study(sampler=RandomSampler(seed=4)).ask(d).params["lr"]
+        )
+
+    async def test_fixed_seed_samples_differ_across_ticks(self):
+        """回归: 固定 seed 的 random 调优, 两个 drive tick 采出的参数必须不同.
+
+        修复前每次 tick 重建 RandomSampler(seed) 都取 RNG 首值 → 所有 trial 参数恒等
+        (用户所遇 "随机搜索每次都是同一值"); 派生种子 (seed + 已 ask) 使 RNG 随 trial 前进.
+        """
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(sampler_config={"type": "random", "seed": 7})
+        d = {"lr": FloatDistribution(1e-4, 0.1)}
+
+        import optuna
+
+        def ask_first(sampler: object) -> float:
+            return optuna.create_study(sampler=sampler).ask(d).params["lr"]
+
+        # tick 0: 0 个已 ask trial → 派生种子 7
+        os0 = MagicMock()
+        with (
+            patch("app.services.tuning_service.load_study", AsyncMock(return_value=os0)),
+            patch("app.services.tuning_service.study_trials", AsyncMock(return_value=[])),
+            patch.object(service, "_reconcile_trials", AsyncMock(return_value=0)),
+            patch.object(service, "_spawn_trials", AsyncMock()),
+        ):
+            await service.drive_study(study)
+        # tick 1: 1 个已 ask trial → 派生种子 8
+        os1 = MagicMock()
+        with (
+            patch("app.services.tuning_service.load_study", AsyncMock(return_value=os1)),
+            patch("app.services.tuning_service.study_trials", AsyncMock(return_value=[MagicMock()])),
+            patch.object(service, "_reconcile_trials", AsyncMock(return_value=0)),
+            patch.object(service, "_spawn_trials", AsyncMock()),
+        ):
+            await service.drive_study(study)
+
+        assert ask_first(os0.sampler) != ask_first(os1.sampler)
+
+    async def test_study_timeout_completes_when_no_running(self):
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(
+            n_trials=100,  # 远未达 n_trials, 仅靠超时结束
+            created_at=datetime.now(UTC) - timedelta(seconds=7200),
+            stopping_config={"study_timeout_seconds": 3600},
+        )
+        frozens = [_make_frozen_trial(0, TrialState.COMPLETE, value=0.5)]
+
+        with (
+            patch("app.services.tuning_service.load_study", AsyncMock()),
+            patch("app.services.tuning_service.study_trials", AsyncMock(return_value=frozens)),
+            patch.object(service, "_reconcile_trials", AsyncMock(return_value=0)),
+            patch.object(service, "_spawn_trials", AsyncMock()) as mock_spawn,
+        ):
+            await service.drive_study(study)
+
+        assert study.status == TuningStudyStatus.COMPLETED.value
+        mock_spawn.assert_not_awaited()
+
+    async def test_study_timeout_with_running_trials_stays_running_and_stops_spawning(self):
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(
+            n_trials=100,
+            created_at=datetime.now(UTC) - timedelta(seconds=7200),
+            stopping_config={"study_timeout_seconds": 3600},
+        )
+        frozens = [_make_frozen_trial(0, TrialState.RUNNING)]
+
+        with (
+            patch("app.services.tuning_service.load_study", AsyncMock()),
+            patch("app.services.tuning_service.study_trials", AsyncMock(return_value=frozens)),
+            patch.object(service, "_reconcile_trials", AsyncMock(return_value=1)),  # 仍有运行中 trial
+            patch.object(service, "_spawn_trials", AsyncMock()) as mock_spawn,
+        ):
+            await service.drive_study(study)
+
+        assert study.status == TuningStudyStatus.RUNNING.value  # 等运行中 trial 自然结束
+        mock_spawn.assert_not_awaited()
+
+    async def test_early_stop_completes_when_patience_reached(self):
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(n_trials=100, stopping_config={"early_stop_patience": 1})
+        # minimize: 0.5 改进, 0.6 无改进 → 连数 1 → patience 1 命中
+        frozens = [
+            _make_frozen_trial(0, TrialState.COMPLETE, value=0.5),
+            _make_frozen_trial(1, TrialState.COMPLETE, value=0.6),
+        ]
+
+        with (
+            patch("app.services.tuning_service.load_study", AsyncMock()),
+            patch("app.services.tuning_service.study_trials", AsyncMock(return_value=frozens)),
+            patch.object(service, "_reconcile_trials", AsyncMock(return_value=0)),
+            patch.object(service, "_spawn_trials", AsyncMock()) as mock_spawn,
+        ):
+            await service.drive_study(study)
+
+        assert study.status == TuningStudyStatus.COMPLETED.value
+        mock_spawn.assert_not_awaited()
+
+    async def test_paused_study_reconciles_only(self):
+        """PAUSED 仅收尾 (reconcile), 不 prune/complete/spawn."""
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(status=TuningStudyStatus.PAUSED.value)
+        frozens = [_make_frozen_trial(0, TrialState.RUNNING)]
+
+        with (
+            patch("app.services.tuning_service.load_study", AsyncMock()),
+            patch("app.services.tuning_service.study_trials", AsyncMock(return_value=frozens)),
+            patch.object(service, "_reconcile_trials", AsyncMock(return_value=1)) as mock_reconcile,
+            patch.object(service, "_check_completion", AsyncMock()) as mock_check,
+            patch.object(service, "_prune_running_trials", AsyncMock()) as mock_prune,
+            patch.object(service, "_spawn_trials", AsyncMock()) as mock_spawn,
+        ):
+            await service.drive_study(study)
+
+        mock_reconcile.assert_awaited_once()
+        mock_check.assert_not_awaited()
+        mock_prune.assert_not_awaited()
+        mock_spawn.assert_not_awaited()
+        assert study.status == TuningStudyStatus.PAUSED.value
+
 
 class TestComputeBestValue:
     def test_minimize_returns_min(self):
@@ -548,6 +763,54 @@ class TestPruneRunningTrials:
         optuna_study = MagicMock()
         # completed median 0.25; latest 0.1 < 0.25 → 差 (maximize) → 剪
         frozen, trial = self._setup(service, study, completed=[0.2, 0.3], series=[(0, 0.5), (1, 0.1)])
+
+        with patch("app.services.tuning_service.study_tell", AsyncMock()) as mock_tell:
+            await service._prune_running_trials(study, optuna_study, [frozen])
+
+        mock_tell.assert_awaited_once_with(optuna_study, 3, state=TrialState.PRUNED)
+        assert trial.state == TuningTrialState.PRUNED.value
+
+    async def test_higher_percentile_is_more_lenient(self):
+        """prune_percentile 生效: 60 分位 (0.26) 下 latest 0.255 不剪, 而中位数 (0.25) 会剪."""
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(
+            pruning_enabled=True,
+            direction="minimize",
+            pruning_config={
+                "n_startup_trials": 2,
+                "n_warmup_steps": 1,
+                "interval": 1,
+                "n_min_trials": 2,
+                "prune_percentile": 60.0,
+            },
+        )
+        # completed [0.2, 0.3]: p50=0.25, p60=0.26. latest 0.255 优于 p60 → 不剪.
+        frozen, _ = self._setup(service, study, completed=[0.2, 0.3], series=[(1, 0.255)])
+
+        with patch("app.services.tuning_service.study_tell", AsyncMock()) as mock_tell:
+            await service._prune_running_trials(study, MagicMock(), [frozen])
+
+        mock_tell.assert_not_awaited()
+        service._stop_trial_job.assert_not_awaited()
+
+    async def test_lower_percentile_is_more_aggressive(self):
+        """prune_percentile=40 (0.24): latest 0.255 > 0.24 → 剪."""
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(
+            pruning_enabled=True,
+            direction="minimize",
+            pruning_config={
+                "n_startup_trials": 2,
+                "n_warmup_steps": 1,
+                "interval": 1,
+                "n_min_trials": 2,
+                "prune_percentile": 40.0,
+            },
+        )
+        optuna_study = MagicMock()
+        frozen, trial = self._setup(service, study, completed=[0.2, 0.3], series=[(1, 0.255)])
 
         with patch("app.services.tuning_service.study_tell", AsyncMock()) as mock_tell:
             await service._prune_running_trials(study, optuna_study, [frozen])

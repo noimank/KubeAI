@@ -155,6 +155,7 @@ class TuningStudyStatus(enum.StrEnum):
     COMPLETED = "completed"
     STOPPED = "stopped"
     FAILED = "failed"
+    PAUSED = "paused"
 
 
 class TuningTrialState(enum.StrEnum):

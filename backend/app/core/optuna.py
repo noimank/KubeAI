@@ -12,11 +12,14 @@ from optuna.distributions import (
     IntDistribution,
 )
 from optuna.importance import PedAnovaImportanceEvaluator
+from optuna.samplers import CmaEsSampler, RandomSampler, TPESampler
 from optuna.storages import RDBStorage
 
 from app.core.config import settings
+from app.schemas.tuning import SamplerConfig
 
 if TYPE_CHECKING:
+    from optuna.samplers import BaseSampler
     from optuna.study import Study
     from optuna.trial import Trial, TrialState
 
@@ -55,6 +58,13 @@ def get_optuna_storage() -> RDBStorage:
     return RDBStorage(
         url=sync_db_url(),
         heartbeat_interval=settings.OPTUNA_STORAGE_HEARTBEAT_SECONDS,
+        engine_kwargs={
+            "pool_size": settings.OPTUNA_DB_POOL_SIZE,
+            "max_overflow": settings.OPTUNA_DB_MAX_OVERFLOW,
+            "pool_pre_ping": True,
+            "pool_recycle": settings.OPTUNA_DB_POOL_RECYCLE_SECONDS,
+            "pool_timeout": settings.OPTUNA_DB_POOL_TIMEOUT_SECONDS,
+        },
     )
 
 
@@ -99,19 +109,63 @@ def json_search_space_to_distributions(
     return distributions, fixed_params
 
 
-async def create_study(study_name: str, direction: str) -> Study:
+def build_sampler(
+    config: SamplerConfig | None = None,
+    *,
+    distributions: dict[str, BaseDistribution] | None = None,
+    asked_trials: int = 0,
+) -> BaseSampler:
+    """按配置构建 Optuna sampler. RDBStorage 不持久化 sampler, 创建与每次 drive tick 都必须重建传入.
+
+    规则:
+      - type=cmaes → CmaEsSampler(seed); 若空间含 categorical 抛 ValueError
+        (Optuna 会对这类参数静默退化为独立采样, 拒绝以免搜索失真)
+      - type=random → RandomSampler(seed)
+      - type=tpe(默认) → TPESampler(seed, multivariate, n_startup_trials)
+
+    ``asked_trials`` (调度器 drive 传已 ask 数): 配置了固定 seed 时, 实际种子取 seed + asked_trials,
+    使每次重建出的 sampler RNG 随 trial 累计前进. 否则固定 seed 每次重建都采出 RNG 首值,
+    Random 下每个 trial 参数恒等 (每次 tick 只 ask 一次 → 全同). seed 未配置时该参数不生效.
+    """
+    cfg = config or SamplerConfig()
+    seed = None if cfg.seed is None else cfg.seed + asked_trials
+    if cfg.type == "cmaes":
+        if distributions is not None and any(isinstance(d, CategoricalDistribution) for d in distributions.values()):
+            raise ValueError("CMA-ES 采样器仅支持连续/整数搜索空间, 不含类别(categorical)参数")
+        return CmaEsSampler(seed=seed)
+    if cfg.type == "random":
+        return RandomSampler(seed=seed)
+    return TPESampler(
+        seed=seed,
+        multivariate=cfg.multivariate,
+        n_startup_trials=cfg.n_startup_trials if cfg.n_startup_trials is not None else 10,
+    )
+
+
+async def create_study(
+    study_name: str,
+    direction: str,
+    sampler: BaseSampler | None = None,
+) -> Study:
     """创建 (或 load_if_exists 复用) 一个 RDB 持久化的 optuna study."""
-    return await asyncio.to_thread(
-        optuna.create_study,
+    kwargs: dict[str, Any] = dict(
         study_name=study_name,
         storage=get_optuna_storage(),
         direction=direction,
         load_if_exists=True,
     )
+    if sampler is not None:
+        kwargs["sampler"] = sampler
+    return await asyncio.to_thread(optuna.create_study, **kwargs)
 
 
 async def load_study(study_name: str) -> Study:
-    """按名称加载 RDB study (供调度器每次 tick 使用)."""
+    """按名称加载 RDB study (供调度器每次 tick 使用).
+
+    RDB 不持久化 sampler: 调度器须在加载后用 ``build_sampler(asked_trials=已 ask 数)`` 重建
+    采样器并挂到 ``study.sampler`` (见 tuning_service.drive_study). 只读路径 (best_trial /
+    get_insights) 不采样, 直接调用即可.
+    """
     return await asyncio.to_thread(optuna.load_study, study_name=study_name, storage=get_optuna_storage())
 
 

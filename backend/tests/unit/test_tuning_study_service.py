@@ -30,6 +30,8 @@ def _make_study(**overrides):
         "worker_count": 1,
         "created_by": uuid.uuid4(),
         "optuna_study_name": "tuning-abc-123",
+        "sampler_config": None,
+        "stopping_config": None,
     }
     defaults.update(overrides)
     return TuningStudy(**defaults)
@@ -121,6 +123,55 @@ class TestCreateStudy:
         # 搜索空间校验失败时不建 optuna study
         service.training_service.validate_training_image.assert_not_awaited()
 
+    async def test_create_study_persists_sampler_and_stopping_config(self):
+        db = _mock_db()
+        service = TuningService(db)
+        service.training_service.validate_training_image = AsyncMock()
+
+        req = _create_req(
+            sampler_config={"type": "random", "seed": 3},
+            stopping_config={"study_timeout_seconds": 3600, "trial_timeout_seconds": 600},
+        )
+        with patch("app.services.tuning_service.optuna_create_study", AsyncMock()):
+            study = await service.create_study(req, tenant_id=uuid.uuid4(), user_id=uuid.uuid4())
+
+        assert study.sampler_config == {"type": "random", "seed": 3, "multivariate": False}
+        assert study.stopping_config == {"study_timeout_seconds": 3600, "trial_timeout_seconds": 600}
+        # 默认不配置 → 存 None
+        db2 = _mock_db()
+        service2 = TuningService(db2)
+        service2.training_service.validate_training_image = AsyncMock()
+        with patch("app.services.tuning_service.optuna_create_study", AsyncMock()) as mock_create2:
+            study2 = await service2.create_study(_create_req(), tenant_id=uuid.uuid4(), user_id=uuid.uuid4())
+        assert study2.sampler_config is None
+        assert study2.stopping_config is None
+        # 默认 sampler 是 TPE (create 时也透传)
+        from optuna.samplers import TPESampler
+
+        assert isinstance(mock_create2.await_args.kwargs["sampler"], TPESampler)
+
+    async def test_create_study_cmaes_on_categorical_rejects(self):
+        from app.core.exceptions import BadRequestException
+
+        db = _mock_db()
+        service = TuningService(db)
+        service.training_service.validate_training_image = AsyncMock()
+
+        req = _create_req(
+            sampler_config={"type": "cmaes"},
+            search_space={
+                "opt": {"type": "categorical", "choices": ["adam", "sgd"]},
+                "lr": {"type": "float", "low": 1e-4, "high": 0.1},
+            },
+        )
+        with (
+            patch("app.services.tuning_service.optuna_create_study", AsyncMock()) as mock_create,
+            pytest.raises(BadRequestException, match="采样器配置非法"),
+        ):
+            await service.create_study(req, tenant_id=uuid.uuid4(), user_id=uuid.uuid4())
+
+        mock_create.assert_not_awaited()  # 校验失败不建 study
+
 
 class TestStopDeleteStudy:
     async def test_stop_study_marks_stopped_and_stops_trials(self):
@@ -188,3 +239,57 @@ class TestStopDeleteStudy:
         ):
             await service.delete_study(study.id, study.tenant_id)
         mock_del.assert_not_awaited()
+
+
+class TestPauseResumeStudy:
+    async def test_pause_running_sets_paused_and_stops_trials(self):
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study()
+        db.execute.return_value.scalar_one_or_none.return_value = study
+        service._stop_trial_jobs = AsyncMock()
+
+        with patch("app.tasks.tuning_tasks.enqueue_drive_study", AsyncMock()) as mock_enqueue:
+            result = await service.pause_study(study.id, study.tenant_id)
+
+        assert result.status == TuningStudyStatus.PAUSED.value
+        service._stop_trial_jobs.assert_awaited_once()
+        mock_enqueue.assert_awaited_once_with(study.id)
+        # 先置 PAUSED 提交, 再停 trial job (顺序保证并发 drive 不补发)
+        assert db.commit.call_count >= 1
+
+    async def test_pause_completed_conflicts(self):
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(status=TuningStudyStatus.COMPLETED.value)
+        db.execute.return_value.scalar_one_or_none.return_value = study
+
+        with (
+            patch("app.tasks.tuning_tasks.enqueue_drive_study", AsyncMock()),
+            pytest.raises(ConflictException, match="无法暂停"),
+        ):
+            await service.pause_study(study.id, study.tenant_id)
+
+    async def test_resume_paused_sets_running_and_drives(self):
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study(status=TuningStudyStatus.PAUSED.value)
+        db.execute.return_value.scalar_one_or_none.return_value = study
+
+        with patch("app.tasks.tuning_tasks.enqueue_drive_study", AsyncMock()) as mock_enqueue:
+            result = await service.resume_study(study.id, study.tenant_id)
+
+        assert result.status == TuningStudyStatus.RUNNING.value
+        mock_enqueue.assert_awaited_once_with(study.id)
+
+    async def test_resume_running_conflicts(self):
+        db = _mock_db()
+        service = TuningService(db)
+        study = _make_study()
+        db.execute.return_value.scalar_one_or_none.return_value = study
+
+        with (
+            patch("app.tasks.tuning_tasks.enqueue_drive_study", AsyncMock()),
+            pytest.raises(ConflictException, match="无法恢复"),
+        ):
+            await service.resume_study(study.id, study.tenant_id)

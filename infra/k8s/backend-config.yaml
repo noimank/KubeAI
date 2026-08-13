@@ -106,6 +106,13 @@ data:
   # -- 自动超参调优 (Optuna)
   # Optuna RDBStorage 必须独立数据库 (与平台 kubeai 库不同), 避免 alembic_version 冲突.
   # 部署前需在 PostgreSQL 中创建该库: CREATE DATABASE optuna; (URL/凭证见 backend-secret OPTUNA_DATABASE_URL)
+  # Optuna RDBStorage 连接池 (同步 psycopg2 引擎, 与平台 asyncpg 池相互独立):
+  # 默认 pool_size=5 且无 pool_pre_ping, 偶发 StorageInternalError 多源于陈旧连接/锁等待,
+  # 显式配置连接池并探测陈旧连接 (pool_pre_ping) 后可消除大多数场景.
+  OPTUNA_DB_POOL_SIZE: "5"
+  OPTUNA_DB_MAX_OVERFLOW: "5"
+  OPTUNA_DB_POOL_RECYCLE_SECONDS: "3600"
+  OPTUNA_DB_POOL_TIMEOUT_SECONDS: "10"
 
   # -- Label Studio 数据标注 (部署 labelstudio/ 后启用)
   LABEL_STUDIO_URL: "http://labelstudio.kubeai.svc.cluster.local:8080"

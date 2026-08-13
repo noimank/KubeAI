@@ -125,6 +125,13 @@ class Settings(BaseSettings):
     # Optuna 与平台各自走 Alembic, 共库会共用 alembic_version 导致建表/迁移冲突.
     OPTUNA_DATABASE_URL: str = ""
     OPTUNA_STORAGE_HEARTBEAT_SECONDS: int = 60
+    # Optuna RDBStorage 连接池 (同步 psycopg2 引擎, 与平台 asyncpg 池相互独立).
+    # RDBStorage 默认 pool_size=5 且无 pool_pre_ping; 偶发 StorageInternalError 多源于
+    # 死锁/锁等待超时与陈旧连接, 这里显式配置连接池并探测陈旧连接. 池尺寸按调优并发取小值.
+    OPTUNA_DB_POOL_SIZE: int = 5
+    OPTUNA_DB_MAX_OVERFLOW: int = 5
+    OPTUNA_DB_POOL_RECYCLE_SECONDS: int = 3600
+    OPTUNA_DB_POOL_TIMEOUT_SECONDS: int = 10
 
 
 settings = Settings()

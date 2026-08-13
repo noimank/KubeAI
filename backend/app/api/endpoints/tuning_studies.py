@@ -137,6 +137,32 @@ async def stop_tuning_study(
     return BaseResponse(data=_study_to_response(study, progress), message="调优任务已停止")
 
 
+@router.post("/studies/{study_id}/pause", response_model=BaseResponse[TuningStudyResponse])
+async def pause_tuning_study(
+    study_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("tuning", "write"))],
+) -> BaseResponse[TuningStudyResponse]:
+    service = TuningService(db)
+    tenant_id = _require_tenant_id(user)
+    study = await service.pause_study(study_id, tenant_id)
+    progress = await service.get_progress(study_id)
+    return BaseResponse(data=_study_to_response(study, progress), message="调优任务已暂停")
+
+
+@router.post("/studies/{study_id}/resume", response_model=BaseResponse[TuningStudyResponse])
+async def resume_tuning_study(
+    study_id: uuid.UUID,
+    db: DbDep,
+    user: Annotated[CurrentUser, Depends(require_permission("tuning", "write"))],
+) -> BaseResponse[TuningStudyResponse]:
+    service = TuningService(db)
+    tenant_id = _require_tenant_id(user)
+    study = await service.resume_study(study_id, tenant_id)
+    progress = await service.get_progress(study_id)
+    return BaseResponse(data=_study_to_response(study, progress), message="调优任务已恢复")
+
+
 @router.delete("/studies/{study_id}", response_model=BaseResponse[None])
 async def delete_tuning_study(
     study_id: uuid.UUID,
