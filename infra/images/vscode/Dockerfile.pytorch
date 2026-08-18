@@ -53,7 +53,7 @@ RUN uv pip install --no-cache --system --break-system-packages \
 
 # 常用深度学习生态包
 RUN uv pip install --no-cache --system --break-system-packages \
-    numpy scipy pandas matplotlib scikit-learn \
+    numpy scipy pandas matplotlib scikit-learn neuralforecast \
     transformers datasets accelerate wandb tensorboard \
     optuna plotly opencv-python-headless \
     mlflow onnx onnxruntime \

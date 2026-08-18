@@ -42,6 +42,7 @@ RUN uv pip install --no-cache --system \
     optuna \
     plotly \
     seaborn \
+    neuralforecast \
     imbalanced-learn \
     feature-engine \
     category-encoders \

@@ -13,7 +13,7 @@ KubeAI 运行时镜像，为训练作业和推理服务提供开箱即用的 Pyt
 
 ## 公共依赖
 
-所有镜像预装：`mlflow`、`fastapi`、`onnx`、`numpy`、`pandas`、`scipy`、`scikit-learn`、`tensorboard`、`matplotlib`、`tqdm`。
+所有镜像预装：`mlflow`、`fastapi`、`onnx`、`numpy`、`pandas`、`scipy`、`scikit-learn`、`neuralforecast`、`tensorboard`、`matplotlib`、`tqdm`。
 
 ## 构建
 

@@ -49,7 +49,8 @@ RUN uv pip install --no-cache --system \
     wandb \
     optuna \
     plotly \
-    tensorboard
+    tensorboard \
+    neuralforecast
 
 EXPOSE 8000
 

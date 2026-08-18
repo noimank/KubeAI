@@ -34,6 +34,7 @@ RUN uv pip install --no-cache --system \
     wandb \
     tensorboard \
     scikit-learn \
+    neuralforecast \
     optuna \
     plotly \
     mlflow \

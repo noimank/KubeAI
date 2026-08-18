@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN uv pip install --no-cache --system \
     scikit-learn \
+    neuralforecast \
     xgboost \
     lightgbm \
     optuna \
