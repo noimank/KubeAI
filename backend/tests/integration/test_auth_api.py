@@ -3,6 +3,10 @@ from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import update
+
+from app.core.database import async_session_factory
+from app.models.user import User as UserModel
 
 
 def _unique(prefix: str) -> str:
@@ -186,3 +190,129 @@ async def test_login_locked_after_5_failures(client):
     )
     assert response.status_code == 401
     assert "锁定" in response.json()["message"]
+
+
+async def _convert_to_external(username: str) -> None:
+    """将本地账号切换为第三方 (oidc) 登录账号, 模拟 OAuth 绑定后的用户."""
+    async with async_session_factory() as db:
+        await db.execute(
+            update(UserModel)
+            .where(UserModel.username == username)
+            .values(auth_provider="oidc", external_id=f"ext-{username}")
+        )
+        await db.commit()
+
+
+def _auth_headers(register_response) -> dict[str, str]:
+    return {"Authorization": f"Bearer {register_response.json()['data']['access_token']}"}
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_me_returns_local_provider(client):
+    headers = _auth_headers(await _register_user(client))
+
+    response = await client.get("/api/auth/me", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["data"]["auth_provider"] == "local"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_me_returns_external_provider(client):
+    username = _unique("oidc")
+    headers = _auth_headers(await _register_user(client, username=username, email=f"{username}@example.com"))
+    await _convert_to_external(username)
+
+    response = await client.get("/api/auth/me", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["data"]["auth_provider"] == "oidc"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_local_user_can_update_profile(client):
+    headers = _auth_headers(await _register_user(client))
+
+    response = await client.patch(
+        "/api/auth/me/profile",
+        json={"nickname": "新昵称"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["nickname"] == "新昵称"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_local_user_can_change_password(client):
+    username = _unique("chpw")
+    headers = _auth_headers(await _register_user(client, username=username, email=f"{username}@example.com"))
+
+    response = await client.post(
+        "/api/auth/me/password",
+        json={
+            "current_password": "Passw0rd",
+            "new_password": "NewPassw0rd1",
+            "confirm_password": "NewPassw0rd1",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+
+    relogin = await client.post(
+        "/api/auth/login",
+        json={"username": username, "password": "NewPassw0rd1"},
+    )
+    assert relogin.status_code == 200
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_external_user_cannot_update_profile(client):
+    username = _unique("oidcprof")
+    headers = _auth_headers(await _register_user(client, username=username, email=f"{username}@example.com"))
+    await _convert_to_external(username)
+
+    response = await client.patch(
+        "/api/auth/me/profile",
+        json={"nickname": "新昵称"},
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+    assert "第三方" in response.json()["message"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_external_user_cannot_change_password(client):
+    username = _unique("oidcpw")
+    headers = _auth_headers(await _register_user(client, username=username, email=f"{username}@example.com"))
+    await _convert_to_external(username)
+
+    response = await client.post(
+        "/api/auth/me/password",
+        json={
+            "current_password": "Passw0rd",
+            "new_password": "NewPassw0rd1",
+            "confirm_password": "NewPassw0rd1",
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+    assert "第三方" in response.json()["message"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_external_user_cannot_upload_avatar(client):
+    username = _unique("oidcava")
+    headers = _auth_headers(await _register_user(client, username=username, email=f"{username}@example.com"))
+    await _convert_to_external(username)
+
+    response = await client.post(
+        "/api/auth/me/avatar",
+        files={"file": ("avatar.png", b"fake-png-bytes", "image/png")},
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+    assert "第三方" in response.json()["message"]

@@ -147,8 +147,15 @@ def _build_user_response(user: UserModel) -> UserResponse:
         avatar=user.avatar,
         is_active=user.is_active,
         role=user.role,
+        auth_provider=user.auth_provider,
         tenant_id=str(user.tenant_id) if user.tenant_id else None,
     )
+
+
+def _reject_external_account(user: UserModel) -> None:
+    """第三方登录账号的资料与凭证由身份提供方统一管理, 禁止本地修改."""
+    if user.auth_provider != "local":
+        raise ForbiddenException("当前账号通过第三方登录, 相关信息由身份提供方统一管理, 无法修改")
 
 
 @router.get("/me", response_model=BaseResponse[UserResponse])
@@ -205,6 +212,7 @@ async def update_profile(
     user: CurrentUserEntity,
     db: DbDep,
 ) -> BaseResponse[UserResponse]:
+    _reject_external_account(user)
     if req.email is not None and req.email != user.email:
         existing = await db.execute(select(UserModel).where(UserModel.email == req.email, UserModel.id != user.id))
         if existing.scalar_one_or_none() is not None:
@@ -228,6 +236,7 @@ async def upload_avatar(
     db: DbDep,
     file: UploadFile = File(...),  # noqa: B008
 ) -> BaseResponse[UserResponse]:
+    _reject_external_account(user)
     if file.content_type not in ALLOWED_AVATAR_TYPES:
         raise BadRequestException("仅支持 JPEG、PNG、GIF、WebP 格式的图片")
     content = await file.read()
@@ -245,6 +254,7 @@ async def change_password(
     user: CurrentUserEntity,
     db: DbDep,
 ) -> BaseResponse[None]:
+    _reject_external_account(user)
     if not await verify_password(req.current_password, user.hashed_password):
         raise BadRequestException("当前密码错误")
     user.hashed_password = await hash_password(req.new_password)

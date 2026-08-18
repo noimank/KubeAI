@@ -144,6 +144,56 @@ function InfoPill({ icon, label, value }: { icon: React.ReactNode; label: string
   )
 }
 
+// --- Inline notice banner ---
+function InfoBanner({
+  icon,
+  tone = 'info',
+  children,
+}: {
+  icon: React.ReactNode
+  tone?: 'info' | 'warning'
+  children: React.ReactNode
+}) {
+  const isDark = (document.documentElement.dataset.theme || 'light') === 'dark'
+  const palette =
+    tone === 'warning'
+      ? {
+          background: isDark ? 'rgba(250,173,20,0.08)' : 'rgba(250,173,20,0.04)',
+          border: isDark ? 'rgba(250,173,20,0.15)' : 'rgba(250,173,20,0.08)',
+          color: '#faad14',
+        }
+      : {
+          background: isDark ? 'rgba(22,119,255,0.08)' : 'rgba(22,119,255,0.04)',
+          border: isDark ? 'rgba(22,119,255,0.15)' : 'rgba(22,119,255,0.08)',
+          color: '#1677ff',
+        }
+  return (
+    <div
+      style={{
+        padding: '14px 18px',
+        borderRadius: 8,
+        background: palette.background,
+        border: `1px solid ${palette.border}`,
+        marginBottom: 28,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+      }}
+    >
+      <span style={{ fontSize: 16, color: palette.color, flexShrink: 0 }}>{icon}</span>
+      <span
+        style={{
+          fontSize: 13,
+          color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)',
+          lineHeight: 1.5,
+        }}
+      >
+        {children}
+      </span>
+    </div>
+  )
+}
+
 export default function ProfilePage() {
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
@@ -158,6 +208,8 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState('profile')
 
   const displayName = user?.nickname || user?.username
+  // 第三方登录账号的资料与凭证由身份提供方管理, 个人设置仅作展示
+  const isExternalUser = !!user?.authProvider && user.authProvider !== 'local'
 
   const handleAvatarUpload = async (file: File) => {
     if (!ALLOWED_TYPES.includes(file.type)) {
@@ -212,6 +264,57 @@ export default function ProfilePage() {
     }
   }
 
+  const avatarFrame = (
+    <div
+      style={{
+        position: 'relative',
+        cursor: isExternalUser ? 'default' : 'pointer',
+        flexShrink: 0,
+        borderRadius: '50%',
+        padding: 3,
+        background: isDark
+          ? 'linear-gradient(135deg, rgba(22,119,255,0.4), rgba(64,150,255,0.2))'
+          : 'linear-gradient(135deg, rgba(22,119,255,0.5), rgba(64,150,255,0.3))',
+      }}
+    >
+      {user?.avatar ? (
+        <Avatar
+          size={96}
+          src={user.avatar}
+          style={{
+            border: `3px solid ${isDark ? '#0d1b3e' : '#e8f0fe'}`,
+          }}
+        />
+      ) : (
+        <DefaultAvatar name={displayName} size={96} />
+      )}
+      {/* Camera overlay (hidden for third-party accounts) */}
+      {!isExternalUser && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 4,
+            right: 4,
+            width: 30,
+            height: 30,
+            borderRadius: '50%',
+            background: isDark ? '#1677ff' : '#ffffff',
+            border: `2px solid ${isDark ? '#0d1b3e' : '#dbeafe'}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: isDark ? '#fff' : '#1677ff',
+            fontSize: 13,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            transition: 'transform 0.2s ease',
+          }}
+        >
+          <CameraOutlined />
+        </div>
+      )}
+    </div>
+  )
+
   const tabItems: TabsProps['items'] = [
     {
       key: 'profile',
@@ -228,6 +331,11 @@ export default function ProfilePage() {
             padding: '8px 0 0',
           }}
         >
+          {isExternalUser && (
+            <InfoBanner icon={<InfoCircleOutlined />}>
+              当前账号通过第三方登录，基本信息由身份提供方统一管理，此处仅作展示。如需变更，请联系身份提供方或系统管理员。
+            </InfoBanner>
+          )}
           <Form
             form={profileForm}
             layout="vertical"
@@ -269,7 +377,16 @@ export default function ProfilePage() {
               style={{ marginBottom: 20 }}
               rules={[{ max: 100, message: '昵称不能超过 100 个字符' }]}
             >
-              <Input placeholder="给自己起个名字" maxLength={100} />
+              <Input
+                placeholder="给自己起个名字"
+                maxLength={100}
+                disabled={isExternalUser}
+                style={
+                  isExternalUser
+                    ? { color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }
+                    : undefined
+                }
+              />
             </Form.Item>
 
             <Form.Item
@@ -284,19 +401,27 @@ export default function ProfilePage() {
               <Input
                 placeholder="name@example.com"
                 prefix={<MailOutlined style={{ opacity: 0.4 }} />}
+                disabled={isExternalUser}
+                style={
+                  isExternalUser
+                    ? { color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }
+                    : undefined
+                }
               />
             </Form.Item>
 
-            <Form.Item style={{ marginBottom: 0 }}>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={profileSubmitting}
-                style={{ borderRadius: 6, height: 36, paddingInline: 28 }}
-              >
-                保存修改
-              </Button>
-            </Form.Item>
+            {!isExternalUser && (
+              <Form.Item style={{ marginBottom: 0 }}>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  loading={profileSubmitting}
+                  style={{ borderRadius: 6, height: 36, paddingInline: 28 }}
+                >
+                  保存修改
+                </Button>
+              </Form.Item>
+            )}
           </Form>
         </div>
       ),
@@ -316,129 +441,80 @@ export default function ProfilePage() {
             padding: '8px 0 0',
           }}
         >
-          <div
-            style={{
-              padding: '14px 18px',
-              borderRadius: 8,
-              background: isDark ? 'rgba(22,119,255,0.08)' : 'rgba(22,119,255,0.04)',
-              border: `1px solid ${isDark ? 'rgba(22,119,255,0.15)' : 'rgba(22,119,255,0.08)'}`,
-              marginBottom: 28,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
-          >
-            <SafetyCertificateOutlined style={{ fontSize: 16, color: '#1677ff', flexShrink: 0 }} />
-            <span
-              style={{
-                fontSize: 13,
-                color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)',
-                lineHeight: 1.5,
-              }}
-            >
-              定期更新密码有助于保护您的账户安全。密码需包含大小写字母和数字，至少 8 个字符。
-            </span>
-          </div>
-          {user?.authProvider === 'oidc' && (
-            <div
-              style={{
-                padding: '14px 18px',
-                borderRadius: 8,
-                background: isDark ? 'rgba(250,173,20,0.08)' : 'rgba(250,173,20,0.04)',
-                border: `1px solid ${isDark ? 'rgba(250,173,20,0.15)' : 'rgba(250,173,20,0.08)'}`,
-                marginBottom: 28,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-              }}
-            >
-              <InfoCircleOutlined style={{ fontSize: 16, color: '#faad14', flexShrink: 0 }} />
-              <span
-                style={{
-                  fontSize: 13,
-                  color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)',
-                  lineHeight: 1.5,
-                }}
-              >
-                您通过第三方账号登录，系统初始密码为{' '}
-                <code
-                  style={{
-                    padding: '1px 6px',
-                    borderRadius: 4,
-                    background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
-                    fontFamily: "'SFMono-Regular', Consolas, monospace",
-                    fontSize: 13,
-                  }}
-                >
-                  Kubeai#123456
-                </code>
-                ，请及时修改。
-              </span>
-            </div>
-          )}
+          {isExternalUser ? (
+            <InfoBanner icon={<SafetyCertificateOutlined />}>
+              您通过第三方账号登录，登录凭证由身份提供方统一管理，无法在此修改密码。如需变更，请联系身份提供方或系统管理员。
+            </InfoBanner>
+          ) : (
+            <>
+              <InfoBanner icon={<SafetyCertificateOutlined />}>
+                定期更新密码有助于保护您的账户安全。密码需包含大小写字母和数字，至少 8 个字符。
+              </InfoBanner>
 
-          <Form
-            form={passwordForm}
-            layout="vertical"
-            onFinish={handlePasswordSubmit}
-            requiredMark={false}
-          >
-            <Form.Item
-              name="currentPassword"
-              label="当前密码"
-              style={{ marginBottom: 20 }}
-              rules={[{ required: true, message: '请输入当前密码' }]}
-            >
-              <Input.Password placeholder="请输入当前密码" />
-            </Form.Item>
-            <Form.Item
-              name="newPassword"
-              label="新密码"
-              style={{ marginBottom: 6 }}
-              rules={[
-                { required: true, message: '请输入新密码' },
-                { min: 8, message: '密码至少 8 个字符' },
-                { pattern: /[A-Z]/, message: '需包含至少一个大写字母' },
-                { pattern: /[a-z]/, message: '需包含至少一个小写字母' },
-                { pattern: /\d/, message: '需包含至少一个数字' },
-              ]}
-            >
-              <Input.Password
-                placeholder="请输入新密码"
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
-            </Form.Item>
-            <PasswordStrengthBar password={newPassword} />
-            <Form.Item
-              name="confirmPassword"
-              label="确认新密码"
-              style={{ marginBottom: 28 }}
-              dependencies={['newPassword']}
-              rules={[
-                { required: true, message: '请确认新密码' },
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    if (!value || getFieldValue('newPassword') === value) {
-                      return Promise.resolve()
-                    }
-                    return Promise.reject(new Error('两次输入的密码不一致'))
-                  },
-                }),
-              ]}
-            >
-              <Input.Password placeholder="请再次输入新密码" />
-            </Form.Item>
-            <Form.Item style={{ marginBottom: 0 }}>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={passwordSubmitting}
-                style={{ borderRadius: 6, height: 36, paddingInline: 28 }}
+              <Form
+                form={passwordForm}
+                layout="vertical"
+                onFinish={handlePasswordSubmit}
+                requiredMark={false}
               >
-                修改密码
-              </Button>
-            </Form.Item>
-          </Form>
+                <Form.Item
+                  name="currentPassword"
+                  label="当前密码"
+                  style={{ marginBottom: 20 }}
+                  rules={[{ required: true, message: '请输入当前密码' }]}
+                >
+                  <Input.Password placeholder="请输入当前密码" />
+                </Form.Item>
+                <Form.Item
+                  name="newPassword"
+                  label="新密码"
+                  style={{ marginBottom: 6 }}
+                  rules={[
+                    { required: true, message: '请输入新密码' },
+                    { min: 8, message: '密码至少 8 个字符' },
+                    { pattern: /[A-Z]/, message: '需包含至少一个大写字母' },
+                    { pattern: /[a-z]/, message: '需包含至少一个小写字母' },
+                    { pattern: /\d/, message: '需包含至少一个数字' },
+                  ]}
+                >
+                  <Input.Password
+                    placeholder="请输入新密码"
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                </Form.Item>
+                <PasswordStrengthBar password={newPassword} />
+                <Form.Item
+                  name="confirmPassword"
+                  label="确认新密码"
+                  style={{ marginBottom: 28 }}
+                  dependencies={['newPassword']}
+                  rules={[
+                    { required: true, message: '请确认新密码' },
+                    ({ getFieldValue }) => ({
+                      validator(_, value) {
+                        if (!value || getFieldValue('newPassword') === value) {
+                          return Promise.resolve()
+                        }
+                        return Promise.reject(new Error('两次输入的密码不一致'))
+                      },
+                    }),
+                  ]}
+                >
+                  <Input.Password placeholder="请再次输入新密码" />
+                </Form.Item>
+                <Form.Item style={{ marginBottom: 0 }}>
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    loading={passwordSubmitting}
+                    style={{ borderRadius: 6, height: 36, paddingInline: 28 }}
+                  >
+                    修改密码
+                  </Button>
+                </Form.Item>
+              </Form>
+            </>
+          )}
         </div>
       ),
     },
@@ -499,62 +575,21 @@ export default function ProfilePage() {
             zIndex: 1,
           }}
         >
-          {/* Avatar with upload */}
-          <Upload
-            showUploadList={false}
-            accept="image/jpeg,image/png,image/gif,image/webp"
-            beforeUpload={(file) => {
-              handleAvatarUpload(file)
-              return false
-            }}
-          >
-            <div
-              style={{
-                position: 'relative',
-                cursor: 'pointer',
-                flexShrink: 0,
-                borderRadius: '50%',
-                padding: 3,
-                background: isDark
-                  ? 'linear-gradient(135deg, rgba(22,119,255,0.4), rgba(64,150,255,0.2))'
-                  : 'linear-gradient(135deg, rgba(22,119,255,0.5), rgba(64,150,255,0.3))',
+          {/* Avatar with upload (third-party accounts are read-only) */}
+          {isExternalUser ? (
+            avatarFrame
+          ) : (
+            <Upload
+              showUploadList={false}
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              beforeUpload={(file) => {
+                handleAvatarUpload(file)
+                return false
               }}
             >
-              {user?.avatar ? (
-                <Avatar
-                  size={96}
-                  src={user.avatar}
-                  style={{
-                    border: `3px solid ${isDark ? '#0d1b3e' : '#e8f0fe'}`,
-                  }}
-                />
-              ) : (
-                <DefaultAvatar name={displayName} size={96} />
-              )}
-              {/* Camera overlay */}
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: 4,
-                  right: 4,
-                  width: 30,
-                  height: 30,
-                  borderRadius: '50%',
-                  background: isDark ? '#1677ff' : '#ffffff',
-                  border: `2px solid ${isDark ? '#0d1b3e' : '#dbeafe'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: isDark ? '#fff' : '#1677ff',
-                  fontSize: 13,
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                  transition: 'transform 0.2s ease',
-                }}
-              >
-                <CameraOutlined />
-              </div>
-            </div>
-          </Upload>
+              {avatarFrame}
+            </Upload>
+          )}
 
           {/* User info */}
           <div

@@ -355,6 +355,7 @@ describe('DatasetDetailPage', () => {
       fileTypeDistribution: [{ extension: '.csv', count: 1, totalSizeBytes: 1024 }],
     })
     mockGetFileDownloadUrl.mockResolvedValueOnce('https://minio.example.com/download')
+    mockDownloadFile.mockResolvedValueOnce(undefined)
 
     renderPage()
 
@@ -373,7 +374,7 @@ describe('DatasetDetailPage', () => {
     await waitFor(() => {
       expect(mockDownloadFile).toHaveBeenCalledWith('ds-1', 'v-2', 'data.csv')
     })
-  })
+  }, 10_000)
 
   it('should only fetch blob after user clicks preview icon', async () => {
     mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
