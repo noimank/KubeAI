@@ -1,5 +1,7 @@
 import pytest
 
+from app.core.config import settings
+
 
 @pytest.mark.asyncio
 async def test_health_check(client):
@@ -22,5 +24,5 @@ async def test_openapi_json(client):
     response = await client.get("/openapi.json")
     assert response.status_code == 200
     body = response.json()
-    assert body["info"]["title"] == "KubeAI"
+    assert body["info"]["title"] == settings.APP_NAME
     assert "/api/health" in body["paths"]

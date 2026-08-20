@@ -6,7 +6,6 @@ import { UserOutlined, MailOutlined, LockOutlined } from '@ant-design/icons'
 import { register, getAuthConfig, getCurrentUser } from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
 import { getMessageInstance } from '@/utils/messageHolder'
-import { APP_TITLE } from '@/utils/constants'
 import type { RegisterRequest } from '@/types/auth'
 import './index.css'
 
@@ -14,7 +13,7 @@ const registerHighlights = ['统一身份访问', '租户协作空间', '资源�
 const registerTrustItems = ['密码强度校验', '注册后自动进入平台']
 
 function ProductIcon({ className = '' }: { className?: string }) {
-  return <img className={`register-product-icon ${className}`} src="/favicon.svg" alt="" />
+  return <img className={`register-product-icon ${className}`} src="/logo.jpg" alt="" />
 }
 
 function validatePassword(_: unknown, value: string) {
@@ -37,6 +36,7 @@ export default function RegisterPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const appName = useAuthStore((s) => s.appName)
   const setTokens = useAuthStore((s) => s.setTokens)
   const authLogin = useAuthStore((s) => s.login)
   const [form] = Form.useForm()
@@ -116,7 +116,7 @@ export default function RegisterPage() {
         <section className="register-brand-panel">
           <div className="register-product-mark">
             <ProductIcon className="register-logo-mark" />
-            <span>{APP_TITLE}</span>
+            <span>{appName}</span>
           </div>
 
           <div className="register-hero-copy">
@@ -124,7 +124,7 @@ export default function RegisterPage() {
               <ProductIcon className="register-eyebrow-icon" />
               创建 AI 工程账号
             </div>
-            <h1>加入 {APP_TITLE} 工作空间</h1>
+            <h1>加入 {appName} 工作空间</h1>
             <p>用统一账号访问数据、训练、模型与推理服务，在可治理的资源池中协作交付。</p>
           </div>
 
@@ -144,7 +144,7 @@ export default function RegisterPage() {
               <ProductIcon className="register-card-icon" />
               <div>
                 <h2>创建账号</h2>
-                <p>注册后进入 {APP_TITLE} 控制台</p>
+                <p>注册后进入 {appName} 控制台</p>
               </div>
             </div>
 

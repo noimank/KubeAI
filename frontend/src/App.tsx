@@ -78,11 +78,16 @@ const FONT_FAMILY_CODE =
 export default function App() {
   const themeMode = useThemeStore((s) => s.themeMode)
   const enableBusinessAlgorithm = useAuthStore((s) => s.enableBusinessAlgorithm)
+  const appName = useAuthStore((s) => s.appName)
   const initializeAuth = useAuthStore((s) => s.initializeAuth)
 
   useEffect(() => {
     initializeAuth()
   }, [initializeAuth])
+
+  useEffect(() => {
+    document.title = appName
+  }, [appName])
 
   const themeConfig = useMemo(
     () => ({

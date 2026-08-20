@@ -5,6 +5,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 
+from app.core.config import settings
 from app.core.database import async_session_factory
 from app.models.user import User as UserModel
 
@@ -51,14 +52,14 @@ async def test_auth_config_default(client):
     assert response.status_code == 200
     body = response.json()
     assert body["success"] is True
+    assert body["data"]["app_name"] == settings.APP_NAME
     assert body["data"]["allow_user_registration"] is True
     assert body["data"]["oidc_auto_redirect"] is False
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_auth_config_registration_disabled(client):
-    with patch("app.api.endpoints.auth.settings") as mock_settings:
-        mock_settings.ALLOW_USER_REGISTRATION = False
+    with patch.object(settings, "ALLOW_USER_REGISTRATION", False):
         response = await client.get("/api/auth/config")
 
     assert response.status_code == 200

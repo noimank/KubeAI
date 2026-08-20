@@ -18,6 +18,7 @@ export interface TokenPayload {
 }
 
 export interface AuthConfig {
+  appName: string
   allowUserRegistration: boolean
   oidcAutoRedirect: boolean
   enableBusinessAlgorithm: boolean

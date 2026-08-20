@@ -21,6 +21,7 @@ describe('authStore initializeAuth', () => {
       refreshToken: null,
       isAuthenticated: false,
       isInitializing: false,
+      appName: 'KubeAI',
       enableBusinessAlgorithm: false,
     })
     useRbacStore.getState().clearRbac()
@@ -28,6 +29,7 @@ describe('authStore initializeAuth', () => {
     mockedGetAuthConfig.mockResolvedValue({
       success: true,
       data: {
+        appName: '智枢人工智能平台',
         allowUserRegistration: true,
         oidcAutoRedirect: false,
         enableBusinessAlgorithm: false,
@@ -40,6 +42,7 @@ describe('authStore initializeAuth', () => {
     expect(mockedGetAuthConfig).toHaveBeenCalled()
     expect(mockedGetCurrentUser).not.toHaveBeenCalled()
     expect(useAuthStore.getState().user).toBeNull()
+    expect(useAuthStore.getState().appName).toBe('智枢人工智能平台')
   })
 
   it('should proceed with auth even when config fetch fails', async () => {

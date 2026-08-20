@@ -87,6 +87,7 @@ class PasswordChangeRequest(BaseModel):
 
 
 class AuthConfigResponse(BaseModel):
+    app_name: str
     allow_user_registration: bool
     oidc_auto_redirect: bool
     enable_business_algorithm: bool

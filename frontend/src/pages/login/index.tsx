@@ -7,7 +7,6 @@ import { login, getAuthConfig, getCurrentUser } from '@/services/auth'
 import { getOAuthProviders } from '@/services/oauth'
 import { useAuthStore } from '@/stores/authStore'
 import { getMessageInstance } from '@/utils/messageHolder'
-import { APP_TITLE } from '@/utils/constants'
 import OAuthButtons from './components/OAuthButtons'
 import './index.css'
 
@@ -16,7 +15,7 @@ const platformStats = ['GPU 资源调度', '多租户权限隔离', '训练到�
 const trustItems = ['安全访问', '审计可追溯']
 
 function ProductIcon({ className = '' }: { className?: string }) {
-  return <img className={`login-product-icon ${className}`} src="/favicon.svg" alt="" />
+  return <img className={`login-product-icon ${className}`} src="/logo.jpg" alt="" />
 }
 
 export default function LoginPage() {
@@ -27,6 +26,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { isAuthenticated, login: authLogin } = useAuthStore()
+  const appName = useAuthStore((s) => s.appName)
   const setTokens = useAuthStore((s) => s.setTokens)
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export default function LoginPage() {
           <section className="login-brand-panel">
             <div className="login-product-mark">
               <ProductIcon className="login-logo-mark" />
-              <span>{APP_TITLE}</span>
+              <span>{appName}</span>
             </div>
           </section>
 
@@ -158,7 +158,7 @@ export default function LoginPage() {
         <section className="login-brand-panel">
           <div className="login-product-mark">
             <ProductIcon className="login-logo-mark" />
-            <span>{APP_TITLE}</span>
+            <span>{appName}</span>
           </div>
 
           <div className="login-hero-copy">
@@ -186,7 +186,7 @@ export default function LoginPage() {
               <ProductIcon className="login-card-icon" />
               <div>
                 <h2>登录控制台</h2>
-                <p>进入 {APP_TITLE} 工作空间</p>
+                <p>进入 {appName} 工作空间</p>
               </div>
             </div>
 

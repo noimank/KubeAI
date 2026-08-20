@@ -7,7 +7,6 @@ import { useIdleTimeout } from '@/hooks/useIdleTimeout'
 import { useRbacStore } from '@/stores/rbacStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
-import { APP_TITLE } from '@/utils/constants'
 
 const NAVIGATE_MAP: Record<string, string> = {
   '/dashboard': '系统概览',
@@ -37,6 +36,7 @@ export default function MainLayout() {
   const location = useLocation()
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const enableBusinessAlgorithm = useAuthStore((s) => s.enableBusinessAlgorithm)
+  const appName = useAuthStore((s) => s.appName)
   const themeMode = useThemeStore((s) => s.themeMode)
 
   useIdleTimeout()
@@ -50,8 +50,8 @@ export default function MainLayout() {
 
   return (
     <ProLayout
-      title={APP_TITLE}
-      logo="/favicon.svg"
+      title={appName}
+      logo={<img src="/logo.jpg" alt="" style={{ height: 32, width: 'auto', borderRadius: 7 }} />}
       layout="mix"
       navTheme="realDark"
       contentStyle={{ padding: 24 }}

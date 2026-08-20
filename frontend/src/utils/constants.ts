@@ -4,20 +4,6 @@
  */
 export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || '/api'
 
-/** 运行时配置（由 /config.js 注入，Docker 启动时可根据环境变量覆写） */
-export interface RuntimeConfig {
-  APP_TITLE: string
-}
-
-function getRuntimeConfig(): RuntimeConfig {
-  const w = window as unknown as { __RUNTIME_CONFIG__?: Partial<RuntimeConfig> }
-  const cfg = w.__RUNTIME_CONFIG__ ?? {}
-  return { APP_TITLE: cfg.APP_TITLE ?? 'KubeAI' }
-}
-
-export const RUNTIME_CONFIG = getRuntimeConfig()
-export const APP_TITLE = RUNTIME_CONFIG.APP_TITLE
-
 export const ACCESS_TOKEN_KEY = 'kubeai_access_token'
 export const REFRESH_TOKEN_KEY = 'kubeai_refresh_token'
 export const THEME_KEY = 'kubeai_theme'

@@ -127,12 +127,11 @@
 .login-product-icon {
   display: block;
   flex: 0 0 auto;
-  object-fit: contain;
   vertical-align: middle;
 }
 
 .login-logo-mark {
-  width: 42px;
+  width: auto;
   height: 42px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
@@ -155,7 +154,7 @@
 }
 
 .login-eyebrow-icon {
-  width: 18px;
+  width: auto;
   height: 18px;
   border-radius: 5px;
   box-shadow: 0 8px 20px rgba(45, 212, 191, 0.18);
@@ -201,7 +200,7 @@
 }
 
 .login-stat-icon {
-  width: 18px;
+  width: auto;
   height: 18px;
   border-radius: 5px;
 }
@@ -239,7 +238,7 @@
 
 .login-card-icon {
   flex: 0 0 auto;
-  width: 46px;
+  width: auto;
   height: 46px;
   border-radius: 8px;
   box-shadow: 0 12px 28px rgba(15, 118, 110, 0.2);
@@ -279,7 +278,7 @@
 }
 
 .login-trust-icon {
-  width: 14px;
+  width: auto;
   height: 14px;
   border-radius: 4px;
 }
@@ -323,7 +322,7 @@
 }
 
 .login-button-icon {
-  width: 18px;
+  width: auto;
   height: 18px;
   border-radius: 5px;
 }
@@ -413,7 +412,7 @@
 }
 
 .login-redirect-icon-img {
-  width: 32px;
+  width: auto;
   height: 32px;
   border-radius: 8px;
 }

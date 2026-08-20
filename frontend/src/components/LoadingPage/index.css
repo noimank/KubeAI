@@ -26,8 +26,9 @@
 }
 
 .loading-page-icon {
-  width: 48px;
+  width: auto;
   height: 48px;
+  border-radius: 10px;
   animation: loadingPagePulse 2s ease-in-out infinite;
 }
 

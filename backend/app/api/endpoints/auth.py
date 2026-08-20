@@ -65,6 +65,7 @@ def _audit_ctx(request: Request) -> dict[str, Any]:
 async def auth_config() -> BaseResponse[AuthConfigResponse]:
     return BaseResponse(
         data=AuthConfigResponse(
+            app_name=settings.APP_NAME,
             allow_user_registration=settings.ALLOW_USER_REGISTRATION,
             oidc_auto_redirect=settings.OIDC_AUTO_REDIRECT,
             enable_business_algorithm=settings.ENABLE_BUSINESS_ALGORITHM,

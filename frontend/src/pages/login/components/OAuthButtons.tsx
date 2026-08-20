@@ -29,7 +29,7 @@ export default function OAuthButtons() {
             key={provider.name}
             block
             size="large"
-            icon={<img className="login-button-icon" src="/favicon.svg" alt="" />}
+            icon={<img className="login-button-icon" src="/logo.jpg" alt="" />}
             onClick={() => handleClick(provider)}
           >
             {provider.displayName}

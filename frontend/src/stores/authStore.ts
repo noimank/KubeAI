@@ -13,6 +13,7 @@ interface AuthState {
   refreshToken: string | null
   isAuthenticated: boolean
   isInitializing: boolean
+  appName: string
   enableBusinessAlgorithm: boolean
   login: (user: User, accessToken: string, refreshToken: string) => void
   logout: () => void
@@ -61,6 +62,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   refreshToken: getStoredToken(REFRESH_TOKEN_KEY),
   isAuthenticated: !!getStoredToken(ACCESS_TOKEN_KEY),
   isInitializing: !!getStoredToken(ACCESS_TOKEN_KEY),
+  appName: 'KubeAI',
   enableBusinessAlgorithm: false,
 
   login: (user, accessToken, refreshToken) => {
@@ -107,10 +109,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const configRes = await getAuthConfig()
       if (configRes.success && configRes.data) {
-        set({ enableBusinessAlgorithm: configRes.data.enableBusinessAlgorithm })
+        set({
+          appName: configRes.data.appName,
+          enableBusinessAlgorithm: configRes.data.enableBusinessAlgorithm,
+        })
       }
     } catch {
-      // config fetch failed — keep default (false), don't block startup
+      // config fetch failed — keep defaults, don't block startup
     }
 
     const token = getStoredToken(ACCESS_TOKEN_KEY)
