@@ -34,6 +34,7 @@ dependencies = [
     "pure-sasl>=0.6.2",
     "pymssql>=2.3.13",
     "optuna>=4.9.0",
+    "cmaes>=0.12.0",
 ]
 
 [dependency-groups]
