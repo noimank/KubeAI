@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import re
 import time
 from typing import Any
 
@@ -14,6 +15,17 @@ from app.core.config import settings
 
 # 只读 SQL 关键字白名单
 _READONLY_KEYWORDS = {"SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH"}
+
+# 表名/Schema 名安全字符集: 拒绝引号、分号、注释、空白等 SQL 注入载体
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_$.\-]{1,255}$")
+
+
+def _validate_identifier(name: str) -> str:
+    """校验表名/Schema 名只含安全标识符字符, 防止拼接 SQL 时注入。"""
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"非法表名或 Schema 名: {name!r}")
+    return name
+
 
 # SHOW 子命令白名单：只允许读取元数据/表结构的 SHOW 变体
 _ALLOWED_SHOW_COMMANDS = frozenset(
@@ -172,7 +184,9 @@ class QueryExecutor:
         """异步驱动执行（PostgreSQL/MySQL）。"""
         from sqlalchemy.ext.asyncio import create_async_engine
 
-        engine = create_async_engine(url, pool_size=1, pool_pre_ping=True)
+        # PG 服务端强制只读事务: 阻断 WITH ... DELETE/UPDATE 数据修改 CTE 绕过只读白名单
+        connect_args = {"server_settings": {"default_transaction_read_only": "on"}} if db_type == "postgresql" else {}
+        engine = create_async_engine(url, pool_size=1, pool_pre_ping=True, connect_args=connect_args)
         try:
             start = time.monotonic()
             async with engine.connect() as conn:
@@ -292,6 +306,9 @@ class QueryExecutor:
         table_schema: str | None = None,
     ) -> list[dict[str, Any]]:
         """获取表的列定义。"""
+        _validate_identifier(table_name)
+        if table_schema:
+            _validate_identifier(table_schema)
         if db_type == "postgresql":
             if table_schema:
                 schema_filter = f"AND c.table_schema = '{table_schema}'"
