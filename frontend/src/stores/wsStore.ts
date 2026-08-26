@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { useAuthStore } from './authStore'
 import { useNotificationStore } from './notificationStore'
 import { queryClient } from '@/lib/queryClient'
+import { buildWsUrl } from '@/utils/constants'
 
 interface WsState {
   connected: boolean
@@ -11,22 +12,13 @@ interface WsState {
   disconnect: () => void
 }
 
-function getWsUrl(): string {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  if (baseUrl.startsWith('http')) {
-    return baseUrl.replace(/^http/, 'ws') + '/ws'
-  }
-  return `${wsProtocol}//${window.location.host}${baseUrl}/ws`
-}
-
 export const useWsStore = create<WsState>((set, get) => ({
   connected: false,
   reconnecting: false,
   ws: null,
 
   connect: () => {
-    const url = getWsUrl()
+    const url = buildWsUrl('/ws')
     let retryDelay = 1000
     const maxDelay = 30000
 
@@ -34,7 +26,8 @@ export const useWsStore = create<WsState>((set, get) => ({
       const token = useAuthStore.getState().accessToken
       if (!token) return
 
-      const ws = new WebSocket(`${url}?token=${token}`)
+      // 鉴权走同源 Cookie (kubeai_access_token), URL 不携带 token
+      const ws = new WebSocket(url)
 
       ws.onopen = () => {
         set({ connected: true, reconnecting: false })

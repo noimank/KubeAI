@@ -1,5 +1,4 @@
 import { Image, List, Tag, Typography } from 'antd'
-import { appendAuthToken } from '@/utils/constants'
 
 /**
  * List 对象查看器 —— 渲染数组数据源（Ranker 的输入）。
@@ -29,7 +28,7 @@ export default function ListViewer({ value, title }: { value: unknown; title?: s
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <Tag>{idx + 1}</Tag>
                 {img ? (
-                  <Image src={appendAuthToken(img)} style={{ maxHeight: 80 }} alt="" />
+                  <Image src={img} style={{ maxHeight: 80 }} alt="" />
                 ) : (
                   <Typography.Text style={{ wordBreak: 'break-all' }}>
                     {typeof item === 'string' ? item : JSON.stringify(item)}

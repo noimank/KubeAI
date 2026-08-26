@@ -3,7 +3,6 @@ import type Konva from 'konva'
 import { toControlConfig, type ConfigNode } from '../../utils/parseLabelConfig'
 import type { AnnotationTask } from '@/types/annotation'
 import type { useAnnotationRegions } from '../../hooks/useAnnotationRegions'
-import { appendAuthToken } from '@/utils/constants'
 import { useVideoPlayer, type VideoMeta } from './useVideoPlayer'
 import { useVideoStage } from './useVideoStage'
 import { VideoPlayerContext } from './VideoPlayerContext'
@@ -59,7 +58,7 @@ export default function VideoAnnotator({
         {/* 隐藏 video：保留解码供 Konva.Image，但不在视口占用空间 */}
         <video
           ref={videoRef}
-          src={appendAuthToken(url)}
+          src={url}
           crossOrigin="anonymous"
           muted={isMuted}
           playsInline

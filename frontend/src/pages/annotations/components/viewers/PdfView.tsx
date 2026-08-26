@@ -4,14 +4,13 @@ import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { appendAuthToken } from '@/utils/constants'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
 /**
  * PDF 对象查看器 —— 用 pdfjs-dist v6 渲染当前页到 canvas，支持翻页。
  * v6 的 render 需要 `canvas`（非 canvasContext）；销毁走 loadingTask.destroy()。
- * URL 经 appendAuthToken 注入鉴权。
+ * 同源请求自动携带认证 Cookie。
  */
 export default function PdfView({ value }: { value: unknown }) {
   const url = typeof value === 'string' ? value : ''
@@ -26,7 +25,7 @@ export default function PdfView({ value }: { value: unknown }) {
   useEffect(() => {
     if (!url) return
     let cancelled = false
-    const loadingTask = pdfjsLib.getDocument({ url: appendAuthToken(url) })
+    const loadingTask = pdfjsLib.getDocument({ url: url })
     setLoading(true)
     setError(false)
     loadingTask.promise

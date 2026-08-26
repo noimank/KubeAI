@@ -1,12 +1,15 @@
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 import redis.asyncio as aioredis
-from fastapi import Depends, Query, Request
+from fastapi import Depends, Request, WebSocket, WebSocketException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth_helpers import COOKIE_NAME
 from app.core.casbin import CasbinEnforcer
 from app.core.database import async_session_factory
 from app.core.exceptions import ForbiddenException, UnauthorizedException
@@ -67,8 +70,6 @@ async def get_optional_current_user(
     redis: aioredis.Redis = Depends(get_redis),  # noqa: B008
 ) -> TokenIdentity | None:
     """可选鉴权 — 无凭证或解析失败均返回 None (不抛)."""
-    from fastapi.security.utils import get_authorization_scheme_param
-
     auth_header = request.headers.get("Authorization", "")
     scheme, param = get_authorization_scheme_param(auth_header)
     if scheme.lower() != "bearer" or not param:
@@ -84,43 +85,66 @@ CurrentUserEntity = Annotated[User, Depends(get_current_user_entity)]
 OptionalCurrentUser = Annotated[TokenIdentity | None, Depends(get_optional_current_user)]
 
 
-async def authenticate_ws_token(
-    token: str,
-    db: AsyncSession,
-    redis: aioredis.Redis | None,
-) -> TokenIdentity | None:
-    """WebSocket 握手鉴权 — 失败返回 None (WS 无法透传 HTTP 异常, 由调用方关闭连接).
-
-    保留显式 (token, db, redis) 签名以兼容现有 WS 调用点; redis 为 None 时 resolver
-    降级为直查 DB.
-    """
-    try:
-        return await IdentityResolver(redis).resolve(token, db)
-    except (UnauthorizedException, ForbiddenException):
-        return None
-
-
-async def get_current_user_from_query_or_header(
-    request: Request,
-    token: str | None = Query(None, alias="token"),
+async def authenticate_ws(
+    websocket: WebSocket,
     db: AsyncSession = Depends(get_db),  # noqa: B008
     redis: aioredis.Redis = Depends(get_redis),  # noqa: B008
 ) -> TokenIdentity:
-    """Authenticate via Bearer header (priority) or ?token= query parameter.
+    """WebSocket 握手鉴权 — 同源 Cookie, 失败抛 ``WebSocketException`` 拒绝握手.
 
-    用于同时支持 API 客户端 (Bearer) 与浏览器直连 (如 <a> 下载 / <img> 的 ?token=)。
+    浏览器 WebSocket 无法携带 Authorization 头, 使用登录时前端写入的
+    ``kubeai_access_token`` Cookie (SameSite=Lax)。相比 ``?token=`` 查询参数,
+    JWT 不再泄漏到代理访问日志 / 浏览器历史。Origin 校验防御跨站 WebSocket
+    劫持 (CSWSH); 经 nginx ``$host`` 转发的 Host 不含端口, 故仅比较主机名。
     """
-    from fastapi.security.utils import get_authorization_scheme_param
+    origin = websocket.headers.get("origin")
+    if origin:
+        origin_host = urlparse(origin).hostname or ""
+        request_host = urlparse(f"//{websocket.headers.get('host', '')}").hostname or ""
+        if not origin_host or origin_host != request_host:
+            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="跨站 WebSocket 连接被拒绝")
 
+    token = websocket.cookies.get(COOKIE_NAME)
+    if not token:
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="未认证")
+    try:
+        identity = await IdentityResolver(redis).resolve(token, db)
+    except (UnauthorizedException, ForbiddenException) as exc:
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="认证失败") from exc
+    if identity.tenant_id is None:
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="用户未归属租户")
+    return identity
+
+
+WsUser = Annotated[TokenIdentity, Depends(authenticate_ws)]
+
+
+async def get_current_user_from_header_or_cookie(
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    redis: aioredis.Redis = Depends(get_redis),  # noqa: B008
+) -> TokenIdentity:
+    """Authenticate via Bearer header (priority) or same-origin Cookie.
+
+    用于浏览器原生请求 (<img>/<video>/<a> 下载等无法携带 Authorization 头的场景):
+    同源请求自动携带 ``kubeai_access_token`` Cookie, JWT 不再经 URL 传输。
+    Cookie 通道要求 ``Sec-Fetch-Site`` 非 cross-site, 阻断跨站页面借会话 Cookie 鉴权
+    (与 Cookie 的 SameSite=Lax 互为纵深防御; Bearer 头为显式凭证, 不受此限)。
+    """
     auth_header = request.headers.get("Authorization", "")
     scheme, param = get_authorization_scheme_param(auth_header)
-    token_str = param if (scheme.lower() == "bearer" and param) else token
-    if not token_str:
+    if scheme.lower() == "bearer" and param:
+        return await IdentityResolver(redis).resolve(param, db)
+
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
         raise UnauthorizedException("未提供认证 Token")
-    return await IdentityResolver(redis).resolve(token_str, db)
+    if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+        raise UnauthorizedException("跨站请求被拒绝")
+    return await IdentityResolver(redis).resolve(token, db)
 
 
-QueryOrHeaderUser = Annotated[TokenIdentity, Depends(get_current_user_from_query_or_header)]
+HeaderOrCookieUser = Annotated[TokenIdentity, Depends(get_current_user_from_header_or_cookie)]
 
 
 async def get_current_tenant_id(request: Request) -> str | None:

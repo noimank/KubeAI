@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, QueryOrHeaderUser, get_db, require_permission
+from app.api.deps import CurrentUser, HeaderOrCookieUser, get_db, require_permission
 from app.core.exceptions import NotFoundException
 from app.models.dataset import Dataset
 from app.models.user import User
@@ -323,9 +323,9 @@ async def download_file(
     version_id: uuid.UUID,
     file_name: str,
     db: DbDep,
-    user: QueryOrHeaderUser,
+    user: HeaderOrCookieUser,
 ) -> FileResponse:
-    """Download a dataset file. Supports both Bearer header and ?token= query parameter auth."""
+    """Download a dataset file. Bearer header (API) or same-origin Cookie (browser-native tags)."""
     from app.core.casbin import CasbinEnforcer
     from app.core.exceptions import ForbiddenException as ForbiddenExc
 

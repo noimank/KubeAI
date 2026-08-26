@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Card, Space, Tag, Typography } from 'antd'
 import { CheckOutlined, CloseOutlined } from '@ant-design/icons'
-import { appendAuthToken } from '@/utils/constants'
 import LabelPalette from './LabelPalette'
 import { labelColor } from './annotationColors'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
@@ -175,7 +174,7 @@ export default function NerTextAnnotator({
       {objectConfig?.tag === 'Image' && typeof task.data?.[field] === 'string' && (
         <Card size="small">
           <img
-            src={appendAuthToken(task.data[field] as string)}
+            src={task.data[field] as string}
             alt="data"
             style={{ maxWidth: '100%', maxHeight: 360 }}
           />

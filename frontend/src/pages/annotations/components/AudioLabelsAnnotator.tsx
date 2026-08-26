@@ -7,7 +7,6 @@ import { labelColor } from './annotationColors'
 import LabelPalette from './LabelPalette'
 import { regionsOf } from '../utils/regions'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
-import { appendAuthToken } from '@/utils/constants'
 
 /**
  * Audio Labels 标注器 —— 在波形上拖拽选择区间创建 audio region（声音事件检测）。
@@ -54,7 +53,7 @@ export default function AudioLabelsAnnotator({
     const regionsPlugin = RegionsPlugin.create()
     regionsPluginRef.current = regionsPlugin
     const ws = WaveSurfer.create({
-      url: appendAuthToken(url),
+      url,
       container: containerRef.current,
       height: 96,
       waveColor: 'var(--ant-color-border, #d9d9d9)',

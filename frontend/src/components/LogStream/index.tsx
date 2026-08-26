@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Input, Space, Spin } from 'antd'
 import { SearchOutlined, DownOutlined, DownloadOutlined } from '@ant-design/icons'
 
-import { appendAuthToken } from '@/utils/constants'
-
 const ERROR_KEYWORDS = ['ERROR', 'FATAL', 'Exception', 'Traceback', 'FAILED', 'AssertionError']
 const MAX_LINES = 5000
 const FOLLOW_THRESHOLD = 50 // px from bottom within which we keep auto-scrolling
@@ -68,8 +66,8 @@ export default function LogStream({
 
   // 日志流走 WebSocket —— SSE 在双层 nginx(Tengine + APISIX)下会被 Tengine 缓冲,
   // 运行中日志攒在缓冲区, 任务结束 follow 流 EOF 才 flush; WebSocket 是升级连接,
-  // nginx 直接透传。浏览器 WebSocket 无法设置 Authorization 头, token 经
-  // appendAuthToken 附加到 URL(每次重连读最新值, 兼容 token 刷新)。
+  // nginx 直接透传。鉴权走同源 Cookie (kubeai_access_token), URL 不携带 token,
+  // 重连时浏览器自动带最新 Cookie(兼容 token 刷新)。
   useEffect(() => {
     if (!streamable || !streamUrl) return
 
@@ -96,8 +94,7 @@ export default function LogStream({
 
     function connect() {
       if (stopped || !streamUrl) return
-      const url: string = streamUrl
-      ws = new WebSocket(appendAuthToken(url))
+      ws = new WebSocket(streamUrl)
       ws.onopen = () => {
         backoffMs = 1000 // 连接健康, 重置退避
         pingTimer = setInterval(() => {

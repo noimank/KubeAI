@@ -18,7 +18,6 @@ import { Card, Image, Tag, Typography } from 'antd'
 import { HolderOutlined } from '@ant-design/icons'
 import type { AnnotationResultItem, AnnotationTask } from '@/types/annotation'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
-import { appendAuthToken } from '@/utils/constants'
 
 interface RankerAnnotatorProps {
   task: AnnotationTask
@@ -33,7 +32,7 @@ interface RankerAnnotatorProps {
 function ItemContent({ item }: { item: unknown }) {
   const img = imageUrlOf(item)
   if (img) {
-    return <Image src={appendAuthToken(img)} style={{ maxHeight: 60 }} alt="" />
+    return <Image src={img} style={{ maxHeight: 60 }} alt="" />
   }
   return (
     <Typography.Text style={{ wordBreak: 'break-all' }}>

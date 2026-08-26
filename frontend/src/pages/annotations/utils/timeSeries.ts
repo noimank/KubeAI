@@ -1,5 +1,3 @@
-import { appendAuthToken } from '@/utils/constants'
-
 export interface ParsedTimeSeries {
   /** X 轴值：时间戳(ms)、数值或行索引 */
   times: number[]
@@ -125,7 +123,7 @@ export function isUrlValue(value: unknown): boolean {
 
 /** 从 URL 加载文本（注入鉴权 token） */
 export async function fetchTimeSeriesText(url: string): Promise<string> {
-  const res = await fetch(appendAuthToken(url))
+  const res = await fetch(url)
   if (!res.ok) throw new Error(`加载时间序列失败: ${res.status}`)
   return res.text()
 }

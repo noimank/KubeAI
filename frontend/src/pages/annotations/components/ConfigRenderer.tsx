@@ -21,7 +21,6 @@ import TableView from './viewers/TableView'
 import PdfView from './viewers/PdfView'
 import TimeSeriesViewer from './viewers/TimeSeriesViewer'
 import AudioViewer from './viewers/AudioViewer'
-import { appendAuthToken } from '@/utils/constants'
 
 // ── Workspace context passed through to annotator components ───────────────────
 
@@ -251,7 +250,7 @@ function renderObjectPreview(node: ConfigNode, ctx: WorkspaceContext): ReactNode
       const url = getObjectFieldUrl(node, ctx)
       return url ? (
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <img src={appendAuthToken(url)} style={{ maxHeight: 400, maxWidth: '100%' }} alt="" />
+          <img src={url} style={{ maxHeight: 400, maxWidth: '100%' }} alt="" />
         </div>
       ) : null
     }
@@ -264,7 +263,7 @@ function renderObjectPreview(node: ConfigNode, ctx: WorkspaceContext): ReactNode
           <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
             🎬 视频预览
           </Typography.Text>
-          <video controls src={appendAuthToken(url)} style={{ maxWidth: '100%', maxHeight: 300 }} />
+          <video controls src={url} style={{ maxWidth: '100%', maxHeight: 300 }} />
         </div>
       ) : null
     }

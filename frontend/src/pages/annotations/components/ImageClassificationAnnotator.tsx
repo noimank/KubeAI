@@ -4,7 +4,6 @@ import InlineLoading from '@/components/InlineLoading'
 import type { AnnotationTask, AnnotationProjectDetail } from '@/types/annotation'
 import type { AnnotationResultItem } from '@/types/annotation'
 import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils/parseLabelConfig'
-import { appendAuthToken } from '@/utils/constants'
 
 interface ImageClassificationAnnotatorProps {
   task: AnnotationTask
@@ -57,11 +56,7 @@ export default function ImageClassificationAnnotator({
         }}
       >
         {imageUrl ? (
-          <Image
-            src={appendAuthToken(imageUrl)}
-            style={{ maxWidth: '100%', maxHeight: 500 }}
-            preview={false}
-          />
+          <Image src={imageUrl} style={{ maxWidth: '100%', maxHeight: 500 }} preview={false} />
         ) : (
           <InlineLoading tip="加载图片中..." />
         )}

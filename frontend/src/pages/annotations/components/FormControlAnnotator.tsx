@@ -15,7 +15,6 @@ import type { AnnotationResultItem, AnnotationTask } from '@/types/annotation'
 import type { Region, ImageDimensions } from '../hooks/useAnnotationRegions'
 import { regionBoundingBox } from '../utils/regions'
 import RegionCropPreview from './RegionCropPreview'
-import { appendAuthToken } from '@/utils/constants'
 import {
   type LabelStudioControlConfig,
   type LabelStudioObjectConfig,
@@ -200,16 +199,12 @@ export default function FormControlAnnotator({
     if (!value) return null
     if (objectConfig?.tag === 'Image')
       return (
-        <img
-          src={appendAuthToken(value)}
-          style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 6 }}
-          alt="data"
-        />
+        <img src={value} style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 6 }} alt="data" />
       )
     if (objectConfig?.tag === 'Audio')
-      return <audio src={appendAuthToken(value)} controls style={{ width: '100%' }} />
+      return <audio src={value} controls style={{ width: '100%' }} />
     if (objectConfig?.tag === 'Video')
-      return <video src={appendAuthToken(value)} controls style={{ width: '100%' }} />
+      return <video src={value} controls style={{ width: '100%' }} />
     if (objectConfig?.tag === 'Text' || objectConfig?.tag === 'HyperText')
       return (
         <Card size="small">

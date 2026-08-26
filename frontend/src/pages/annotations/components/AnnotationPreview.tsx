@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, Image, Rate, Space, Tag, Typography } from 'antd'
 import { Stage, Layer, Image as KonvaImage, Rect, Line, Ellipse, Circle } from 'react-konva'
 import type { AnnotationResultItem } from '@/types/annotation'
-import { appendAuthToken } from '@/utils/constants'
 
 interface AnnotationPreviewProps {
   task: { data?: Record<string, unknown> }
@@ -66,7 +65,7 @@ function useImage(url: string | undefined) {
     let cancelled = false
     const img = new window.Image()
     img.crossOrigin = 'anonymous'
-    img.src = appendAuthToken(url)
+    img.src = url
     img.onload = () => {
       if (!cancelled) setImage(img)
     }
@@ -145,7 +144,7 @@ function ImageOverlay({ imageUrl, entries }: { imageUrl: string; entries: Entry[
   if (!image) {
     return (
       <div style={{ textAlign: 'center', padding: 24 }}>
-        <Image src={appendAuthToken(imageUrl)} style={{ maxHeight: 360 }} />
+        <Image src={imageUrl} style={{ maxHeight: 360 }} />
       </div>
     )
   }
@@ -340,7 +339,7 @@ export default function AnnotationPreview({
       <div>
         {imageUrl && (
           <div style={{ textAlign: 'center', marginBottom: 12 }}>
-            <Image src={appendAuthToken(imageUrl)} style={{ maxHeight: 360 }} />
+            <Image src={imageUrl} style={{ maxHeight: 360 }} />
           </div>
         )}
         {textContent && (
@@ -360,7 +359,7 @@ export default function AnnotationPreview({
           <ImageOverlay imageUrl={imageUrl} entries={overlays} />
         ) : (
           <div style={{ textAlign: 'center', marginBottom: 12 }}>
-            <Image src={appendAuthToken(imageUrl)} style={{ maxHeight: 360 }} />
+            <Image src={imageUrl} style={{ maxHeight: 360 }} />
           </div>
         ))}
 

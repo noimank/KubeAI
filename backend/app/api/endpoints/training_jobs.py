@@ -10,12 +10,12 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, authenticate_ws_token, get_db, require_permission
+from app.api.deps import CurrentUser, WsUser, get_db, require_permission
 from app.core.auth_helpers import resolve_identity_from_request
 from app.core.clients import get_prometheus_client
 from app.core.exceptions import AppException, ForbiddenException, UnauthorizedException
 from app.core.gpu_metrics import MetricsResponse
-from app.core.redis import _redis_pool, get_redis
+from app.core.redis import get_redis
 from app.integrations.k8s.kubeai_volumes import HOME_MOUNT_PATH, WORKSPACE_MOUNT_PATH
 from app.models.enums import TrainingJobStatus, UserRole
 from app.models.experiment import Experiment
@@ -329,18 +329,15 @@ async def stream_training_job_logs_ws(
     websocket: WebSocket,
     training_job_id: uuid.UUID,
     db: DbDep,
-    token: str = Query(...),
+    user: WsUser,
     pod_name: str | None = Query(None),
     tail_lines: int = Query(100, ge=1, le=10000),
 ) -> None:
     # WebSocket 是升级连接, nginx 直接透传, 不受 proxy_buffering 影响
     # (SSE 在双层 nginx 下被 Tengine 缓冲, 运行中日志攒在缓冲区, 任务结束才 flush)。
-    # 浏览器 WebSocket 无法设置 Authorization 头, 走 ?token= 鉴权。
-    user = await authenticate_ws_token(token, db, _redis_pool)
-    if user is None or user.tenant_id is None:
-        await websocket.close(code=4001, reason="认证失败")
-        return
+    # 鉴权见 deps.authenticate_ws: 同源 Cookie, token 不经 URL 传输。
     tenant_id = user.tenant_id
+    assert tenant_id is not None  # authenticate_ws 已拒绝无租户身份, 此处仅收窄类型
     await websocket.accept()
     service = TrainingJobService(db)
 

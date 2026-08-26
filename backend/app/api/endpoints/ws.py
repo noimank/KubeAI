@@ -1,9 +1,7 @@
 import structlog
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.api.deps import authenticate_ws_token
-from app.core.database import async_session_factory
-from app.core.redis import _redis_pool
+from app.api.deps import WsUser
 from app.core.ws_manager import get_ws_manager
 
 logger = structlog.get_logger()
@@ -12,15 +10,11 @@ router = APIRouter()
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)) -> None:
-    # 浏览器 WebSocket 无法设置 Authorization 头, 走 ?token= 鉴权。
-    async with async_session_factory() as db:
-        user = await authenticate_ws_token(token, db, _redis_pool)
-    if user is None or user.tenant_id is None:
-        await websocket.close(code=4001, reason="认证失败")
-        return
-
-    user_id, tenant_id = user.id, user.tenant_id
+async def websocket_endpoint(websocket: WebSocket, user: WsUser) -> None:
+    # 鉴权见 deps.authenticate_ws: 同源 Cookie, token 不经 URL 传输。
+    user_id = user.id
+    tenant_id = user.tenant_id
+    assert tenant_id is not None  # authenticate_ws 已拒绝无租户身份, 此处仅收窄类型
     manager = get_ws_manager()
     await manager.connect(websocket, user_id, tenant_id)
     logger.info("ws_connected", user_id=str(user_id), tenant_id=str(tenant_id))

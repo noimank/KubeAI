@@ -6,7 +6,6 @@ import type { LabelStudioControlConfig, LabelStudioObjectConfig } from '../utils
 import type { Region, ImageDimensions } from '../hooks/useAnnotationRegions'
 import { regionBoundingBox } from '../utils/regions'
 import RegionCropPreview from './RegionCropPreview'
-import { appendAuthToken } from '@/utils/constants'
 
 /** 匹配 hotkey 字符串（如 "ctrl+1"、"shift+a"）与键盘事件 */
 function matchHotkey(e: KeyboardEvent, hotkey: string): boolean {
@@ -199,7 +198,7 @@ export default function TextAreaAnnotator({
         />
       ) : objectConfig?.tag === 'Image' && objectValue ? (
         <img
-          src={appendAuthToken(objectValue)}
+          src={objectValue}
           alt="data"
           style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 6 }}
         />

@@ -100,10 +100,6 @@ export async function getVersionStats(datasetId: string, versionId: string): Pro
   return res.data.data!
 }
 
-export function getFileDownloadUrl(datasetId: string, versionId: string, fileName: string): string {
-  return `/api/datasets/${datasetId}/versions/${versionId}/files/${encodeURIComponent(fileName)}/download`
-}
-
 export async function fetchFileBlob(
   datasetId: string,
   versionId: string,

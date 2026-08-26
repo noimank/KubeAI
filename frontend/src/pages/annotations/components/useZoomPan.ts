@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type Konva from 'konva'
-import { appendAuthToken } from '@/utils/constants'
 
 export interface Point {
   x: number
@@ -79,7 +78,7 @@ export function useZoomPan(imageUrl: string | undefined): ZoomPanController {
     didInitialFitRef.current = false
     const img = new window.Image()
     img.crossOrigin = 'anonymous'
-    img.src = appendAuthToken(imageUrl)
+    img.src = imageUrl
     img.onload = () => {
       if (!cancelled) setImage(img)
     }

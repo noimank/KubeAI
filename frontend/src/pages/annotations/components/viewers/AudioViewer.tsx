@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, Space, Spin, Typography } from 'antd'
 import { PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import WaveSurfer from 'wavesurfer.js'
-import { appendAuthToken } from '@/utils/constants'
 
 /** Audio 对象查看器 —— wavesurfer 波形播放器（仅播放） */
 export default function AudioViewer({ value, height = 80 }: { value: unknown; height?: number }) {
@@ -15,7 +14,7 @@ export default function AudioViewer({ value, height = 80 }: { value: unknown; he
   useEffect(() => {
     if (!ref.current || !url) return
     const ws = WaveSurfer.create({
-      url: appendAuthToken(url),
+      url,
       container: ref.current,
       height,
       waveColor: 'var(--ant-color-border, #d9d9d9)',

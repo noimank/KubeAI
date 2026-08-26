@@ -1,6 +1,5 @@
 import { Card, Image, Typography } from 'antd'
 import type { LabelStudioObjectConfig } from '../utils/parseLabelConfig'
-import { appendAuthToken } from '@/utils/constants'
 
 interface ObjectPreviewProps {
   objectConfig?: LabelStudioObjectConfig
@@ -31,17 +30,17 @@ export default function ObjectPreview({ objectConfig, value }: ObjectPreviewProp
   if (objectConfig?.tag === 'Image') {
     return (
       <div style={{ textAlign: 'center' }}>
-        <Image src={appendAuthToken(value)} style={{ maxHeight: 160 }} />
+        <Image src={value} style={{ maxHeight: 160 }} />
       </div>
     )
   }
 
   if (objectConfig?.tag === 'Audio') {
-    return <audio src={appendAuthToken(value)} controls style={{ width: '100%' }} />
+    return <audio src={value} controls style={{ width: '100%' }} />
   }
 
   if (objectConfig?.tag === 'Video') {
-    return <video src={appendAuthToken(value)} controls style={{ width: '100%', maxHeight: 200 }} />
+    return <video src={value} controls style={{ width: '100%', maxHeight: 200 }} />
   }
 
   if (objectConfig?.tag === 'PDF' || objectConfig?.tag === 'Pdf') {

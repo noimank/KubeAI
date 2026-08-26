@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { appendAuthToken } from '@/utils/constants'
 
 interface RegionCropPreviewProps {
   /** Image URL (without token — will be appended internally) */
@@ -53,7 +52,7 @@ export default function RegionCropPreview({
     let cancelled = false
     const img = new window.Image()
     img.crossOrigin = 'anonymous'
-    img.src = appendAuthToken(imageUrl)
+    img.src = imageUrl
     img.onload = () => {
       if (!cancelled) {
         imgRef.current = img

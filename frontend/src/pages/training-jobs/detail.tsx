@@ -46,7 +46,6 @@ import {
   deleteTrainingJob,
 } from '@/services/training-jobs'
 import { registerModel } from '@/services/models'
-import { ACCESS_TOKEN_KEY } from '@/utils/constants'
 import { getMessageInstance } from '@/utils/messageHolder'
 import type { TrainingJobStatus } from '@/types/training-job'
 
@@ -235,12 +234,9 @@ export default function TrainingJobDetailPage() {
   const isNotStarted = NOT_STARTED_STATUSES.includes(job.status)
   const isDistributed = (pods?.length ?? 0) > 1
 
-  // Build SSE URL for streaming mode
-  const token = typeof window !== 'undefined' ? localStorage.getItem(ACCESS_TOKEN_KEY) : ''
+  // Build WS URL for streaming mode (同源 Cookie 鉴权)
   const streamUrl =
-    isStreamable && id && token
-      ? buildLogStreamWsUrl(id, { podName: selectedPod, tailLines: 100 })
-      : null
+    isStreamable && id ? buildLogStreamWsUrl(id, { podName: selectedPod, tailLines: 100 }) : null
 
   const logTabContent = (() => {
     if (isNotStarted) {

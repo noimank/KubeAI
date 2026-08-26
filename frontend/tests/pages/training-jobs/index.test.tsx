@@ -43,10 +43,6 @@ vi.mock('@/stores/rbacStore', () => ({
   }),
 }))
 
-vi.mock('@/hooks/useWebSocket', () => ({
-  useWebSocket: vi.fn(),
-}))
-
 vi.mock('@/stores/tenantStore', () => ({
   useTenantStore: vi.fn((selector) => {
     const state = { currentTenant: null, tenantList: [], loading: false }

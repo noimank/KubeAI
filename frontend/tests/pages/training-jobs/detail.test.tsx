@@ -30,7 +30,7 @@ vi.mock('@/services/training-jobs', () => ({
   stopTrainingJob: vi.fn(),
   retryTrainingJob: vi.fn(),
   deleteTrainingJob: vi.fn(),
-  buildLogStreamUrl: vi.fn(),
+  buildLogStreamWsUrl: (jobId: string) => `ws://localhost/api/training-jobs/${jobId}/logs/ws`,
 }))
 
 vi.mock('@/services/models', () => ({
@@ -50,7 +50,6 @@ const mockGetTrainingJob = vi.mocked(await import('@/services/training-jobs')).g
 const mockRetryTrainingJob = vi.mocked(await import('@/services/training-jobs')).retryTrainingJob
 
 vi.mocked(await import('@/services/training-jobs')).getTrainingJobPods.mockResolvedValue([])
-vi.mocked(await import('@/services/training-jobs')).buildLogStreamUrl.mockReturnValue('')
 
 const mockRunningJob = {
   id: 'job-1',

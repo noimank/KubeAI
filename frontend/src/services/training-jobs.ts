@@ -7,7 +7,7 @@ import type {
   TrainingJobCreate,
   TrainingMetrics,
 } from '@/types/training-job'
-import { API_BASE_URL } from '@/utils/constants'
+import { buildWsUrl } from '@/utils/constants'
 
 export async function getTrainingJobs(params: {
   current: number
@@ -67,12 +67,12 @@ export function buildLogStreamWsUrl(
   jobId: string,
   params?: { podName?: string; tailLines?: number },
 ): string {
-  // WebSocket 日志流; token 由 LogStream 在连接时通过 appendAuthToken 附加(刷新后重连用最新值)。
-  const url = new URL(`${API_BASE_URL}/training-jobs/${jobId}/logs/ws`, window.location.origin)
-  url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  if (params?.podName) url.searchParams.set('pod_name', params.podName)
-  if (params?.tailLines) url.searchParams.set('tail_lines', String(params.tailLines))
-  return url.toString()
+  // WebSocket 日志流; 同源 Cookie 鉴权, pod_name/tail_lines 为非敏感查询参数。
+  const search = new URLSearchParams()
+  if (params?.podName) search.set('pod_name', params.podName)
+  if (params?.tailLines) search.set('tail_lines', String(params.tailLines))
+  const query = search.toString()
+  return buildWsUrl(`/training-jobs/${jobId}/logs/ws`) + (query ? `?${query}` : '')
 }
 
 export async function getTrainingJobMetrics(

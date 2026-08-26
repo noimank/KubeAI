@@ -15,15 +15,11 @@ export const DEFAULT_PAGE_SIZE = 10
 export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024 * 1024
 
 /**
- * 为 KubeAI 内部 API URL 追加 JWT Token 查询参数。
- * 用于 <img> / <audio> / <video> 等无法携带 Authorization Header 的浏览器原生请求。
- *
- * @param url - KubeAI 内部 API URL（如 /api/datasets/.../download）
- * @returns 带 ?token= 查询参数的 URL；若未登录则原样返回
+ * 构建同源 WebSocket URL。
+ * 强制使用当前页面 origin(ws/wss 随页面协议自适应), API_BASE_URL 仅作为路径前缀 ——
+ * 后端主机/端口一律经反向代理(nginx / APISIX / vite proxy)同源转发, 不进浏览器 URL。
  */
-export function appendAuthToken(url: string): string {
-  const token = localStorage.getItem(ACCESS_TOKEN_KEY)
-  if (!token) return url
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}token=${encodeURIComponent(token)}`
+export function buildWsUrl(path: string): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${protocol}://${window.location.host}${API_BASE_URL}${path}`
 }
