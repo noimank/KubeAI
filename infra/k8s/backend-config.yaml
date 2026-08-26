@@ -155,7 +155,8 @@ metadata:
     app.kubernetes.io/component: api
 type: Opaque
 stringData:
-  # -- JWT 签名密钥 (部署时必须修改)
+  # -- JWT 签名密钥 (必须替换: 后端在 DEBUG=false 下检测到占位符/默认值会拒绝启动,
+  #    生成: openssl rand -hex 32)
   SECRET_KEY: "change-me-to-a-random-32-char-string"
 
   # -- 数据库连接 (密码与 postgresql/postgresql.yaml 中一致)

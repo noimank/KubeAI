@@ -1,9 +1,14 @@
 import asyncio
+import os
 import sys
 from contextlib import suppress
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# 必须在导入 app 之前注入: Settings 会在 DEBUG=false 且 SECRET_KEY 为公开默认值时
+# 拒绝启动 (生产 fail-fast), 测试环境固定使用独立随机密钥, 不受本机 .env 影响。
+os.environ.setdefault("SECRET_KEY", "5f2a9c1e7b3d4f608a9b2c4d6e8f0a1c3b5d7e9f1a2c4b6d8e0f2a4c6b8d0e2f")
 
 import pytest
 from httpx import ASGITransport, AsyncClient

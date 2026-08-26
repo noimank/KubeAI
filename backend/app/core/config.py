@@ -1,4 +1,8 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 公开默认值 (代码默认 / k8s 清单占位符) — 生产模式下使用等价于私钥泄露, JWT 可被伪造。
+_INSECURE_SECRET_KEYS = {"change-me-in-production", "change-me-to-a-random-32-char-string"}
 
 
 class Settings(BaseSettings):
@@ -134,6 +138,15 @@ class Settings(BaseSettings):
     OPTUNA_DB_MAX_OVERFLOW: int = 5
     OPTUNA_DB_POOL_RECYCLE_SECONDS: int = 3600
     OPTUNA_DB_POOL_TIMEOUT_SECONDS: int = 10
+
+    @model_validator(mode="after")
+    def _reject_insecure_production_secret(self) -> "Settings":
+        if not self.DEBUG and self.SECRET_KEY in _INSECURE_SECRET_KEYS:
+            raise ValueError(
+                "SECRET_KEY 使用了公开默认值, 生产模式 (DEBUG=false) 下 JWT 可被伪造;"
+                " 请执行 openssl rand -hex 32 生成随机密钥并配置到环境变量 / backend-secret"
+            )
+        return self
 
 
 settings = Settings()
