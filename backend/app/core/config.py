@@ -113,6 +113,8 @@ class Settings(BaseSettings):
     # -- 数据探索
     DATA_EXPLORE_MAX_ROWS: int = 1000
     DATA_EXPLORE_QUERY_TIMEOUT: int = 30
+    # 单文件上传上限 (字节), 与前端 MAX_UPLOAD_SIZE 对齐; 应用层流式限额, 不依赖网关
+    UPLOAD_MAX_FILE_BYTES: int = 5 * 1024 * 1024 * 1024
 
     # -- 自动超参调优 (Optuna)
     # 兜底驱动周期 (秒): 主路径为 trial job 终态事件触发的 finalize_trial_task, 此处仅作 safety-net

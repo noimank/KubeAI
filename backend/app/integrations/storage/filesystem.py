@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiofiles
 
 from app.core.config import settings
 from app.integrations.base import sanitize_k8s_name
+from app.integrations.storage.path_safety import resolve_within
+
+if TYPE_CHECKING:
+    from fastapi import UploadFile
 
 logger = logging.getLogger(__name__)
+
+_CHUNK_SIZE = 1024 * 1024  # 1MB
 
 
 class FileSystemStorage:
@@ -35,20 +42,39 @@ class FileSystemStorage:
         dataset_name: str,
         version_number: int,
         filename: str,
-        content: bytes,
+        file: UploadFile,
         content_type: str | None = None,
     ) -> dict[str, Any]:
-        dir_path = await self.ensure_dir(tenant_name, dataset_name, version_number)
-        file_path = dir_path / filename
+        """流式落盘一个上传文件 (分块 + 大小限额), 返回文件元信息.
 
-        async with aiofiles.open(file_path, "wb") as f:
-            await f.write(content)
+        ``filename`` 必须经 :func:`sanitize_filename` 归一化; 此处再做 containment
+        校验作为兜底, 任何逃逸目标目录的路径都会被拒绝。
+        """
+        dir_path = await self.ensure_dir(tenant_name, dataset_name, version_number)
+        resolved_base = self._base_path.resolve()
+        file_path = resolve_within(dir_path, filename)
+
+        written = 0
+        exceeded = False
+        async with aiofiles.open(file_path, "wb") as out:
+            while True:
+                chunk = await file.read(_CHUNK_SIZE)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > settings.UPLOAD_MAX_FILE_BYTES:
+                    exceeded = True
+                    break
+                await out.write(chunk)
+        if exceeded:
+            await asyncio.to_thread(file_path.unlink, missing_ok=True)
+            raise ValueError(f"文件超过大小上限 {settings.UPLOAD_MAX_FILE_BYTES} 字节")
 
         actual_type = content_type or self._guess_content_type(filename)
         return {
             "file_name": filename,
-            "storage_path": str(file_path.relative_to(self._base_path)),
-            "size_bytes": len(content),
+            "storage_path": str(file_path.relative_to(resolved_base)),
+            "size_bytes": written,
             "content_type": actual_type,
         }
 
@@ -87,8 +113,6 @@ class FileSystemStorage:
                     )
             return results
 
-        import asyncio
-
         return await asyncio.to_thread(_list)
 
     def get_file_path(
@@ -98,7 +122,8 @@ class FileSystemStorage:
         version_number: int,
         filename: str,
     ) -> Path:
-        return self._version_dir(tenant_name, dataset_name, version_number) / filename
+        # containment 校验: 任何 ``../``、绝对路径、symlink 逃逸都会抛 ValueError
+        return resolve_within(self._version_dir(tenant_name, dataset_name, version_number), filename)
 
     async def delete_file(
         self,
@@ -107,11 +132,9 @@ class FileSystemStorage:
         version_number: int,
         filename: str,
     ) -> bool:
-        file_path = self._version_dir(tenant_name, dataset_name, version_number) / filename
+        file_path = resolve_within(self._version_dir(tenant_name, dataset_name, version_number), filename)
         if not file_path.exists() or not file_path.is_file():
             return False
-
-        import asyncio
 
         await asyncio.to_thread(file_path.unlink)
         return True
@@ -151,8 +174,6 @@ class FileSystemStorage:
 
     @staticmethod
     async def _mkdir(path: Path) -> None:
-        import asyncio
-
         def _make() -> None:
             path.mkdir(parents=True, exist_ok=True)
 
@@ -162,8 +183,6 @@ class FileSystemStorage:
     async def _rmtree(path: Path) -> None:
         if not path.exists():
             return
-
-        import asyncio
 
         def _remove() -> None:
             shutil.rmtree(str(path), ignore_errors=True)

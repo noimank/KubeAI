@@ -10,9 +10,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import ConflictException, NotFoundException
+from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.integrations.base import sanitize_k8s_name
 from app.integrations.storage.filesystem import FileSystemStorage
+from app.integrations.storage.path_safety import sanitize_filename
 from app.models.annotation import AnnotationProject
 from app.models.dataset import Dataset, DatasetFile, DatasetVersion
 from app.models.enums import AuditAction, ResourceType
@@ -100,15 +101,19 @@ class DatasetService:
 
         rows: list[DatasetFile] = []
         for file in files:
-            content = await file.read()
-            info = await self.storage.upload_file(
-                tenant_name=tenant_name,
-                dataset_name=dataset.name,
-                version_number=version.version_number,
-                filename=file.filename,
-                content=content,
-                content_type=file.content_type or "application/octet-stream",
-            )
+            try:
+                filename = sanitize_filename(file.filename)
+                info = await self.storage.upload_file(
+                    tenant_name=tenant_name,
+                    dataset_name=dataset.name,
+                    version_number=version.version_number,
+                    filename=filename,
+                    file=file,
+                    content_type=file.content_type or "application/octet-stream",
+                )
+            except ValueError as exc:
+                await self.db.rollback()
+                raise BadRequestException(str(exc)) from exc
             row = DatasetFile(
                 version_id=version.id,
                 dataset_id=dataset.id,
@@ -470,7 +475,10 @@ class DatasetService:
         dataset = await self._get_dataset_or_fail(dataset_id, tenant_id)
         version = await self._get_version_or_fail(version_id, dataset_id)
         tenant_name = await self._get_tenant_name(tenant_id)
-        return self.storage.get_file_path(tenant_name, dataset.name, version.version_number, file_name)
+        try:
+            return self.storage.get_file_path(tenant_name, dataset.name, version.version_number, file_name)
+        except ValueError as exc:
+            raise BadRequestException(str(exc)) from exc
 
     def _compute_file_type_distribution(self, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ext_counter: dict[str, dict[str, Any]] = {}

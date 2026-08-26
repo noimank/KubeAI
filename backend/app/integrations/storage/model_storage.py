@@ -13,6 +13,7 @@ import aiofiles
 
 from app.core.config import settings
 from app.integrations.base import sanitize_k8s_name
+from app.integrations.storage.path_safety import resolve_within
 
 if TYPE_CHECKING:
     from fastapi import UploadFile
@@ -48,11 +49,7 @@ class ModelStorage:
 
         ``name`` 允许含子目录 (如 ``sub/model.bin``), 但解析后必须等于或在 version_dir 内.
         """
-        base = version_dir.resolve()
-        target = (base / name).resolve()
-        if target != base and base not in target.parents:
-            raise ValueError(f"非法路径: {name}")
-        return target
+        return resolve_within(version_dir, name)
 
     async def ensure_version_dir(self, tenant_name: str, storage_path: str) -> Path:
         version_dir = self._version_dir(tenant_name, storage_path)

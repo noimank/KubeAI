@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import ConflictException, NotFoundException
+from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.models.dataset import Dataset, DatasetFile, DatasetVersion
 from app.services.dataset_service import DatasetService
 
@@ -203,6 +203,61 @@ class TestUploadFilesToVersion:
             patch.object(service.storage, "upload_file", new_callable=AsyncMock),
             pytest.raises(ConflictException, match="同名文件"),
         ):
+            await service.upload_files_to_version(
+                tenant_id=dataset.tenant_id,
+                dataset_id=dataset.id,
+                version_id=version.id,
+                files=[file1],
+                user_id=uuid.uuid4(),
+            )
+
+        mock_db.rollback.assert_awaited_once()
+
+    async def test_upload_normalizes_traversal_filename(self, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id)
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+            _one_result((1, 5)),  # recompute aggregates
+        ]
+
+        file1 = AsyncMock()
+        file1.filename = "../../evil.sh"
+        file1.content_type = None
+
+        with patch.object(service.storage, "upload_file", new_callable=AsyncMock) as mock_upload:
+            mock_upload.return_value = {
+                "file_name": "evil.sh",
+                "size_bytes": 5,
+                "content_type": "application/octet-stream",
+                "storage_path": "t/a/v1/evil.sh",
+            }
+            rows = await service.upload_files_to_version(
+                tenant_id=dataset.tenant_id,
+                dataset_id=dataset.id,
+                version_id=version.id,
+                files=[file1],
+                user_id=uuid.uuid4(),
+            )
+
+        # 目录段被剥离, 只以普通文件名落盘
+        assert mock_upload.call_args.kwargs["filename"] == "evil.sh"
+        assert rows[0].file_name == "evil.sh"
+
+    async def test_upload_rejects_degenerate_filename(self, service, mock_db):
+        dataset = _make_dataset()
+        version = _make_version(dataset_id=dataset.id)
+        mock_db.execute.side_effect = [
+            _row_result(dataset),
+            _row_result(version),
+        ]
+
+        file1 = AsyncMock()
+        file1.filename = ".."
+        file1.content_type = None
+
+        with pytest.raises(BadRequestException, match="非法文件名"):
             await service.upload_files_to_version(
                 tenant_id=dataset.tenant_id,
                 dataset_id=dataset.id,

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from app.core.exceptions import AppException, ConflictException, NotFoundException
 from app.integrations.storage.filesystem_browser import FilesystemBrowserSecurity
+from app.integrations.storage.path_safety import sanitize_filename
 from app.models.algorithm import Algorithm
 from app.models.enums import AuditAction, ResourceType
 from app.models.tenant import Tenant
@@ -349,16 +350,18 @@ class AlgorithmService:
 # ------------------------------------------------------------------
 def _compress_local_to_zip(file_content: bytes, filename: str, algo_id: uuid.UUID) -> str:
     """Write uploaded bytes into a temp zip file. Returns the zip path."""
+    # 归一化文件名: multipart filename 可能是 ../../evil 或绝对路径, 直接 join 会逃出 tmp_dir
+    safe_name = sanitize_filename(filename)
     tmp_dir = tempfile.mkdtemp(prefix=f"algo-{algo_id}")
-    tmp_file = os.path.join(tmp_dir, filename)
+    tmp_file = os.path.join(tmp_dir, safe_name)
     with open(tmp_file, "wb") as f:
         f.write(file_content)
 
     zip_path = os.path.join(tmp_dir, "algorithm.zip")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.write(tmp_file, arcname=filename)
+        zf.write(tmp_file, arcname=safe_name)
         # If the uploaded file is itself a zip, extract and re-pack entries
-        if filename.lower().endswith(".zip"):
+        if safe_name.lower().endswith(".zip"):
             try:
                 with zipfile.ZipFile(tmp_file, "r") as src:
                     for name in src.namelist():

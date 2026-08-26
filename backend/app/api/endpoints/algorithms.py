@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_permission
 from app.core.exceptions import AppException, BadRequestException
+from app.integrations.storage.path_safety import read_upload_bytes
 from app.models.algorithm import Algorithm
 from app.models.enums import AuditAction, ResourceType, UserRole
 from app.models.user import User
@@ -105,7 +106,10 @@ async def create_algorithm(
     tenant_id = _require_tenant_id(user)
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
-    file_bytes = await file.read()
+    try:
+        file_bytes = await read_upload_bytes(file)
+    except ValueError as exc:
+        raise BadRequestException(str(exc)) from exc
     filename = file.filename or "algorithm"
 
     service = AlgorithmService(db)
