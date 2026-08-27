@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -136,6 +136,7 @@ class AnnotationService:
             tenant_id=tenant_id,
             created_by=user_id,
         )
+        project.template = tpl  # template 关系是 lazy="noload", 主动装上供响应构建读取
         self.db.add(project)
         try:
             await self.db.flush()
@@ -170,6 +171,9 @@ class AnnotationService:
         project = result.scalar_one_or_none()
         if not project:
             return
+        # 幂等守卫: stream 未确认消息会被重投, 重复投递时已成功/已失败的项目直接跳过
+        if project.status != AnnotationProjectStatus.PENDING:
+            return
         assert project.label_config is not None, "execute_project_setup requires label_config snapshot"
 
         dataset = project.dataset
@@ -203,12 +207,10 @@ class AnnotationService:
                 project.label_config or "",
             )
         except ExternalServiceException:
-            project.status = AnnotationProjectStatus.FAILED
-            await self.db.commit()
+            await self._mark_project_failed(project_id, tenant_id)
             raise
         except Exception as e:
-            project.status = AnnotationProjectStatus.FAILED
-            await self.db.commit()
+            await self._mark_project_failed(project_id, tenant_id)
             raise ExternalServiceException(f"创建 LabelStudio 项目失败: {e}") from e
 
         project.label_studio_project_id = ls_project_id
@@ -235,11 +237,24 @@ class AnnotationService:
             except Exception as e:
                 logger.warning("导入 LabelStudio tasks 失败, 准备清理项目: %s", e)
                 await self.ls_client.delete_project(ls_project_id)
-                project.status = AnnotationProjectStatus.FAILED
-                await self.db.commit()
+                await self._mark_project_failed(project_id, tenant_id)
                 raise ExternalServiceException(f"导入 LabelStudio tasks 失败: {e}") from e
 
         project.status = AnnotationProjectStatus.ACTIVE
+        await self.db.commit()
+
+    async def _mark_project_failed(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+        """失败状态独立事务落库: 先 rollback 丢弃半途状态(含未提交的 LS 项目 id), 再置 failed.
+
+        不复用 session 内的 ORM 对象: rollback 会过期属性, 异步上下文访问触发懒加载会抛
+        MissingGreenlet, 因此用 UPDATE 语句直接写.
+        """
+        await self.db.rollback()
+        await self.db.execute(
+            update(AnnotationProject)
+            .where(AnnotationProject.id == project_id, AnnotationProject.tenant_id == tenant_id)
+            .values(status=AnnotationProjectStatus.FAILED)
+        )
         await self.db.commit()
 
     async def execute_sync_tasks(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> int:
@@ -574,21 +589,9 @@ class AnnotationService:
         if project.status != AnnotationProjectStatus.FAILED:
             raise ConflictException(f"当前状态为 {project.status}，仅失败的项目可以重试")
 
-        # Best-effort cleanup of stale LabelStudio project from prior attempt.
+        # 残留 LabelStudio 项目尽力清理; delete_project 内部吞掉所有异常只记日志, 这里不会再抛
         if project.label_studio_project_id is not None:
-            try:
-                await self.ls_client.delete_project(project.label_studio_project_id)
-                logger.info(
-                    "Cleaned up LabelStudio project %d for retry of project %s",
-                    project.label_studio_project_id,
-                    project.id,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Failed to clean up LabelStudio project %d on retry: %s",
-                    project.label_studio_project_id,
-                    e,
-                )
+            await self.ls_client.delete_project(project.label_studio_project_id)
 
         # Reset project state for a fresh setup attempt.
         project.status = AnnotationProjectStatus.PENDING
