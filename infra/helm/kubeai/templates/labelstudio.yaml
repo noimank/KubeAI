@@ -38,6 +38,10 @@ spec:
               value: "0.0.0.0"
             - name: LABEL_STUDIO_PORT
               value: "8080"
+            # Fixed JWT signing key: LS signs PATs/session cookies with it. If unset,
+            # LS generates a random key on every pod restart and all issued tokens die.
+            - name: SECRET_KEY
+              value: {{ required "labelstudio.secretKey is required when labelstudio.enabled (must stay fixed across restarts)" .Values.labelstudio.secretKey | quote }}
           ports:
             - name: http
               containerPort: 8080

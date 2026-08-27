@@ -68,6 +68,12 @@ spec:
               value: "https://aiaxis.uimpcloud.com"
             - name: LABEL_STUDIO_PORT
               value: "8080"
+            # 固定 JWT 签名密钥: LS 用它签发 PAT/会话，缺失时每次 Pod 重启随机重生成，已签发 token 全部失效
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: labelstudio-secret
+                  key: secret-key
           ports:
             - name: http
               containerPort: 8080

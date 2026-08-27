@@ -31,7 +31,7 @@ infra/k8s/
 │   ├── mlflow-secret.yaml       #   数据库连接 URI
 │   └── mlflow.yaml
 ├── labelstudio/                 # Label Studio 数据标注 (可选)
-│   ├── labelstudio-secret.yaml  #   数据库密码
+│   ├── labelstudio-secret.yaml  #   数据库密码、JWT 签名密钥 (SECRET_KEY)
 │   └── labelstudio.yaml
 ├── ingress/                     # ApisixRoute 入口 (依赖公司 APISIX 网关)
 │   └── ingress.yaml             #   路由到 frontend，APISIX 内部代理 /api 和 /ws

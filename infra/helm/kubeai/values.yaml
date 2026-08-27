@@ -203,8 +203,10 @@ labelstudio:
   image:
     repository: heartexlabs/label-studio
     tag: "1.23.0"
-  auth:
-    token: ""
+  # -- Fixed JWT signing key (SECRET_KEY) for Label Studio.
+  # Signs PATs and session cookies; must stay identical across pod restarts,
+  # otherwise every issued token/session is invalidated.
+  secretKey: ""
   service:
     type: ClusterIP
     nodePort: null
