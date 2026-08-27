@@ -6,7 +6,6 @@ from typing import Any
 import structlog
 from sqlalchemy import select
 
-from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.taskiq_app import broker
 from app.models.enums import BuildStatus
@@ -16,11 +15,7 @@ from app.services.image_service import ImageService
 logger = structlog.get_logger(__name__)
 
 
-@broker.task(
-    task_name="app.tasks.image.build",
-    retry_on_error=True,
-    max_retries=settings.TASK_MAX_RETRIES,
-)
+@broker.task(task_name="app.tasks.image.build")
 async def build_image_task(image_id: str, tenant_id: str) -> dict[str, Any]:
     """构建自定义镜像 (Harbor + K8s 操作链, 由 Taskiq worker 执行)."""
     try:
@@ -40,11 +35,7 @@ async def build_image_task(image_id: str, tenant_id: str) -> dict[str, Any]:
     return {"image_id": image_id, "status": "submitted"}
 
 
-@broker.task(
-    task_name="app.tasks.image.rebuild",
-    retry_on_error=True,
-    max_retries=settings.TASK_MAX_RETRIES,
-)
+@broker.task(task_name="app.tasks.image.rebuild")
 async def rebuild_image_task(image_id: str, tenant_id: str) -> dict[str, Any]:
     """重新构建自定义镜像 (清理旧 K8s 资源 + 重新提交, 由 Taskiq worker 执行)."""
     try:

@@ -72,11 +72,7 @@ async def _mark_failed(service_id: str, tenant_id: str, error: str) -> None:
 # ── Deploy task (initial create) ──────────────────────────────────────────────
 
 
-@broker.task(
-    task_name="app.tasks.inference_service.deploy",
-    retry_on_error=True,
-    max_retries=settings.TASK_MAX_RETRIES,
-)
+@broker.task(task_name="app.tasks.inference_service.deploy")
 async def deploy_inference_service_task(service_id: str, tenant_id: str) -> dict[str, Any]:
     """部署推理服务 (async-native, 由 Taskiq worker 执行)."""
     try:
@@ -94,11 +90,7 @@ async def deploy_inference_service_task(service_id: str, tenant_id: str) -> dict
 # ── Start / Stop / Scale / Delete tasks ───────────────────────────────────────
 
 
-@broker.task(
-    task_name="app.tasks.inference_service.start",
-    retry_on_error=True,
-    max_retries=settings.TASK_MAX_RETRIES,
-)
+@broker.task(task_name="app.tasks.inference_service.start")
 async def start_inference_service_task(service_id: str, tenant_id: str) -> dict[str, Any]:
     """启动推理服务 K8s 资源 (由 Taskiq worker 执行)."""
     try:
@@ -113,11 +105,7 @@ async def start_inference_service_task(service_id: str, tenant_id: str) -> dict[
     return {"service_id": service_id, "status": "started"}
 
 
-@broker.task(
-    task_name="app.tasks.inference_service.stop",
-    retry_on_error=True,
-    max_retries=1,
-)
+@broker.task(task_name="app.tasks.inference_service.stop")
 async def stop_inference_service_task(service_id: str, tenant_id: str) -> dict[str, Any]:
     """停止推理服务 K8s 资源 (由 Taskiq worker 执行)."""
     async with async_session_factory() as db:
@@ -127,11 +115,7 @@ async def stop_inference_service_task(service_id: str, tenant_id: str) -> dict[s
     return {"service_id": service_id, "status": "stopped"}
 
 
-@broker.task(
-    task_name="app.tasks.inference_service.scale",
-    retry_on_error=True,
-    max_retries=1,
-)
+@broker.task(task_name="app.tasks.inference_service.scale")
 async def scale_inference_service_task(service_id: str, tenant_id: str, replicas: int) -> dict[str, Any]:
     """扩缩容推理服务 K8s 资源 (由 Taskiq worker 执行)."""
     async with async_session_factory() as db:
@@ -141,11 +125,7 @@ async def scale_inference_service_task(service_id: str, tenant_id: str, replicas
     return {"service_id": service_id, "status": "scaled", "replicas": replicas}
 
 
-@broker.task(
-    task_name="app.tasks.inference_service.delete",
-    retry_on_error=True,
-    max_retries=1,
-)
+@broker.task(task_name="app.tasks.inference_service.delete")
 async def delete_inference_service_task(
     namespace: str,
     scaling_mode: str,

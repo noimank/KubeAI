@@ -5,7 +5,6 @@ from typing import Any
 
 import structlog
 
-from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.taskiq_app import broker
 from app.core.ws_pubsub import publish_ws_event
@@ -16,11 +15,7 @@ from app.services.dev_environment_service import DevEnvironmentService
 logger = structlog.get_logger(__name__)
 
 
-@broker.task(
-    task_name="app.tasks.dev_environment.provision",
-    retry_on_error=True,
-    max_retries=settings.TASK_MAX_RETRIES,
-)
+@broker.task(task_name="app.tasks.dev_environment.provision")
 async def provision_dev_environment_task(
     env_id: str,
     tenant_id: str,
@@ -37,11 +32,7 @@ async def provision_dev_environment_task(
     return {"env_id": env_id, "status": "provisioned"}
 
 
-@broker.task(
-    task_name="app.tasks.dev_environment.start",
-    retry_on_error=True,
-    max_retries=settings.TASK_MAX_RETRIES,
-)
+@broker.task(task_name="app.tasks.dev_environment.start")
 async def start_dev_environment_task(
     env_id: str,
     tenant_id: str,
@@ -53,11 +44,7 @@ async def start_dev_environment_task(
     return {"env_id": env_id, "status": "provisioned"}
 
 
-@broker.task(
-    task_name="app.tasks.dev_environment.stop",
-    retry_on_error=True,
-    max_retries=1,
-)
+@broker.task(task_name="app.tasks.dev_environment.stop")
 async def stop_dev_environment_task(
     env_id: str,
     tenant_id: str,
@@ -80,11 +67,7 @@ async def stop_dev_environment_task(
     return {"env_id": env_id, "status": "stopped"}
 
 
-@broker.task(
-    task_name="app.tasks.dev_environment.delete",
-    retry_on_error=True,
-    max_retries=1,
-)
+@broker.task(task_name="app.tasks.dev_environment.delete")
 async def delete_dev_environment_task(
     env_id: str,
     tenant_id: str,

@@ -12,11 +12,7 @@ from app.services.monitoring_service import MonitoringService
 logger = structlog.get_logger(__name__)
 
 
-@broker.task(
-    task_name="app.tasks.monitoring.transfer_quota",
-    retry_on_error=True,
-    max_retries=1,
-)
+@broker.task(task_name="app.tasks.monitoring.transfer_quota")
 async def transfer_quota_task(
     source_tenant_id: str,
     target_tenant_id: str,
