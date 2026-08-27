@@ -18,6 +18,7 @@ backend/.env
 .idea
 .vscode
 .claude
+.zcode
 
 # Local data (docker volumes)
 data/
