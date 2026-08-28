@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TenantMixin, TimestampMixin
@@ -17,9 +17,15 @@ class TuningStudy(Base, TimestampMixin, TenantMixin):
     """
 
     __tablename__ = "tuning_studies"
-    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_tuning_studies_tenant_name"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_tuning_studies_tenant_name"),
+        Index("uq_tuning_studies_optuna_study_name", "optuna_study_name", unique=True),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=False
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="调优任务名称")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="描述")
     created_by: Mapped[uuid.UUID] = mapped_column(
@@ -73,7 +79,6 @@ class TuningStudy(Base, TimestampMixin, TenantMixin):
     optuna_study_name: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        unique=True,
         comment="Optuna study 名称 (唯一, 对应 RDBStorage 中的 study)",
     )
 

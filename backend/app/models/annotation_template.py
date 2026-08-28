@@ -19,11 +19,17 @@ class AnnotationTemplate(Base, TimestampMixin, TenantMixin):
     __tablename__ = "annotation_templates"
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_annotation_templates_tenant_name"),
-        Index("ix_annotation_templates_tenant_tags", "tenant_id", "tags", postgresql_using="gin"),
+        Index(
+            "ix_annotation_templates_tags",
+            "tags",
+            postgresql_using="gin",
+            postgresql_ops={"tags": "jsonb_path_ops"},
+        ),
+        Index("ix_annotation_templates_group", "group"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     label_config: Mapped[str] = mapped_column(Text, nullable=False)

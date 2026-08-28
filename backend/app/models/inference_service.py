@@ -26,9 +26,8 @@ class InferenceService(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="服务名称")
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("model_versions.id", ondelete="SET NULL"),
+        ForeignKey("model_versions.id", ondelete="RESTRICT"),
         nullable=True,
-        index=True,
         comment="模型版本 ID (可选)",
     )
     container_port: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="容器端口")
