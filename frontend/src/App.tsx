@@ -1,5 +1,5 @@
-import { useMemo, lazy, Suspense, useEffect } from 'react'
-import { App as AntApp, ConfigProvider, theme as antdTheme } from 'antd'
+import { lazy, Suspense, useEffect } from 'react'
+import { App as AntApp, ConfigProvider } from 'antd'
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import zhCN from 'antd/locale/zh_CN'
@@ -11,7 +11,6 @@ import LoadingPage from './components/LoadingPage'
 import { setMessageInstance } from './utils/messageHolder'
 import { setModalInstance } from './utils/modalHolder'
 import { useAuthStore } from './stores/authStore'
-import { useThemeStore } from './stores/themeStore'
 import { queryClient } from './lib/queryClient'
 
 const LoginPage = lazy(() => import('./pages/login'))
@@ -75,8 +74,66 @@ const FONT_FAMILY =
 const FONT_FAMILY_CODE =
   "'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace"
 
+const themeConfig = {
+  token: {
+    colorPrimary: '#1677FF',
+    colorSuccess: '#52C41A',
+    colorWarning: '#FAAD14',
+    colorError: '#FF4D4F',
+    colorLink: '#1677FF',
+    fontFamily: FONT_FAMILY,
+    fontFamilyCode: FONT_FAMILY_CODE,
+    borderRadius: 6,
+    fontSize: 14,
+    lineHeight: 1.5714,
+    sizeStep: 4,
+    sizeUnit: 4,
+    wireframe: false,
+    colorBgContainer: '#ffffff',
+    colorBgLayout: '#f5f5f5',
+    colorTextSecondary: 'rgba(0, 0, 0, 0.65)',
+    colorTextTertiary: 'rgba(0, 0, 0, 0.45)',
+    colorTextQuaternary: 'rgba(0, 0, 0, 0.25)',
+    colorFillAlter: '#fafafa',
+    colorFillSecondary: '#f5f5f5',
+  },
+  components: {
+    Button: {
+      primaryShadow: '0 2px 0 rgba(5, 145, 255, 0.1)',
+      defaultBorderColor: '#d9d9d9',
+    },
+    Input: {
+      borderRadius: 6,
+      controlHeight: 32,
+      paddingInline: 12,
+    },
+    Select: {
+      borderRadius: 6,
+      controlHeight: 32,
+      paddingInline: 12,
+    },
+    Table: {
+      borderRadius: 6,
+      cellFontSize: 14,
+      headerBg: '#fafafa',
+      headerColor: 'rgba(0, 0, 0, 0.88)',
+      headerSortActiveBg: '#f0f0f0',
+      headerSortHoverBg: '#f2f2f2',
+      rowHoverBg: '#fafafa',
+      borderColor: '#f0f0f0',
+    },
+    Card: {
+      borderRadiusLG: 8,
+    },
+    Descriptions: {
+      borderRadiusLG: 8,
+      labelBg: '#f5f5f5',
+    },
+  },
+  cssVar: true,
+}
+
 export default function App() {
-  const themeMode = useThemeStore((s) => s.themeMode)
   const enableBusinessAlgorithm = useAuthStore((s) => s.enableBusinessAlgorithm)
   const appName = useAuthStore((s) => s.appName)
   const initializeAuth = useAuthStore((s) => s.initializeAuth)
@@ -88,72 +145,6 @@ export default function App() {
   useEffect(() => {
     document.title = appName
   }, [appName])
-
-  const themeConfig = useMemo(
-    () => ({
-      algorithm: themeMode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-      token: {
-        colorPrimary: '#1677FF',
-        colorSuccess: '#52C41A',
-        colorWarning: '#FAAD14',
-        colorError: '#FF4D4F',
-        colorLink: '#1677FF',
-        fontFamily: FONT_FAMILY,
-        fontFamilyCode: FONT_FAMILY_CODE,
-        borderRadius: 6,
-        fontSize: 14,
-        lineHeight: 1.5714,
-        sizeStep: 4,
-        sizeUnit: 4,
-        wireframe: false,
-        colorBgContainer: themeMode === 'dark' ? '#141414' : '#ffffff',
-        colorBgLayout: themeMode === 'dark' ? '#000000' : '#f5f5f5',
-        colorTextSecondary:
-          themeMode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.65)',
-        colorTextTertiary:
-          themeMode === 'dark' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.45)',
-        colorTextQuaternary:
-          themeMode === 'dark' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.25)',
-        colorFillAlter: themeMode === 'dark' ? '#1f1f1f' : '#fafafa',
-        colorFillSecondary: themeMode === 'dark' ? '#262626' : '#f5f5f5',
-      },
-      components: {
-        Button: {
-          primaryShadow: '0 2px 0 rgba(5, 145, 255, 0.1)',
-          defaultBorderColor: themeMode === 'dark' ? '#424242' : '#d9d9d9',
-        },
-        Input: {
-          borderRadius: 6,
-          controlHeight: 32,
-          paddingInline: 12,
-        },
-        Select: {
-          borderRadius: 6,
-          controlHeight: 32,
-          paddingInline: 12,
-        },
-        Table: {
-          borderRadius: 6,
-          cellFontSize: 14,
-          headerBg: themeMode === 'dark' ? '#1f1f1f' : '#fafafa',
-          headerColor: themeMode === 'dark' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.88)',
-          headerSortActiveBg: themeMode === 'dark' ? '#262626' : '#f0f0f0',
-          headerSortHoverBg: themeMode === 'dark' ? '#303030' : '#f2f2f2',
-          rowHoverBg: themeMode === 'dark' ? '#1f1f1f' : '#fafafa',
-          borderColor: themeMode === 'dark' ? '#303030' : '#f0f0f0',
-        },
-        Card: {
-          borderRadiusLG: 8,
-        },
-        Descriptions: {
-          borderRadiusLG: 8,
-          labelBg: themeMode === 'dark' ? '#000000' : '#f5f5f5',
-        },
-      },
-      cssVar: true,
-    }),
-    [themeMode],
-  )
 
   return (
     <ConfigProvider locale={zhCN} theme={themeConfig}>

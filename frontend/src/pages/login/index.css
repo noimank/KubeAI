@@ -360,31 +360,6 @@
   text-align: center;
 }
 
-[data-theme='dark'] .login-card {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(20, 20, 20, 0.92);
-}
-
-[data-theme='dark'] .login-card-header h2 {
-  color: rgba(255, 255, 255, 0.92);
-}
-
-[data-theme='dark'] .login-card-header p,
-[data-theme='dark'] .login-register-link,
-[data-theme='dark'] .login-register-disabled,
-[data-theme='dark'] .login-oauth .ant-divider {
-  color: rgba(255, 255, 255, 0.56);
-}
-
-[data-theme='dark'] .login-register-disabled {
-  border-color: rgba(45, 212, 191, 0.16);
-  background: rgba(45, 212, 191, 0.08);
-}
-
-[data-theme='dark'] .login-form .ant-form-item-label > label {
-  color: rgba(255, 255, 255, 0.78);
-}
-
 /* ---- Redirect loading card ---- */
 
 .login-redirect-card {
@@ -485,31 +460,6 @@
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-/* Dark mode overrides */
-
-[data-theme='dark'] .login-redirect-card {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(20, 20, 20, 0.92);
-}
-
-[data-theme='dark'] .login-redirect-header h2 {
-  color: rgba(255, 255, 255, 0.92);
-}
-
-[data-theme='dark'] .login-redirect-desc,
-[data-theme='dark'] .login-redirect-fallback p {
-  color: rgba(255, 255, 255, 0.52);
-}
-
-[data-theme='dark'] .login-redirect-fallback {
-  border-top-color: rgba(255, 255, 255, 0.1);
-}
-
-[data-theme='dark'] .login-redirect-provider-icon {
-  border-color: rgba(45, 212, 191, 0.28);
-  background: linear-gradient(135deg, rgba(45, 212, 191, 0.16), rgba(22, 119, 255, 0.14));
 }
 
 /* Responsive */

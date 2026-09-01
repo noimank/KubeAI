@@ -133,7 +133,7 @@ KubeAI 是一款**面向企业级 Kubernetes 环境的一站式 AI/ML 平台**�
 | 层级 | 选型 | 说明 |
 |------|------|------|
 | **API 服务** | Python 3.12 · FastAPI · SQLAlchemy 2.0 (async) · Pydantic v2 | 全异步，`BaseResponse[T]` 统一响应封装 |
-| **前端** | React 18 · TypeScript strict · Ant Design 5 Pro · Zustand · TanStack Query · Tailwind CSS | snake↔camel 自动转换，暗色模式支持 |
+| **前端** | React 18 · TypeScript strict · Ant Design 5 Pro · Zustand · TanStack Query · Tailwind CSS | snake↔camel 自动转换 |
 | **数据库** | PostgreSQL 17 + asyncpg 异步驱动 · Alembic 迁移 | 同时承载 MLflow / Label Studio 元数据库 |
 | **缓存 / 消息** | Redis 7 | 令牌黑名单、身份缓存、Taskiq 消息代理、WebSocket Pub/Sub 跨实例广播 |
 | **异步任务** | Taskiq · Redis Streams | Worker 执行异步任务，Scheduler 单副本定时调度 |

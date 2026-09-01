@@ -1,4 +1,3 @@
-import { ConfigProvider, theme as antdTheme } from 'antd'
 import { ProLayout } from '@ant-design/pro-components'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { buildSidebarMenu } from './components/Sidebar'
@@ -6,7 +5,6 @@ import { Header } from './components/Header'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
 import { useRbacStore } from '@/stores/rbacStore'
 import { useAuthStore } from '@/stores/authStore'
-import { useThemeStore } from '@/stores/themeStore'
 
 const NAVIGATE_MAP: Record<string, string> = {
   '/dashboard': '系统概览',
@@ -37,16 +35,8 @@ export default function MainLayout() {
   const hasPermission = useRbacStore((s) => s.hasPermission)
   const enableBusinessAlgorithm = useAuthStore((s) => s.enableBusinessAlgorithm)
   const appName = useAuthStore((s) => s.appName)
-  const themeMode = useThemeStore((s) => s.themeMode)
 
   useIdleTimeout()
-
-  const isDark = themeMode === 'dark'
-
-  // realDark gives correct dark styling for sidebar/header, but applies dark
-  // algorithm to the content area too. Wrap <Outlet> in a ConfigProvider that
-  // restores the correct algorithm so page content renders properly.
-  const contentAlgorithm = isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm
 
   return (
     <ProLayout
@@ -83,16 +73,14 @@ export default function MainLayout() {
       breadcrumbRender={(routers = []) => [{ path: '/', breadcrumbName: '首页' }, ...routers]}
       token={{
         header: {
-          colorBgHeader: isDark ? '#1f1f1f' : '#001529',
+          colorBgHeader: '#001529',
         },
         sider: {
-          colorMenuBackground: isDark ? '#1f1f1f' : '#001529',
+          colorMenuBackground: '#001529',
         },
       }}
     >
-      <ConfigProvider theme={{ algorithm: contentAlgorithm }}>
-        <Outlet />
-      </ConfigProvider>
+      <Outlet />
     </ProLayout>
   )
 }

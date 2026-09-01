@@ -65,10 +65,6 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-[data-theme='dark'] .elevated-card {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
 .notification-dropdown-shell {
   display: inline-flex;
   align-items: center;

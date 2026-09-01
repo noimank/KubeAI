@@ -102,7 +102,6 @@ ConfigProvider (Ant Design 主题 + zhCN 语言包)
 | `authStore` | 认证状态（Token、用户信息、登录/登出） |
 | `tenantStore` | 当前租户上下文 |
 | `rbacStore` | 角色权限信息 |
-| `themeStore` | 主题模式（亮色/暗色） |
 | `notificationStore` | 通知状态 |
 | `wsStore` | WebSocket 连接状态 |
 
@@ -187,7 +186,6 @@ export default defineConfig({
 
 ```typescript
 export default {
-  darkMode: ["selector", '[data-theme="dark"]'],  // 暗色模式通过 data-theme 属性
   corePlugins: {
     preflight: false,  // 禁用 Tailwind reset，避免与 Ant Design 冲突
   },
@@ -196,12 +194,10 @@ export default {
 
 ## 主题系统
 
-支持亮色/暗色模式切换，通过 `themeStore` 持久化用户偏好：
+平台固定使用亮色主题，不做主题切换：
 
-- 主题配置在 `App.tsx` 中通过 `ConfigProvider` 注入
+- 主题配置在 `App.tsx` 中通过 `ConfigProvider` 以模块级常量注入
 - 定义了完整的 design token（颜色、字体、圆角、组件级别样式）
-- Tailwind CSS 使用 `[data-theme="dark"]` 选择器适配暗色模式
-- Ant Design 和 Tailwind 的暗色模式同步切换
 
 ## 标注工作台
 

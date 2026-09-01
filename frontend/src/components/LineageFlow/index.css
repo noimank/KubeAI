@@ -92,29 +92,3 @@
 .lineage-arrow.status-active {
   color: #1677ff;
 }
-
-/* Dark mode */
-[data-theme='dark'] .lineage-node-card.status-completed.dataset,
-[data-theme='dark'] .lineage-node-card.status-completed.training {
-  border-color: #1677ff;
-  background: rgba(22, 119, 255, 0.1);
-}
-
-[data-theme='dark'] .lineage-node-card.status-completed.model {
-  border-color: #52c41a;
-  background: rgba(82, 196, 26, 0.1);
-}
-
-[data-theme='dark'] .lineage-node-card.status-pending {
-  border-color: #434343;
-  background: rgba(255, 255, 255, 0.04);
-  color: #595959;
-}
-
-[data-theme='dark'] .lineage-arrow {
-  color: #434343;
-}
-
-[data-theme='dark'] .lineage-arrow.status-active {
-  color: #1677ff;
-}

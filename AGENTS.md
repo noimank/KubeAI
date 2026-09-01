@@ -57,7 +57,7 @@ Pre-commit (`.pre-commit-config.yaml`): ruff+mypy backend, eslint+prettier+tsc f
 
 ### Frontend (`frontend/`)
 
-React 18 + TS strict + Ant Design 5 + ProComponents + Zustand + TanStack Query + Tailwind (preflight disabled; dark mode via `[data-theme="dark"]`). Vite 6, `@`→`src/`. React Router v7 (lazy-loaded): `AuthGuard`→`MainLayout`(ProLayout)→`PermissionGuard`. 6 Zustand stores (`auth`,`rbac`,`tenant`,`theme`,`notification`,`ws`); cross-store via `useOtherStore.getState()`. WebSocket reconnect w/ exp backoff; events invalidate React Query caches by domain (training, inference, dev_environment, cluster_resource). API client (`services/api.ts`): Axios w/ recursive snake_case↔camelCase transform; concurrent 401 refresh queued. RBAC strings `resource:action`, admin=`*`; sidebar filtered via `filterMenuItems()`. Tests: Vitest+jsdom mirroring `src/` under `tests/`.
+React 18 + TS strict + Ant Design 5 + ProComponents + Zustand + TanStack Query + Tailwind (preflight disabled). Vite 6, `@`→`src/`. React Router v7 (lazy-loaded): `AuthGuard`→`MainLayout`(ProLayout)→`PermissionGuard`. 5 Zustand stores (`auth`,`rbac`,`tenant`,`notification`,`ws`); cross-store via `useOtherStore.getState()`. WebSocket reconnect w/ exp backoff; events invalidate React Query caches by domain (training, inference, dev_environment, cluster_resource). API client (`services/api.ts`): Axios w/ recursive snake_case↔camelCase transform; concurrent 401 refresh queued. RBAC strings `resource:action`, admin=`*`; sidebar filtered via `filterMenuItems()`. Tests: Vitest+jsdom mirroring `src/` under `tests/`.
 
 ### Infrastructure (`infra/`)
 

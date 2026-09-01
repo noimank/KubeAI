@@ -154,17 +154,16 @@ function InfoBanner({
   tone?: 'info' | 'warning'
   children: React.ReactNode
 }) {
-  const isDark = (document.documentElement.dataset.theme || 'light') === 'dark'
   const palette =
     tone === 'warning'
       ? {
-          background: isDark ? 'rgba(250,173,20,0.08)' : 'rgba(250,173,20,0.04)',
-          border: isDark ? 'rgba(250,173,20,0.15)' : 'rgba(250,173,20,0.08)',
+          background: 'rgba(250,173,20,0.04)',
+          border: 'rgba(250,173,20,0.08)',
           color: '#faad14',
         }
       : {
-          background: isDark ? 'rgba(22,119,255,0.08)' : 'rgba(22,119,255,0.04)',
-          border: isDark ? 'rgba(22,119,255,0.15)' : 'rgba(22,119,255,0.08)',
+          background: 'rgba(22,119,255,0.04)',
+          border: 'rgba(22,119,255,0.08)',
           color: '#1677ff',
         }
   return (
@@ -184,7 +183,7 @@ function InfoBanner({
       <span
         style={{
           fontSize: 13,
-          color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)',
+          color: 'rgba(0,0,0,0.55)',
           lineHeight: 1.5,
         }}
       >
@@ -197,8 +196,6 @@ function InfoBanner({
 export default function ProfilePage() {
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
-  const themeMode = document.documentElement.dataset.theme || 'light'
-  const isDark = themeMode === 'dark'
 
   const [profileForm] = Form.useForm()
   const [passwordForm] = Form.useForm()
@@ -272,9 +269,7 @@ export default function ProfilePage() {
         flexShrink: 0,
         borderRadius: '50%',
         padding: 3,
-        background: isDark
-          ? 'linear-gradient(135deg, rgba(22,119,255,0.4), rgba(64,150,255,0.2))'
-          : 'linear-gradient(135deg, rgba(22,119,255,0.5), rgba(64,150,255,0.3))',
+        background: 'linear-gradient(135deg, rgba(22,119,255,0.5), rgba(64,150,255,0.3))',
       }}
     >
       {user?.avatar ? (
@@ -282,7 +277,7 @@ export default function ProfilePage() {
           size={96}
           src={user.avatar}
           style={{
-            border: `3px solid ${isDark ? '#0d1b3e' : '#e8f0fe'}`,
+            border: '3px solid #e8f0fe',
           }}
         />
       ) : (
@@ -298,12 +293,12 @@ export default function ProfilePage() {
             width: 30,
             height: 30,
             borderRadius: '50%',
-            background: isDark ? '#1677ff' : '#ffffff',
-            border: `2px solid ${isDark ? '#0d1b3e' : '#dbeafe'}`,
+            background: '#ffffff',
+            border: '2px solid #dbeafe',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: isDark ? '#fff' : '#1677ff',
+            color: '#1677ff',
             fontSize: 13,
             boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
             transition: 'transform 0.2s ease',
@@ -357,7 +352,7 @@ export default function ProfilePage() {
                 <Input
                   value={user?.username}
                   disabled
-                  style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                  style={{ color: 'rgba(0,0,0,0.45)' }}
                   prefix={<UserOutlined style={{ opacity: 0.4 }} />}
                 />
               </Form.Item>
@@ -365,7 +360,7 @@ export default function ProfilePage() {
                 <Input
                   value={ROLE_LABELS[user?.role || ''] || user?.role}
                   disabled
-                  style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                  style={{ color: 'rgba(0,0,0,0.45)' }}
                   prefix={<SafetyCertificateOutlined style={{ opacity: 0.4 }} />}
                 />
               </Form.Item>
@@ -381,11 +376,7 @@ export default function ProfilePage() {
                 placeholder="给自己起个名字"
                 maxLength={100}
                 disabled={isExternalUser}
-                style={
-                  isExternalUser
-                    ? { color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }
-                    : undefined
-                }
+                style={isExternalUser ? { color: 'rgba(0,0,0,0.45)' } : undefined}
               />
             </Form.Item>
 
@@ -402,11 +393,7 @@ export default function ProfilePage() {
                 placeholder="name@example.com"
                 prefix={<MailOutlined style={{ opacity: 0.4 }} />}
                 disabled={isExternalUser}
-                style={
-                  isExternalUser
-                    ? { color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }
-                    : undefined
-                }
+                style={isExternalUser ? { color: 'rgba(0,0,0,0.45)' } : undefined}
               />
             </Form.Item>
 
@@ -528,10 +515,8 @@ export default function ProfilePage() {
           borderRadius: 12,
           overflow: 'hidden',
           marginBottom: 24,
-          background: isDark
-            ? 'linear-gradient(135deg, #0d1b3e 0%, #0a1628 40%, #111d35 100%)'
-            : 'linear-gradient(135deg, #e8f0fe 0%, #dbeafe 40%, #f0f5ff 100%)',
-          border: `1px solid ${isDark ? 'rgba(22,119,255,0.12)' : 'rgba(22,119,255,0.1)'}`,
+          background: 'linear-gradient(135deg, #e8f0fe 0%, #dbeafe 40%, #f0f5ff 100%)',
+          border: '1px solid rgba(22,119,255,0.1)',
           position: 'relative',
         }}
       >
@@ -544,9 +529,7 @@ export default function ProfilePage() {
             width: 200,
             height: 200,
             borderRadius: '50%',
-            background: isDark
-              ? 'radial-gradient(circle, rgba(22,119,255,0.12) 0%, transparent 70%)'
-              : 'radial-gradient(circle, rgba(22,119,255,0.08) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(22,119,255,0.08) 0%, transparent 70%)',
             pointerEvents: 'none',
           }}
         />
@@ -558,9 +541,7 @@ export default function ProfilePage() {
             width: 160,
             height: 160,
             borderRadius: '50%',
-            background: isDark
-              ? 'radial-gradient(circle, rgba(64,150,255,0.08) 0%, transparent 70%)'
-              : 'radial-gradient(circle, rgba(64,150,255,0.05) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(64,150,255,0.05) 0%, transparent 70%)',
             pointerEvents: 'none',
           }}
         />
@@ -613,7 +594,7 @@ export default function ProfilePage() {
                   level={3}
                   style={{
                     margin: 0,
-                    color: isDark ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.88)',
+                    color: 'rgba(0,0,0,0.88)',
                     fontWeight: 600,
                     fontSize: 24,
                   }}
@@ -629,9 +610,9 @@ export default function ProfilePage() {
                     borderRadius: 12,
                     fontSize: 12,
                     fontWeight: 500,
-                    background: isDark ? 'rgba(22,119,255,0.2)' : 'rgba(22,119,255,0.1)',
-                    color: isDark ? '#69b1ff' : '#1677ff',
-                    border: `1px solid ${isDark ? 'rgba(22,119,255,0.25)' : 'rgba(22,119,255,0.15)'}`,
+                    background: 'rgba(22,119,255,0.1)',
+                    color: '#1677ff',
+                    border: '1px solid rgba(22,119,255,0.15)',
                   }}
                 >
                   <CheckCircleFilled style={{ fontSize: 10 }} />
@@ -642,7 +623,7 @@ export default function ProfilePage() {
                 <Typography.Text
                   style={{
                     fontSize: 13,
-                    color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)',
+                    color: 'rgba(0,0,0,0.35)',
                   }}
                 >
                   @{user.username}
@@ -669,8 +650,8 @@ export default function ProfilePage() {
       <div
         style={{
           borderRadius: 12,
-          background: isDark ? '#141414' : '#ffffff',
-          border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+          background: '#ffffff',
+          border: '1px solid rgba(0,0,0,0.06)',
           overflow: 'hidden',
         }}
       >

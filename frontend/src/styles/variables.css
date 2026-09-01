@@ -14,15 +14,3 @@
   --text-warning: #d48806;
   --bg-page: #f5f5f5;
 }
-
-[data-theme='dark'] {
-  --status-running: #4096ff;
-  --status-success: #73d13d;
-  --status-failed: #ff7875;
-  --status-queued: #ffc53d;
-  --status-stopped: #a0a0a0;
-
-  --text-tertiary: rgba(255, 255, 255, 0.45);
-  --text-warning: #faad14;
-  --bg-page: #000000;
-}

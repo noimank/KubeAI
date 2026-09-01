@@ -11,7 +11,6 @@ import {
   Spin,
   App,
   theme,
-  ConfigProvider,
   Typography,
 } from 'antd'
 import { BellOutlined, CheckOutlined } from '@ant-design/icons'
@@ -23,7 +22,6 @@ import 'dayjs/locale/zh-cn'
 
 import { getNotifications, markAsRead, markAllAsRead } from '@/services/notifications'
 import { useNotificationStore } from '@/stores/notificationStore'
-import { useThemeStore } from '@/stores/themeStore'
 import type { Notification, NotificationType } from '@/types/notification'
 
 dayjs.extend(relativeTime)
@@ -44,7 +42,7 @@ const FILTER_OPTIONS = [
   { label: '推理', value: 'inference_service' },
 ]
 
-/* ── Panel content (rendered inside theme-correct ConfigProvider) ── */
+/* ── Panel content ── */
 
 interface PanelProps {
   unreadCount: number
@@ -70,11 +68,10 @@ function NotificationPanelContent({
   onViewAll,
 }: PanelProps) {
   const { token } = theme.useToken()
-  const isDark = useThemeStore((s) => s.themeMode) === 'dark'
 
   const panelStyle: CSSProperties = {
     '--notification-item-hover-bg': token.colorFillSecondary,
-    '--notification-scroll-thumb': isDark ? token.colorFillSecondary : token.colorFill,
+    '--notification-scroll-thumb': token.colorFill,
     width: 400,
     maxWidth: 'calc(100vw - 32px)',
     maxHeight: 'min(520px, calc(100vh - 96px))',
@@ -85,9 +82,7 @@ function NotificationPanelContent({
     background: token.colorBgElevated,
     border: `1px solid ${token.colorBorderSecondary}`,
     borderRadius: token.borderRadiusLG,
-    boxShadow: isDark
-      ? '0 16px 40px rgba(0,0,0,.56), 0 0 0 1px rgba(255,255,255,.04)'
-      : '0 16px 40px rgba(15,23,42,.14), 0 2px 8px rgba(15,23,42,.08)',
+    boxShadow: '0 16px 40px rgba(15,23,42,.14), 0 2px 8px rgba(15,23,42,.08)',
   } as CSSProperties
 
   const headerStyle: CSSProperties = {
@@ -278,8 +273,6 @@ interface NotificationDropdownProps {
 export function NotificationDropdown({ unreadCount }: NotificationDropdownProps) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
-  const themeMode = useThemeStore((s) => s.themeMode)
-  const isDark = themeMode === 'dark'
   const clearUnread = useNotificationStore((s) => s.clearUnread)
   const decrementUnread = useNotificationStore((s) => s.decrementUnread)
   const queryClient = useQueryClient()
@@ -348,21 +341,17 @@ export function NotificationDropdown({ unreadCount }: NotificationDropdownProps)
     <div className="notification-dropdown-shell">
       <Dropdown
         popupRender={() => (
-          <ConfigProvider
-            theme={{ algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm }}
-          >
-            <NotificationPanelContent
-              unreadCount={unreadCount}
-              filter={filter}
-              onFilterChange={setFilter}
-              isLoading={isLoading}
-              notifications={notifications}
-              onItemClick={handleItemClick}
-              onMarkAllRead={() => readAllMutation.mutate()}
-              markAllPending={readAllMutation.isPending}
-              onViewAll={handleViewAll}
-            />
-          </ConfigProvider>
+          <NotificationPanelContent
+            unreadCount={unreadCount}
+            filter={filter}
+            onFilterChange={setFilter}
+            isLoading={isLoading}
+            notifications={notifications}
+            onItemClick={handleItemClick}
+            onMarkAllRead={() => readAllMutation.mutate()}
+            markAllPending={readAllMutation.isPending}
+            onViewAll={handleViewAll}
+          />
         )}
         trigger={['click']}
         open={open}

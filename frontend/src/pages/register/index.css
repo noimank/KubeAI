@@ -350,25 +350,6 @@
   font-weight: 600;
 }
 
-[data-theme='dark'] .register-card {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(20, 20, 20, 0.92);
-}
-
-[data-theme='dark'] .register-card-header h2 {
-  color: rgba(255, 255, 255, 0.92);
-}
-
-[data-theme='dark'] .register-card-header p,
-[data-theme='dark'] .register-config-loading,
-[data-theme='dark'] .register-login-link {
-  color: rgba(255, 255, 255, 0.56);
-}
-
-[data-theme='dark'] .register-form .ant-form-item-label > label {
-  color: rgba(255, 255, 255, 0.78);
-}
-
 @keyframes register-scan {
   0% {
     transform: translateY(-100%);

@@ -6,7 +6,6 @@ export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || '/api'
 
 export const ACCESS_TOKEN_KEY = 'kubeai_access_token'
 export const REFRESH_TOKEN_KEY = 'kubeai_refresh_token'
-export const THEME_KEY = 'kubeai_theme'
 
 /** 分页默认条数（列表页可按需覆盖为 20） */
 export const DEFAULT_PAGE_SIZE = 10
