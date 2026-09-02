@@ -104,7 +104,11 @@
         "cwd": "${workspaceFolder}",
         "shell": {
           "executable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
-          "args": ["-NoLogo", "-NoProfile", "-Command"]
+          "args": [
+            "-NoLogo",
+            "-NoProfile",
+            "-Command"
+          ]
         }
       },
       "problemMatcher": [],
