@@ -3,7 +3,7 @@ import { Empty, theme } from 'antd'
 import { useEcharts } from '@/hooks/useEcharts'
 import type { TuningDirection, TuningTrialPoint } from '@/types/tuning'
 
-const VALUE_COLOR = '#1677ff'
+const VALUE_COLOR = '#1890ff'
 const BEST_COLOR = '#08979c'
 const CHART_HEIGHT = 300
 

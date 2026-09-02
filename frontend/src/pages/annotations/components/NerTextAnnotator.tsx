@@ -185,7 +185,7 @@ export default function NerTextAnnotator({
         title="文本"
         ref={containerRef}
         onMouseUp={readOnly ? undefined : captureSelection}
-        style={pendingSelection ? { borderColor: '#1677FF' } : undefined}
+        style={pendingSelection ? { borderColor: '#1890FF' } : undefined}
       >
         {renderHighlighted()}
       </Card>

@@ -329,7 +329,7 @@ export default function ObjectDetectionAnnotator({
                   y={drawing.h < 0 ? drawing.y + drawing.h : drawing.y}
                   width={Math.abs(drawing.w)}
                   height={Math.abs(drawing.h)}
-                  stroke="#1677FF"
+                  stroke="#1890FF"
                   strokeWidth={visibleStrokeWidth(2)}
                   dash={[4, 4]}
                 />

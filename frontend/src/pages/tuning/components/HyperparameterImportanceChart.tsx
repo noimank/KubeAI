@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { Empty, theme } from 'antd'
 import { useEcharts } from '@/hooks/useEcharts'
 
-const BAR_COLOR = '#1677ff'
+const BAR_COLOR = '#1890ff'
 const CHART_HEIGHT = 300
 
 interface HyperparameterImportanceChartProps {

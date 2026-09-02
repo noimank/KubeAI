@@ -1,5 +1,5 @@
 export const LABEL_COLORS = [
-  '#1677FF',
+  '#1890FF',
   '#52C41A',
   '#FAAD14',
   '#FF4D4F',

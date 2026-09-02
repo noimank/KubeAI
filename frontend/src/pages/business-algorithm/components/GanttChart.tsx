@@ -25,7 +25,7 @@ interface Props {
   deviceUtilization: DeviceUtilization[]
 }
 
-const COLORS = ['#1677FF', '#52C41A', '#FAAD14', '#FF4D4F', '#722ED1', '#EB2F96']
+const COLORS = ['#1890FF', '#52C41A', '#FAAD14', '#FF4D4F', '#722ED1', '#EB2F96']
 
 export default function GanttChart({ solutionInfo, deviceUtilization }: Props) {
   const chartRef = useRef<HTMLDivElement>(null)

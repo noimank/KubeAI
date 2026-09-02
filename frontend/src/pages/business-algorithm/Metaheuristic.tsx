@@ -144,7 +144,7 @@ export default function MetaheuristicPage() {
                   alignItems: 'center',
                   margin: '0 auto 16px',
                   fontSize: 22,
-                  color: '#1677FF',
+                  color: '#1890FF',
                   fontWeight: 600,
                 }}
               >

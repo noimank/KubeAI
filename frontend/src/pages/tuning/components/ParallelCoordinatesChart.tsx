@@ -6,8 +6,8 @@ import type { TuningTrialPoint } from '@/types/tuning'
 const CHART_HEIGHT = 300
 const MAX_DIMS = 8
 // 顺序色带 (antd blue-4 → blue-9), 按目标值单调明暗着色
-const RAMP_LIGHT = '#69b1ff'
-const RAMP_DARK = '#003eb3'
+const RAMP_LIGHT = '#69c0ff'
+const RAMP_DARK = '#003a8c'
 
 interface ParallelCoordinatesChartProps {
   history: TuningTrialPoint[]

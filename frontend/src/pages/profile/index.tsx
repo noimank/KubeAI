@@ -45,7 +45,7 @@ function DefaultAvatar({ name, size = 96 }: { name?: string; size?: number }) {
     <Avatar
       size={size}
       style={{
-        background: 'linear-gradient(135deg, #1677ff 0%, #4096ff 100%)',
+        background: 'linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)',
         verticalAlign: 'middle',
         fontSize: size * 0.38,
         fontWeight: 600,
@@ -162,9 +162,9 @@ function InfoBanner({
           color: '#faad14',
         }
       : {
-          background: 'rgba(22,119,255,0.04)',
-          border: 'rgba(22,119,255,0.08)',
-          color: '#1677ff',
+          background: 'rgba(24,144,255,0.04)',
+          border: 'rgba(24,144,255,0.08)',
+          color: '#1890ff',
         }
   return (
     <div
@@ -269,7 +269,7 @@ export default function ProfilePage() {
         flexShrink: 0,
         borderRadius: '50%',
         padding: 3,
-        background: 'linear-gradient(135deg, rgba(22,119,255,0.5), rgba(64,150,255,0.3))',
+        background: 'linear-gradient(135deg, rgba(24,144,255,0.5), rgba(64,169,255,0.3))',
       }}
     >
       {user?.avatar ? (
@@ -298,7 +298,7 @@ export default function ProfilePage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#1677ff',
+            color: '#1890ff',
             fontSize: 13,
             boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
             transition: 'transform 0.2s ease',
@@ -516,7 +516,7 @@ export default function ProfilePage() {
           overflow: 'hidden',
           marginBottom: 24,
           background: 'linear-gradient(135deg, #e8f0fe 0%, #dbeafe 40%, #f0f5ff 100%)',
-          border: '1px solid rgba(22,119,255,0.1)',
+          border: '1px solid rgba(24,144,255,0.1)',
           position: 'relative',
         }}
       >
@@ -529,7 +529,7 @@ export default function ProfilePage() {
             width: 200,
             height: 200,
             borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(22,119,255,0.08) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(24,144,255,0.08) 0%, transparent 70%)',
             pointerEvents: 'none',
           }}
         />
@@ -541,7 +541,7 @@ export default function ProfilePage() {
             width: 160,
             height: 160,
             borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(64,150,255,0.05) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(64,169,255,0.05) 0%, transparent 70%)',
             pointerEvents: 'none',
           }}
         />
@@ -610,9 +610,9 @@ export default function ProfilePage() {
                     borderRadius: 12,
                     fontSize: 12,
                     fontWeight: 500,
-                    background: 'rgba(22,119,255,0.1)',
-                    color: '#1677ff',
-                    border: '1px solid rgba(22,119,255,0.15)',
+                    background: 'rgba(24,144,255,0.1)',
+                    color: '#1890ff',
+                    border: '1px solid rgba(24,144,255,0.15)',
                   }}
                 >
                   <CheckCircleFilled style={{ fontSize: 10 }} />

@@ -35,7 +35,7 @@ export default function MyTaskList({ page, pageSize, onPageChange }: MyTaskListP
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
           <Card>
-            <Statistic title="待完成" value={totalAssigned} valueStyle={{ color: '#1677ff' }} />
+            <Statistic title="待完成" value={totalAssigned} valueStyle={{ color: '#1890ff' }} />
           </Card>
         </Col>
         <Col span={8}>

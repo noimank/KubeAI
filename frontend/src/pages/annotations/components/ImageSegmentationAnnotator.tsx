@@ -251,7 +251,7 @@ export default function ImageSegmentationAnnotator({
               {currentPoints.length > 0 && (
                 <Line
                   points={toFlatPoints(currentPoints)}
-                  stroke="#1677FF"
+                  stroke="#1890FF"
                   strokeWidth={visibleStrokeWidth(2)}
                   dash={[4, 4]}
                 />

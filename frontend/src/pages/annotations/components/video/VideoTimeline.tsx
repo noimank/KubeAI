@@ -135,7 +135,7 @@ export default function VideoTimeline({ children }: { children?: ReactNode }) {
             top: 0,
             bottom: 0,
             width: 2,
-            background: '#1677ff',
+            background: '#1890ff',
             pointerEvents: 'none',
           }}
         />

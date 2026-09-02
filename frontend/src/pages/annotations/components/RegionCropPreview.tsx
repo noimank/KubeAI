@@ -149,7 +149,7 @@ export default function RegionCropPreview({
           left: 4,
           padding: '1px 6px',
           fontSize: 11,
-          background: 'rgba(22, 119, 255, 0.85)',
+          background: 'rgba(24, 144, 255, 0.85)',
           color: '#fff',
           borderRadius: 4,
           lineHeight: '18px',

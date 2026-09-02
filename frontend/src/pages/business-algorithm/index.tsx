@@ -8,7 +8,7 @@ const categories = [
     title: '元启发算法',
     description: '模拟自然选择和群体智能的搜索优化算法，包括遗传算法、粒子群、免疫遗传、量子进化等',
     icon: <ThunderboltOutlined />,
-    color: '#1677FF',
+    color: '#1890FF',
     bgColor: '#E6F4FF',
   },
   {

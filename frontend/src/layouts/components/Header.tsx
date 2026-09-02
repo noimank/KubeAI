@@ -26,7 +26,7 @@ const userButtonStyle: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   borderRadius: 6,
-  color: 'inherit',
+  color: 'var(--ant-color-text)',
   cursor: 'pointer',
   fontSize: 16,
   lineHeight: 1,
@@ -73,7 +73,7 @@ export function Header() {
           ) : (
             <Avatar
               size={28}
-              style={{ backgroundColor: '#1677ff', fontSize: 12, verticalAlign: 'middle' }}
+              style={{ backgroundColor: '#1890ff', fontSize: 12, verticalAlign: 'middle' }}
             >
               {displayName ? displayName.charAt(0).toUpperCase() : <UserOutlined />}
             </Avatar>

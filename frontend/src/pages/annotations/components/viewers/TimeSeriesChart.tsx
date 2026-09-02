@@ -75,14 +75,14 @@ export default function TimeSeriesChart({
         pendingSpan && pendingSpan.end != null
           ? [
               [
-                { xAxis: pendingSpan.start, itemStyle: { color: 'rgba(22,119,255,0.15)' } },
+                { xAxis: pendingSpan.start, itemStyle: { color: 'rgba(24,144,255,0.15)' } },
                 { xAxis: pendingSpan.end },
               ],
             ]
           : []
       const pendingLine =
         pendingSpan && pendingSpan.end == null
-          ? [{ xAxis: pendingSpan.start, lineStyle: { color: '#1677FF', type: 'dashed' } }]
+          ? [{ xAxis: pendingSpan.start, lineStyle: { color: '#1890FF', type: 'dashed' } }]
           : []
       return {
         type: 'line',

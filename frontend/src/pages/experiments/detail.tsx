@@ -96,7 +96,7 @@ export default function ExperimentDetailPage() {
                   {experiment.trainingJobName || '查看任务'}
                 </Link>
                 <Tooltip title="跳转至训练任务详情，查看完整配置、日志与资源信息">
-                  <LinkOutlined style={{ color: '#1677ff' }} />
+                  <LinkOutlined style={{ color: '#1890ff' }} />
                 </Tooltip>
               </Space>
             ) : (

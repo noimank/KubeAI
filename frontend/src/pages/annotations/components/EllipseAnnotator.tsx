@@ -310,7 +310,7 @@ export default function EllipseAnnotator({
                   y={drawing.ry < 0 ? drawing.y + drawing.ry / 2 : drawing.y + drawing.ry / 2}
                   radiusX={Math.abs(drawing.rx) / 2}
                   radiusY={Math.abs(drawing.ry) / 2}
-                  stroke="#1677FF"
+                  stroke="#1890FF"
                   strokeWidth={visibleStrokeWidth(2)}
                   dash={[4, 4]}
                 />

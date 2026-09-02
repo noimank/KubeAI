@@ -60,6 +60,25 @@ body {
   padding-top: 0;
 }
 
+/* 暗色侧边菜单 (CloudAxis 规格): pro-layout 分组标题默认用全局 colorTextLabel(深色), 在 #001529 底上需显式覆盖 */
+.ant-pro-layout .ant-pro-sider .ant-menu-item-group-title {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* 暗色侧边菜单滚动条 (CloudAxis 规格) */
+.ant-pro-layout .ant-pro-sider ::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ant-pro-layout .ant-pro-sider ::-webkit-scrollbar-thumb {
+  background: rgba(88, 128, 166, 0.72);
+  border-radius: 3px;
+}
+
+.ant-pro-layout .ant-pro-sider ::-webkit-scrollbar-thumb:hover {
+  background: rgba(111, 157, 202, 0.92);
+}
+
 /* Elevated card shadow for auth and standalone pages */
 .elevated-card {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -80,7 +99,7 @@ body {
   width: 32px;
   height: 32px;
   padding: 0;
-  color: #ffffff;
+  color: var(--ant-color-text);
   background: transparent;
   border: 0;
   border-radius: 6px;
@@ -93,8 +112,8 @@ body {
 
 .notification-trigger-button:hover,
 .notification-trigger-button:focus-visible {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.15);
+  color: var(--ant-color-text);
+  background: var(--ant-color-fill-secondary);
   outline: none;
 }
 

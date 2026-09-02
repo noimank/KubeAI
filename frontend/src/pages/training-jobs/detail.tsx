@@ -633,11 +633,11 @@ export default function TrainingJobDetailPage() {
             <Card
               size="small"
               hoverable
-              style={{ cursor: 'pointer', borderColor: '#1677ff' }}
+              style={{ cursor: 'pointer', borderColor: '#1890ff' }}
               onClick={() => navigate(`/experiments/${job.experimentId}`)}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <ExperimentOutlined style={{ fontSize: 24, color: '#1677ff' }} />
+                <ExperimentOutlined style={{ fontSize: 24, color: '#1890ff' }} />
                 <div>
                   <Typography.Text strong>实验追踪</Typography.Text>
                   <br />

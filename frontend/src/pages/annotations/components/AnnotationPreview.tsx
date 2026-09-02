@@ -9,7 +9,7 @@ interface AnnotationPreviewProps {
   annotationPayload?: Record<string, unknown> | null
 }
 
-const COLORS = ['#1677FF', '#52C41A', '#FAAD14', '#FF4D4F', '#722ED1', '#13C2C2', '#EB2F96']
+const COLORS = ['#1890FF', '#52C41A', '#FAAD14', '#FF4D4F', '#722ED1', '#13C2C2', '#EB2F96']
 
 const { Text } = Typography
 

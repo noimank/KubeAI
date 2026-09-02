@@ -57,8 +57,8 @@ export default function AudioLabelsAnnotator({
       container: containerRef.current,
       height: 96,
       waveColor: 'var(--ant-color-border, #d9d9d9)',
-      progressColor: '#1677ff',
-      cursorColor: '#1677ff',
+      progressColor: '#1890ff',
+      cursorColor: '#1890ff',
       normalize: true,
       plugins: [regionsPlugin],
     })
@@ -66,7 +66,7 @@ export default function AudioLabelsAnnotator({
 
     if (!readOnly) {
       regionsPlugin.enableDragSelection({
-        color: 'rgba(22, 119, 255, 0.25)',
+        color: 'rgba(24, 144, 255, 0.25)',
       })
     }
 

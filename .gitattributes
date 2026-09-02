@@ -1,0 +1,2 @@
+# 仓库统一 LF 行尾; 二进制文件由 git 自动检测, 不做转换
+* text=auto eol=lf

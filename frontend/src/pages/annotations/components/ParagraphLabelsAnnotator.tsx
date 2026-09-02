@@ -206,7 +206,7 @@ export default function ParagraphLabelsAnnotator({
               </Tag>
             }
             onMouseUp={readOnly ? undefined : () => captureSelection(paragraphId)}
-            style={pending?.paragraphId === paragraphId ? { borderColor: '#1677FF' } : undefined}
+            style={pending?.paragraphId === paragraphId ? { borderColor: '#1890FF' } : undefined}
           >
             {renderUtteranceText(u, paragraphId)}
           </Card>

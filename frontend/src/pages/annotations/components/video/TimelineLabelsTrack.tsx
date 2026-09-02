@@ -162,7 +162,7 @@ export default function TimelineLabelsTrack({
               width: `${Math.max(0.5, dragPct.width)}%`,
               top: 2,
               bottom: 2,
-              background: '#1677ff',
+              background: '#1890ff',
               opacity: 0.4,
               borderRadius: 3,
               pointerEvents: 'none',

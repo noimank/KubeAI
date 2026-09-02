@@ -69,39 +69,27 @@ function ContextHolder() {
   return null
 }
 
-const FONT_FAMILY =
-  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', 'Noto Sans SC', sans-serif"
+const FONT_FAMILY = 'system-ui, Avenir, Helvetica, Arial, sans-serif'
 const FONT_FAMILY_CODE =
   "'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace"
 
+// CloudAxis 配色规格 (同步样式方案.md): 主色 #1890ff, 页面文字 #1f2430, 内容区底色 #f5f7fa。
+// 次级文字/填充色不再覆盖, 统一由 colorTextBase 派生保证色相一致。
 const themeConfig = {
   token: {
-    colorPrimary: '#1677FF',
-    colorSuccess: '#52C41A',
-    colorWarning: '#FAAD14',
-    colorError: '#FF4D4F',
-    colorLink: '#1677FF',
+    colorPrimary: '#1890ff',
+    colorLink: '#1890ff',
+    colorInfo: '#1890ff',
+    colorSuccess: '#52c41a',
+    colorWarning: '#faad14',
+    colorError: '#ff4d4f',
+    colorTextBase: '#1f2430',
+    colorBgLayout: '#f5f7fa',
     fontFamily: FONT_FAMILY,
     fontFamilyCode: FONT_FAMILY_CODE,
     borderRadius: 6,
-    fontSize: 14,
-    lineHeight: 1.5714,
-    sizeStep: 4,
-    sizeUnit: 4,
-    wireframe: false,
-    colorBgContainer: '#ffffff',
-    colorBgLayout: '#f5f5f5',
-    colorTextSecondary: 'rgba(0, 0, 0, 0.65)',
-    colorTextTertiary: 'rgba(0, 0, 0, 0.45)',
-    colorTextQuaternary: 'rgba(0, 0, 0, 0.25)',
-    colorFillAlter: '#fafafa',
-    colorFillSecondary: '#f5f5f5',
   },
   components: {
-    Button: {
-      primaryShadow: '0 2px 0 rgba(5, 145, 255, 0.1)',
-      defaultBorderColor: '#d9d9d9',
-    },
     Input: {
       borderRadius: 6,
       controlHeight: 32,
@@ -111,23 +99,6 @@ const themeConfig = {
       borderRadius: 6,
       controlHeight: 32,
       paddingInline: 12,
-    },
-    Table: {
-      borderRadius: 6,
-      cellFontSize: 14,
-      headerBg: '#fafafa',
-      headerColor: 'rgba(0, 0, 0, 0.88)',
-      headerSortActiveBg: '#f0f0f0',
-      headerSortHoverBg: '#f2f2f2',
-      rowHoverBg: '#fafafa',
-      borderColor: '#f0f0f0',
-    },
-    Card: {
-      borderRadiusLG: 8,
-    },
-    Descriptions: {
-      borderRadiusLG: 8,
-      labelBg: '#f5f5f5',
     },
   },
   cssVar: true,

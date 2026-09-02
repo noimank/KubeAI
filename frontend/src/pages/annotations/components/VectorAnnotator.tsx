@@ -225,7 +225,7 @@ export default function VectorAnnotator({
               {currentVertices.length > 0 && (
                 <Line
                   points={toFlatPoints(currentVertices)}
-                  stroke="#1677FF"
+                  stroke="#1890FF"
                   strokeWidth={visibleStrokeWidth(2)}
                   dash={[4, 4]}
                 />

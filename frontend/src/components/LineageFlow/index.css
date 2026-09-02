@@ -37,12 +37,12 @@
 
 /* Status: completed */
 .lineage-node-card.status-completed.dataset {
-  border-color: #1677ff;
+  border-color: #1890ff;
   background: #f0f5ff;
 }
 
 .lineage-node-card.status-completed.training {
-  border-color: #1677ff;
+  border-color: #1890ff;
   background: #f0f5ff;
 }
 
@@ -90,5 +90,5 @@
 }
 
 .lineage-arrow.status-active {
-  color: #1677ff;
+  color: #1890ff;
 }

@@ -330,7 +330,7 @@ export default function HeuristicRulesPage() {
             { label: '计算时间(秒)', value: algorithm?.time || '-' },
           ].map((item, i) => (
             <Card key={i} style={{ width: 200, textAlign: 'center' }}>
-              <div style={{ fontSize: 26, fontWeight: 700, color: '#1677FF', marginBottom: 8 }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#1890FF', marginBottom: 8 }}>
                 {item.value}
               </div>
               <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 14 }}>
@@ -346,7 +346,7 @@ export default function HeuristicRulesPage() {
               <span key={task.jobId} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span
                   style={{
-                    backgroundColor: '#1677FF',
+                    backgroundColor: '#1890FF',
                     color: '#fff',
                     padding: '6px 16px',
                     borderRadius: 20,
@@ -356,7 +356,7 @@ export default function HeuristicRulesPage() {
                   作业{task.jobId}
                 </span>
                 {i < solutionInfo.length - 1 && (
-                  <span style={{ color: '#1677FF', fontSize: 18 }}>&rarr;</span>
+                  <span style={{ color: '#1890FF', fontSize: 18 }}>&rarr;</span>
                 )}
               </span>
             ))}
@@ -395,7 +395,7 @@ export default function HeuristicRulesPage() {
                         minWidth: 180,
                       }}
                     >
-                      <div style={{ fontWeight: 600, color: '#1677FF', marginBottom: 4 }}>
+                      <div style={{ fontWeight: 600, color: '#1890FF', marginBottom: 4 }}>
                         {op.device}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
@@ -463,7 +463,7 @@ export default function HeuristicRulesPage() {
           style={{ marginBottom: 20 }}
           title={
             <span>
-              <SettingOutlined style={{ marginRight: 8, color: '#1677FF' }} />
+              <SettingOutlined style={{ marginRight: 8, color: '#1890FF' }} />
               工序列表配置
             </span>
           }
@@ -539,7 +539,7 @@ export default function HeuristicRulesPage() {
           style={{ marginBottom: 20 }}
           title={
             <span>
-              <UnorderedListOutlined style={{ marginRight: 8, color: '#1677FF' }} />
+              <UnorderedListOutlined style={{ marginRight: 8, color: '#1890FF' }} />
               作业配置
             </span>
           }
@@ -629,7 +629,7 @@ export default function HeuristicRulesPage() {
           style={{ marginBottom: 20 }}
           title={
             <span>
-              <FunctionOutlined style={{ marginRight: 8, color: '#1677FF' }} />
+              <FunctionOutlined style={{ marginRight: 8, color: '#1890FF' }} />
               算法参数配置
             </span>
           }

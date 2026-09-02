@@ -149,7 +149,7 @@ function renderDomControl(tag: string, node: ConfigNode, ctx: WorkspaceContext):
               fontSize: 12,
               padding: '0 6px',
               borderRadius: 4,
-              color: ctx.selectedRegionId ? '#1677ff' : '#999',
+              color: ctx.selectedRegionId ? '#1890ff' : '#999',
               background: ctx.selectedRegionId ? '#e6f4ff' : '#f5f5f5',
             }}
           >

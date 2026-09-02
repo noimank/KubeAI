@@ -280,7 +280,7 @@ export default function VideoRectangleLayer({
                 y={pctToPx(drawing.h < 0 ? drawing.y + drawing.h : drawing.y, ctx.videoHeight)}
                 width={pctToPx(Math.abs(drawing.w), ctx.videoWidth)}
                 height={pctToPx(Math.abs(drawing.h), ctx.videoHeight)}
-                stroke="#1677FF"
+                stroke="#1890FF"
                 strokeWidth={ctx.visibleStrokeWidth(2)}
                 dash={[4, 4]}
               />

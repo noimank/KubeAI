@@ -549,7 +549,7 @@ export default function DataExplorePage() {
                           style={{ fontSize: 12, color: '#fa8c16', flexShrink: 0 }}
                         />
                       ) : (
-                        <TableOutlined style={{ fontSize: 12, color: '#1677ff', flexShrink: 0 }} />
+                        <TableOutlined style={{ fontSize: 12, color: '#1890ff', flexShrink: 0 }} />
                       )}
                       <Typography.Text
                         ellipsis
@@ -557,7 +557,7 @@ export default function DataExplorePage() {
                           flex: 1,
                           fontSize: 13,
                           fontWeight: isActive ? 500 : 400,
-                          color: isActive ? '#1677ff' : undefined,
+                          color: isActive ? '#1890ff' : undefined,
                         }}
                       >
                         {table.name}
@@ -745,7 +745,7 @@ export default function DataExplorePage() {
                 }}
               >
                 <span>
-                  返回 <strong style={{ color: '#1677ff' }}>{queryResult.rowCount}</strong> 行
+                  返回 <strong style={{ color: '#1890ff' }}>{queryResult.rowCount}</strong> 行
                   {queryResult.truncated ? (
                     <Tag
                       color="warning"

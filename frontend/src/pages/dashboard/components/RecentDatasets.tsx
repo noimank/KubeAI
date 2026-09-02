@@ -22,7 +22,7 @@ export default function RecentDatasets({ data, loading }: Props) {
       renderItem={(item) => (
         <List.Item style={{ padding: '8px 0' }}>
           <List.Item.Meta
-            avatar={<DatabaseOutlined style={{ fontSize: 20, color: '#1677ff', marginTop: 4 }} />}
+            avatar={<DatabaseOutlined style={{ fontSize: 20, color: '#1890ff', marginTop: 4 }} />}
             title={<Link to={`/datasets/${item.id}`}>{item.displayName || item.name}</Link>}
             description={`${item.versionCount} 个版本 · ${item.fileCount} 个文件 · ${dayjs(item.updatedAt).fromNow()}`}
           />

@@ -303,8 +303,8 @@
   height: 46px;
   border-radius: 8px;
   font-weight: 700;
-  background: linear-gradient(135deg, #1677ff, #0f766e);
-  box-shadow: 0 12px 30px rgba(22, 119, 255, 0.24);
+  background: linear-gradient(135deg, #1890ff, #0f766e);
+  box-shadow: 0 12px 30px rgba(24, 144, 255, 0.24);
 }
 
 .login-submit-button .ant-btn-icon,
@@ -328,7 +328,7 @@
 }
 
 .login-submit-button:not(:disabled):hover {
-  background: linear-gradient(135deg, #4096ff, #0d9488);
+  background: linear-gradient(135deg, #40a9ff, #0d9488);
 }
 
 .login-oauth .ant-divider {
@@ -382,7 +382,7 @@
   height: 64px;
   border: 2px solid rgba(15, 118, 110, 0.22);
   border-radius: 16px;
-  background: linear-gradient(135deg, rgba(20, 184, 166, 0.12), rgba(22, 119, 255, 0.1));
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.12), rgba(24, 144, 255, 0.1));
   box-shadow: 0 8px 32px rgba(15, 118, 110, 0.16);
 }
 
@@ -422,7 +422,7 @@
   width: 40%;
   height: 100%;
   border-radius: 2px;
-  background: linear-gradient(90deg, #0f766e, #1677ff);
+  background: linear-gradient(90deg, #0f766e, #1890ff);
   animation: login-redirect-slide 1.6s ease-in-out infinite;
 }
 

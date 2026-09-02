@@ -18,8 +18,8 @@ export default function AudioViewer({ value, height = 80 }: { value: unknown; he
       container: ref.current,
       height,
       waveColor: 'var(--ant-color-border, #d9d9d9)',
-      progressColor: '#1677ff',
-      cursorColor: '#1677ff',
+      progressColor: '#1890ff',
+      cursorColor: '#1890ff',
       normalize: true,
     })
     wsRef.current = ws
