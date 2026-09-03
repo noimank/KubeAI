@@ -1,10 +1,3 @@
-export interface DashboardResourceOverview {
-  gpuUsed: number
-  gpuTotal: number
-  activeJobs: number
-  activeDatasets: number
-}
-
 export interface RecentTrainingJob {
   id: string
   name: string
@@ -22,51 +15,6 @@ export interface RecentDataset {
   updatedAt?: string
 }
 
-export interface TenantRankingItem {
-  tenantId: string
-  tenantName: string
-  gpuQuota: number
-  gpuUsed: number
-  gpuUtilization: number
-  cpuUtilization: number
-  activeJobs: number
-}
-
-export interface RecentAlert {
-  id: string
-  type: string
-  title: string
-  priority: string
-  createdAt: string
-}
-
-export interface ClusterOverviewBrief {
-  gpuTotal: number
-  gpuUsed: number
-  gpuUtilization: number
-  cpuTotal: number
-  cpuUsed: number
-  cpuUtilization: number
-  memoryTotal: number
-  memoryUsed: number
-  memoryUtilization: number
-}
-
-export interface PendingAnnotationTask {
-  id: string
-  projectId: string
-  projectName: string
-  status: string
-  totalTasks: number
-  completedTasks: number
-}
-
-export interface AnnotationProgressOverview {
-  pendingCount: number
-  todayCompleted: number
-  totalCompletionRate: number
-}
-
 export interface RecentInferenceService {
   id: string
   name: string
@@ -75,29 +23,16 @@ export interface RecentInferenceService {
   endpointUrl?: string
 }
 
-export interface EngineerDashboard {
-  resourceOverview: DashboardResourceOverview
-  recentTrainingJobs: RecentTrainingJob[]
-  recentDatasets: RecentDataset[]
-}
-
-export interface AdminDashboard {
-  clusterOverview: ClusterOverviewBrief
-  tenantRanking: TenantRankingItem[]
-  recentAlerts: RecentAlert[]
-}
-
-export interface AnnotatorDashboard {
-  progressOverview: AnnotationProgressOverview
-  pendingTasks: PendingAnnotationTask[]
-}
-
-export interface MLOpsDashboard {
-  resourceOverview: DashboardResourceOverview
-  recentInferenceServices: RecentInferenceService[]
+export interface PendingAnnotationProject {
+  projectId: string
+  projectName: string
+  totalTasks: number
+  completedTasks: number
 }
 
 export interface DashboardResponse {
-  role: string
-  data: EngineerDashboard | AdminDashboard | AnnotatorDashboard | MLOpsDashboard
+  recentTrainingJobs: RecentTrainingJob[] | null
+  recentDatasets: RecentDataset[] | null
+  recentInferenceServices: RecentInferenceService[] | null
+  pendingAnnotations: PendingAnnotationProject[] | null
 }

@@ -13,10 +13,9 @@ const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
 
 interface Props {
   data: RecentInferenceService[]
-  loading: boolean
 }
 
-export default function RecentInferenceServices({ data, loading }: Props) {
+export default function RecentInferenceServices({ data }: Props) {
   const columns: ColumnsType<RecentInferenceService> = [
     {
       title: '服务名称',
@@ -55,7 +54,6 @@ export default function RecentInferenceServices({ data, loading }: Props) {
     <Table<RecentInferenceService>
       columns={columns}
       dataSource={data}
-      loading={loading}
       rowKey="id"
       size="small"
       pagination={false}

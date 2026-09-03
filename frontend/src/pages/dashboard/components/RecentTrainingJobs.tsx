@@ -21,10 +21,9 @@ const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
 
 interface Props {
   data: RecentTrainingJob[]
-  loading: boolean
 }
 
-export default function RecentTrainingJobs({ data, loading }: Props) {
+export default function RecentTrainingJobs({ data }: Props) {
   const columns: ColumnsType<RecentTrainingJob> = [
     {
       title: '任务名称',
@@ -62,7 +61,6 @@ export default function RecentTrainingJobs({ data, loading }: Props) {
     <Table<RecentTrainingJob>
       columns={columns}
       dataSource={data}
-      loading={loading}
       rowKey="id"
       size="small"
       pagination={false}

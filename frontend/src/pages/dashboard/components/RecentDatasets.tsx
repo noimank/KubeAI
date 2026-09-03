@@ -11,13 +11,11 @@ dayjs.locale('zh-cn')
 
 interface Props {
   data: RecentDataset[]
-  loading: boolean
 }
 
-export default function RecentDatasets({ data, loading }: Props) {
+export default function RecentDatasets({ data }: Props) {
   return (
     <List<RecentDataset>
-      loading={loading}
       dataSource={data}
       renderItem={(item) => (
         <List.Item style={{ padding: '8px 0' }}>

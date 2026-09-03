@@ -1,15 +1,14 @@
 import { Progress, Table } from 'antd'
 import { Link } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
-import type { PendingAnnotationTask } from '@/types/dashboard'
+import type { PendingAnnotationProject } from '@/types/dashboard'
 
 interface Props {
-  data: PendingAnnotationTask[]
-  loading: boolean
+  data: PendingAnnotationProject[]
 }
 
-export default function PendingAnnotationTasks({ data, loading }: Props) {
-  const columns: ColumnsType<PendingAnnotationTask> = [
+export default function PendingAnnotationProjects({ data }: Props) {
+  const columns: ColumnsType<PendingAnnotationProject> = [
     {
       title: '项目名称',
       dataIndex: 'projectName',
@@ -44,11 +43,10 @@ export default function PendingAnnotationTasks({ data, loading }: Props) {
   ]
 
   return (
-    <Table<PendingAnnotationTask>
+    <Table<PendingAnnotationProject>
       columns={columns}
       dataSource={data}
-      loading={loading}
-      rowKey="id"
+      rowKey="projectId"
       size="small"
       pagination={false}
     />

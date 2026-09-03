@@ -9,7 +9,7 @@ function buildGuideSteps(appName: string): Record<string, TourProps['steps']> {
     admin: [
       {
         title: `欢迎使用 ${appName}`,
-        description: '这是您的管理员工作台，可以查看集群资源概览、租户使用排行和最近告警通知。',
+        description: '这是平台概览，展示 AI 全流程闭环与平台能力全景。',
         target: null,
       },
       {
@@ -33,7 +33,7 @@ function buildGuideSteps(appName: string): Record<string, TourProps['steps']> {
     engineer: [
       {
         title: `欢迎使用 ${appName}`,
-        description: '这是您的工程师工作台，可以查看最近的训练任务、数据集和资源概览。',
+        description: '这是平台概览，展示 AI 全流程闭环、平台能力全景与您的最近工作动态。',
         target: null,
       },
       {
@@ -69,7 +69,7 @@ function buildGuideSteps(appName: string): Record<string, TourProps['steps']> {
     annotator: [
       {
         title: `欢迎使用 ${appName}`,
-        description: '这是您的标注工作台，可以查看待办任务、进度统计和项目分配。',
+        description: '这是平台概览，展示 AI 全流程闭环与您的标注待办任务。',
         target: null,
       },
       {
@@ -93,7 +93,7 @@ function buildGuideSteps(appName: string): Record<string, TourProps['steps']> {
     mlops: [
       {
         title: `欢迎使用 ${appName}`,
-        description: '这是您的 MLOps 工台，可以查看推理服务状态和资源概览。',
+        description: '这是平台概览，展示 AI 全流程闭环、平台能力全景与推理服务动态。',
         target: null,
       },
       {

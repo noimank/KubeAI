@@ -1,0 +1,371 @@
+/* 概览页: 深色品牌 Hero + 全流程闭环全景(阶段卡片 + 立体基座 + 流动虚线) + 最近动态, 配色沿用登录页 CloudAxis 规范 */
+
+/* ===== Hero 横幅 ===== */
+.dash-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 22px 24px;
+  border-radius: 12px;
+  color: #f7fbff;
+  background:
+    linear-gradient(
+      120deg,
+      rgba(8, 12, 22, 0.94),
+      rgba(11, 23, 36, 0.9) 46%,
+      rgba(18, 20, 33, 0.94)
+    ),
+    linear-gradient(45deg, #0b111d, #13291f 45%, #201926);
+}
+
+.dash-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(125, 211, 252, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.07) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.2));
+}
+
+.dash-hero-title {
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.dash-hero-desc {
+  max-width: 720px;
+  margin: 4px 0 0;
+  color: rgba(247, 251, 255, 0.68);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.dash-hero-desc strong {
+  color: #7dd3fc;
+  font-weight: 500;
+}
+
+/* ===== 通用分区 ===== */
+.dash-section {
+  margin-top: 20px;
+}
+
+.dash-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.dash-section-title {
+  position: relative;
+  padding-left: 12px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.dash-section-title::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  width: 4px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #7dd3fc, #0ea5e9);
+}
+
+.dash-section-subtitle {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* ===== 闭环卡片头部 ===== */
+.flow-card {
+  container-type: inline-size;
+  padding: 16px 18px 14px;
+  border: 1px solid #eef1f6;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(31, 36, 48, 0.04);
+}
+
+.flow-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.flow-head-title {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: #b45309;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.flow-head-spin {
+  color: #f59e0b;
+  font-size: 14px;
+  animation: flow-rotate 5s linear infinite;
+}
+
+@keyframes flow-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-head-spin {
+    animation: none;
+  }
+}
+
+.flow-legend {
+  display: inline-flex;
+  gap: 16px;
+  align-items: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.flow-legend-item {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.flow-legend-item .anticon {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.flow-legend-dashed {
+  width: 26px;
+  border-top: 2px dashed #f59e0b;
+}
+
+/* ===== 阶段画布 (React Flow, 静态居中展示) ===== */
+/* 高度按内容宽高比随宽度自适应(与 LifecycleFlow 的 CONTENT_W/CONTENT_H 对应).
+   注意: max-height 会经纵横比传导为 max-width(430px × 1240/368 ≈ 1449px),
+   把画布压窄并靠左、右侧露白; 故宽屏(容器 ≥1485px, 即画布达 1449px)改为定高全宽 */
+.rf-canvas {
+  position: relative;
+  aspect-ratio: 1240 / 368;
+  min-height: 220px;
+  border: 1px dashed #d9e5f5;
+  border-radius: 14px;
+  background-color: #f8fbff;
+  background-image: radial-gradient(rgba(59, 130, 246, 0.1) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+@container (min-width: 1485px) {
+  .rf-canvas {
+    aspect-ratio: auto;
+    height: 430px;
+  }
+}
+
+/* 隐藏连线锚点把手 */
+.rf-canvas .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 关键: RF 在节点 draggable/selectable 均为 false 时写内联 pointer-events:none,
+   会让整张卡片变成"图片"。强制恢复交互, 模块按钮与卡片跳转才能响应点击。 */
+.rf-canvas .react-flow__node {
+  pointer-events: all !important;
+  box-shadow: none;
+}
+
+/* 平移/缩放/拖拽已由 ReactFlow props 全量禁用, 底板再收掉指针事件兜底, 光标保持默认 */
+.rf-canvas .react-flow__pane {
+  pointer-events: none;
+  cursor: default;
+}
+
+/* 阶段卡座: 立体基座垫层 + 悬浮卡片; 固定宽高与 LifecycleFlow 的 NODE_W/NODE_H 对应 */
+.stage-slot {
+  position: relative;
+  display: flex;
+  width: 250px;
+}
+
+.stage-slab {
+  position: absolute;
+  right: 9px;
+  bottom: -9px;
+  left: 9px;
+  height: 22px;
+  border-radius: 14px;
+}
+
+.stage-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 318px;
+  padding: 16px 14px 14px;
+  border: 1px solid #e8effb;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff, #f6f9ff);
+  box-shadow:
+    0 1px 2px rgba(31, 36, 48, 0.04),
+    0 18px 36px -18px rgba(37, 99, 235, 0.3);
+}
+
+.stage-accent {
+  position: absolute;
+  top: -1px;
+  right: 14px;
+  left: 14px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+}
+
+.stage-card.clickable {
+  cursor: pointer;
+}
+
+.stage-mark {
+  position: absolute;
+  top: 4px;
+  right: 12px;
+  font-size: 46px;
+  font-style: italic;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -2px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.stage-head {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.stage-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  color: #fff;
+  font-size: 20px;
+}
+
+.stage-name {
+  color: rgba(31, 36, 48, 0.9);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stage-en {
+  margin-left: 6px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  vertical-align: 1px;
+}
+
+.stage-desc {
+  margin-top: 1px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+/* 功能模块节点: 立体图标 + 名称 */
+.stage-mods {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.mod {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #eef2f9;
+  border-radius: 12px;
+  background: #fff;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow:
+    0 1px 2px rgba(31, 36, 48, 0.04),
+    0 8px 16px -10px rgba(31, 36, 48, 0.12);
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s,
+    border-color 0.2s;
+}
+
+.mod:hover:not(.locked) {
+  border-color: #dce7f8;
+  box-shadow:
+    0 2px 4px rgba(31, 36, 48, 0.05),
+    0 14px 22px -10px rgba(31, 36, 48, 0.18);
+  transform: translateY(-3px);
+}
+
+.mod.locked {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mod-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  color: #fff;
+  font-size: 17px;
+}
+
+.mod-name {
+  color: rgba(31, 36, 48, 0.85);
+  font-weight: 500;
+}
+
+/* ===== 最近动态 ===== */
+.dash-section .ant-card:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 768px) {
+  .dash-hero {
+    padding: 20px;
+  }
+
+  .dash-hero-title {
+    font-size: 19px;
+  }
+}
