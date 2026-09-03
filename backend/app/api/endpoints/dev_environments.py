@@ -167,7 +167,7 @@ async def auth_check_dev_environment(
         raise ForbiddenException("无权访问此环境")
 
     if redis is not None:
-        await redis.setex(_env_auth_cache_key(env_id, identity.id), _DEV_ENV_AUTH_CACHE_TTL, "1")
+        await redis.set(_env_auth_cache_key(env_id, identity.id), "1", ex=_DEV_ENV_AUTH_CACHE_TTL)
 
     # debug — forward-auth fires on every sub-request; logging every success at
     # info level drowns the log in noise.

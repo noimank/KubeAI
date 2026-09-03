@@ -12,7 +12,7 @@ class TokenBlacklistService:
 
     async def revoke_token(self, jti: str, expires_in: int) -> None:
         key = f"{BLACKLIST_PREFIX}:{jti}"
-        await self.redis.setex(key, expires_in, "revoked")
+        await self.redis.set(key, "revoked", ex=expires_in)
         logger.info("token_revoked", jti=jti, expires_in=expires_in)
 
     async def is_revoked(self, jti: str) -> bool:

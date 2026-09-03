@@ -17,18 +17,18 @@ def blacklist_service(mock_redis):
 
 class TestRevokeToken:
     async def test_revoke_token_sets_key_with_ttl(self, blacklist_service, mock_redis):
-        mock_redis.setex = AsyncMock()
+        mock_redis.set = AsyncMock()
 
         await blacklist_service.revoke_token("test-jti", 3600)
 
-        mock_redis.setex.assert_called_once_with("token_blacklist:test-jti", 3600, "revoked")
+        mock_redis.set.assert_called_once_with("token_blacklist:test-jti", "revoked", ex=3600)
 
     async def test_revoke_token_with_short_ttl(self, blacklist_service, mock_redis):
-        mock_redis.setex = AsyncMock()
+        mock_redis.set = AsyncMock()
 
         await blacklist_service.revoke_token("short-jti", 60)
 
-        mock_redis.setex.assert_called_once_with("token_blacklist:short-jti", 60, "revoked")
+        mock_redis.set.assert_called_once_with("token_blacklist:short-jti", "revoked", ex=60)
 
 
 class TestIsRevoked:

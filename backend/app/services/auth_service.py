@@ -215,7 +215,7 @@ class AuthService:
 
         if count >= LOCKOUT_THRESHOLD:
             lock_key = f"login_lock:{user_id}"
-            await self.redis.setex(lock_key, LOCKOUT_SECONDS, str(LOCKOUT_SECONDS))
+            await self.redis.set(lock_key, str(LOCKOUT_SECONDS), ex=LOCKOUT_SECONDS)
 
     async def _reset_failed_attempts(self, user_id: str) -> None:
         attempts_key = f"login_attempts:{user_id}"

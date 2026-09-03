@@ -187,7 +187,7 @@ class TestLogin:
         ):
             await auth_service.login(LoginRequest(username="testuser", password="wrong"))
 
-        mock_redis.setex.assert_called()
+        mock_redis.set.assert_called()
 
 
 class TestRefreshTokens:

@@ -61,14 +61,14 @@ class OAuthService:
                 raise ExternalServiceException(f"无法获取 OIDC Discovery: {url}")
             doc = resp.json()
 
-        await self.redis.setex(cache_key, DISCOVERY_CACHE_TTL, json.dumps(doc))
+        await self.redis.set(cache_key, json.dumps(doc), ex=DISCOVERY_CACHE_TTL)
         return cast("dict[str, str]", doc)
 
     async def get_authorization_url(self, redirect_uri: str) -> tuple[str, str]:
         discovery = await self._get_discovery()
         state = secrets.token_urlsafe(32)
 
-        await self.redis.setex(f"oauth:state:{state}", STATE_TTL, "oidc")
+        await self.redis.set(f"oauth:state:{state}", "oidc", ex=STATE_TTL)
 
         async with AsyncOAuth2Client(
             settings.OIDC_CLIENT_ID,

@@ -202,7 +202,7 @@ async def auth_check(
         raise ForbiddenException(f"权限不足: 无法对 {resource} 执行 {action} 操作")
 
     if redis is not None:
-        await redis.setex(cache_key, _AUTH_CHECK_CACHE_TTL, "1")
+        await redis.set(cache_key, "1", ex=_AUTH_CHECK_CACHE_TTL)
 
     return Response(status_code=200, headers={"X-KubeAI-User": identity.username})
 

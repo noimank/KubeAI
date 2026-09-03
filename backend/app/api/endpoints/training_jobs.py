@@ -217,7 +217,7 @@ async def auth_check_training_job(
         raise ForbiddenException("无权访问此任务的 TensorBoard")
 
     if redis is not None:
-        await redis.setex(_tb_auth_cache_key(job_id, identity.id), _TB_AUTH_CACHE_TTL, "1")
+        await redis.set(_tb_auth_cache_key(job_id, identity.id), "1", ex=_TB_AUTH_CACHE_TTL)
 
     logger.debug("training_job_tensorboard_auth_check_success", job_id=str(job_id), username=identity.username)
     return Response(status_code=200, headers={"X-KubeAI-User": identity.username})

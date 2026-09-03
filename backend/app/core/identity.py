@@ -41,7 +41,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 
@@ -181,7 +181,8 @@ class IdentityResolver:
         if not raw:
             return None
         try:
-            return TokenIdentity.from_cache(raw)
+            # decode_responses=True 的连接池运行时必返回 str, redis-py 8 的 stubs 无法表达
+            return TokenIdentity.from_cache(cast("str", raw))
         except (ValueError, KeyError, TypeError):
             logger.warning("identity_cache_corrupt", key=key)
             return None
@@ -191,13 +192,13 @@ class IdentityResolver:
             return
         version = await self._user_token_version(user_id)
         key = f"{IDENTITY_CACHE_PREFIX}:{user_id}:{version}"
-        await self.redis.setex(key, settings.IDENTITY_CACHE_TTL_SECONDS, identity.to_cache())
+        await self.redis.set(key, identity.to_cache(), ex=settings.IDENTITY_CACHE_TTL_SECONDS)
 
     async def _user_token_version(self, user_id: uuid.UUID) -> str:
         """``user_token_version:<user_id>`` — 缺省 "0". 禁用 / 删除用户时 incr 即让其自增."""
         assert self.redis is not None
         version = await self.redis.get(f"{USER_TOKEN_VERSION_PREFIX}:{user_id}")
-        return version or "0"
+        return cast("str", version) or "0"
 
     # -- DB 解析 (缓存 miss) -----------------------------------------------
 
@@ -228,10 +229,10 @@ class IdentityResolver:
         active = tenant is not None and tenant.status == TenantStatus.ACTIVE
 
         if self.redis is not None:
-            await self.redis.setex(
+            await self.redis.set(
                 f"{TENANT_STATUS_PREFIX}:{tenant_id}",
-                settings.TENANT_STATUS_CACHE_TTL_SECONDS,
                 "active" if active else "disabled",
+                ex=settings.TENANT_STATUS_CACHE_TTL_SECONDS,
             )
         return active
 
