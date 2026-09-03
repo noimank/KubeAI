@@ -18,6 +18,7 @@ from app.schemas.annotation import (
     AnnotationTaskResponse,
     AnnotationTaskSummaryResponse,
     AnnotationTaskUnassignRequest,
+    MyTaskIdsResponse,
     SyncTasksResponse,
 )
 from app.schemas.base import BaseResponse, PageData, PageResponse
@@ -396,21 +397,24 @@ async def submit_annotation(
     )
 
 
-@router.get("/projects/{project_id}/my-task-ids", response_model=BaseResponse[list[str]])
+@router.get("/projects/{project_id}/my-task-ids", response_model=BaseResponse[MyTaskIdsResponse])
 async def list_my_project_task_ids(
     project_id: uuid.UUID,
     db: DbDep,
     ls: LabelStudioDep,
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
-) -> BaseResponse[list[str]]:
+) -> BaseResponse[MyTaskIdsResponse]:
     tenant_id = _require_tenant_id(user)
     service = AnnotationService(db, ls)
-    task_ids = await service.list_my_task_ids(
+    task_ids, completed_count = await service.list_my_task_ids(
         project_id=project_id,
         tenant_id=tenant_id,
         user_id=user.id,
     )
-    return BaseResponse(data=[str(tid) for tid in task_ids], message="获取成功")
+    return BaseResponse(
+        data=MyTaskIdsResponse(task_ids=task_ids, completed_count=completed_count),
+        message="获取成功",
+    )
 
 
 @router.get("/projects/{project_id}/next-task", response_model=BaseResponse[AnnotationTaskResponse | None])

@@ -186,7 +186,7 @@ export default function AnnotationWorkspacePage() {
     relationsHook,
     globalResults,
     videoMetaByObject,
-    goNext: task.goNext,
+    advanceAfterSubmit: task.advanceAfterSubmit,
   })
 
   // 切换任务时重置全局分类结果
@@ -299,7 +299,7 @@ export default function AnnotationWorkspacePage() {
     )
   }
 
-  const totalTasks = task.taskIds.length || project.totalTasks || 0
+  const totalTasks = task.taskIds.length
   const chatObjects = configTree
     ? findNodes(configTree, (n) => n.type === 'object' && n.tag === 'Chat')
     : []
@@ -316,11 +316,12 @@ export default function AnnotationWorkspacePage() {
         onBack={() => navigate('/annotations')}
         cursor={task.cursor}
         totalTasks={totalTasks}
-        completedTasks={project.completedTasks || 0}
+        completedTasks={task.completedCount}
+        loading={task.taskLoading}
         onPrev={task.goPrev}
-        onNext={task.goNext}
+        onNext={() => void task.goNext()}
         hasPrev={task.cursor > 0}
-        hasNext={task.cursor < totalTasks - 1 || true}
+        hasNext={task.cursor < totalTasks - 1}
         onHotkeyHelp={() => setHotkeyHelpOpen(true)}
         guidelineCollapsed={guidelineCollapsed}
         onToggleGuideline={() => setGuidelineCollapsed(!guidelineCollapsed)}

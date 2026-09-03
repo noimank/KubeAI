@@ -83,6 +83,12 @@ export interface AnnotationTaskSummary {
   completedTasks: number
 }
 
+/** 工作台线性导航数据源:稳定排序的任务 ID 列表 + 当前用户已完成数 */
+export interface AnnotationMyTaskIds {
+  taskIds: string[]
+  completedCount: number
+}
+
 export interface AnnotationResultItem {
   /** 区域 ID（多个 result 共享同一 ID 表示属于同一空间区域） */
   id?: string

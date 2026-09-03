@@ -2,6 +2,7 @@ import { api } from './api'
 import type { BaseResponse, PageData } from '@/types/api'
 import type {
   AnnotationBatchAssignRequest,
+  AnnotationMyTaskIds,
   AnnotationProject,
   AnnotationProjectCreateRequest,
   AnnotationProjectDetail,
@@ -124,11 +125,11 @@ export async function getNextAnnotationTask(projectId: string): Promise<Annotati
   return res.data.data ?? null
 }
 
-export async function getMyProjectTaskIds(projectId: string): Promise<string[]> {
-  const res = await api.get<BaseResponse<string[]>>(
+export async function getMyProjectTaskIds(projectId: string): Promise<AnnotationMyTaskIds> {
+  const res = await api.get<BaseResponse<AnnotationMyTaskIds>>(
     `/annotations/projects/${projectId}/my-task-ids`,
   )
-  return res.data.data ?? []
+  return res.data.data!
 }
 
 export async function getAnnotationTaskDetail(taskId: string): Promise<AnnotationTask> {

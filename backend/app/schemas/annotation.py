@@ -43,6 +43,13 @@ class SyncTasksResponse(BaseModel):
     synced_count: int
 
 
+class MyTaskIdsResponse(BaseModel):
+    """工作台线性导航的数据源:稳定排序的任务 ID 列表 + 当前用户已完成数。"""
+
+    task_ids: list[uuid.UUID]
+    completed_count: int
+
+
 class AnnotationTaskResponse(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID

@@ -29,7 +29,7 @@ interface UseAnnotationSubmitOptions {
   relationsHook: RelationsHook
   globalResults: Record<string, AnnotationResultItem[]>
   videoMetaByObject?: Record<string, VideoSerializeMeta>
-  goNext: () => Promise<void>
+  advanceAfterSubmit: () => Promise<void>
 }
 
 export function useAnnotationSubmit(options: UseAnnotationSubmitOptions) {
@@ -43,7 +43,7 @@ export function useAnnotationSubmit(options: UseAnnotationSubmitOptions) {
     relationsHook,
     globalResults,
     videoMetaByObject,
-    goNext,
+    advanceAfterSubmit,
   } = options
   const queryClient = useQueryClient()
 
@@ -118,7 +118,7 @@ export function useAnnotationSubmit(options: UseAnnotationSubmitOptions) {
         onOk: () => {
           submitMutation.mutate(
             { taskId: currentTask.id, result },
-            { onSuccess: async () => await goNext() },
+            { onSuccess: async () => await advanceAfterSubmit() },
           )
         },
       })
@@ -126,13 +126,13 @@ export function useAnnotationSubmit(options: UseAnnotationSubmitOptions) {
     }
     submitMutation.mutate(
       { taskId: currentTask.id, result },
-      { onSuccess: async () => await goNext() },
+      { onSuccess: async () => await advanceAfterSubmit() },
     )
   }, [
     currentTask,
     buildSubmitResult,
     submitMutation,
-    goNext,
+    advanceAfterSubmit,
     configTree,
     regionsHook.regions,
     regionsHook.selectedRegionId,

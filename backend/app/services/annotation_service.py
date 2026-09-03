@@ -852,7 +852,7 @@ class AnnotationService:
                 selectinload(AnnotationTask.assignee),
             )
             .where(*conditions)
-            .order_by(AnnotationTask.created_at.desc())
+            .order_by(AnnotationTask.created_at.desc(), AnnotationTask.label_studio_task_id.desc())
         )
 
         total_q = select(func.count()).select_from(query.subquery())
@@ -866,19 +866,26 @@ class AnnotationService:
         project_id: uuid.UUID,
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
-    ) -> list[uuid.UUID]:
-        """按创建时间升序返回当前用户在项目内被分配的所有任务 ID,用于工作台前后跳转。"""
+    ) -> tuple[list[uuid.UUID], int]:
+        """返回当前用户在项目内的任务 ID 列表(稳定升序)与已完成数,用于工作台线性导航与进度。
+
+        排序以 (created_at, label_studio_task_id) 保证批量导入(同一时间戳)时顺序确定,
+        否则任务序号会在多次查询间漂移。
+        """
         await self._validate_project_membership(project_id, tenant_id)
         result = await self.db.execute(
-            select(AnnotationTask.id)
+            select(AnnotationTask.id, AnnotationTask.status)
             .where(
                 AnnotationTask.project_id == project_id,
                 AnnotationTask.tenant_id == tenant_id,
                 AnnotationTask.assigned_to == user_id,
             )
-            .order_by(AnnotationTask.created_at)
+            .order_by(AnnotationTask.created_at, AnnotationTask.label_studio_task_id)
         )
-        return list(result.scalars().all())
+        rows = result.all()
+        ids = [row.id for row in rows]
+        completed = sum(1 for row in rows if row.status == "completed")
+        return ids, completed
 
     async def get_my_task_summary(self, tenant_id: uuid.UUID, user_id: uuid.UUID) -> list[dict[str, Any]]:
         from app.models.annotation_template import AnnotationTemplate
@@ -1071,7 +1078,11 @@ class AnnotationService:
                 AnnotationTask.assigned_to == user_id,
                 AnnotationTask.status.in_(["in_progress", "assigned"]),
             )
-            .order_by(case((AnnotationTask.status == "in_progress", 0), else_=1), AnnotationTask.created_at)
+            .order_by(
+                case((AnnotationTask.status == "in_progress", 0), else_=1),
+                AnnotationTask.created_at,
+                AnnotationTask.label_studio_task_id,
+            )
             .limit(1)
         )
         task = result.scalar_one_or_none()

@@ -9,6 +9,7 @@ interface WorkspaceTopBarProps {
   cursor: number
   totalTasks: number
   completedTasks: number
+  loading: boolean
   onPrev: () => void
   onNext: () => void
   hasPrev: boolean
@@ -26,6 +27,7 @@ export default function WorkspaceTopBar({
   cursor,
   totalTasks,
   completedTasks,
+  loading,
   onPrev,
   onNext,
   hasPrev,
@@ -56,6 +58,7 @@ export default function WorkspaceTopBar({
           currentTaskIndex={cursor}
           totalTasks={totalTasks}
           completedTasks={completedTasks}
+          loading={loading}
           onPrev={onPrev}
           onNext={onNext}
           hasPrev={hasPrev}

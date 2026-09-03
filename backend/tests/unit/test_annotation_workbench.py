@@ -2,6 +2,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -118,28 +119,35 @@ def service(mock_db, mock_ls):
 
 
 class TestListMyTaskIds:
-    async def test_returns_ordered_user_owned_ids(self, service, mock_db):
+    async def test_returns_ordered_user_owned_ids_and_completed_count(self, service, mock_db):
         tenant_id = uuid.uuid4()
         user_id = uuid.uuid4()
-        other_user = uuid.uuid4()
         project = _make_project(tenant_id=tenant_id)
         service._validate_project_membership = AsyncMock()
 
-        t1 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id)
-        t2 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=other_user)
-        t3 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id)
-        # 模拟按 created_at 排序后由 service 返回
-        service.db.execute = AsyncMock(return_value=_sync_result([t1, t2, t3]))
+        t1 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id, status="completed")
+        t2 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id)
+        t3 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id, status="completed")
+        # 模拟 SQL 过滤 + (created_at, label_studio_task_id) 排序后的返回(Row 支持属性访问)
+        result = MagicMock()
+        result.all.return_value = [
+            SimpleNamespace(id=t1.id, status=t1.status),
+            SimpleNamespace(id=t2.id, status=t2.status),
+            SimpleNamespace(id=t3.id, status=t3.status),
+        ]
+        service.db.execute = AsyncMock(return_value=result)
 
-        ids = await service.list_my_task_ids(project_id=project.id, tenant_id=tenant_id, user_id=user_id)
-        # 服务只信任 db 返回的列表;这里断言 db.execute 被以期望的过滤调用
+        ids, completed = await service.list_my_task_ids(project_id=project.id, tenant_id=tenant_id, user_id=user_id)
+        assert ids == [t1.id, t2.id, t3.id]
+        assert completed == 2
+        # 断言 db.execute 被以期望的过滤/稳定排序调用
         called_stmt = service.db.execute.await_args.args[0]
         compiled = str(called_stmt.compile(compile_kwargs={"literal_binds": True}))
         assert "annotation_tasks" in compiled
         assert "project_id" in compiled
         assert "assigned_to" in compiled
         assert "created_at" in compiled  # order_by
-        assert isinstance(ids, list)
+        assert "label_studio_task_id" in compiled  # 稳定排序 tiebreaker
 
 
 class TestStartAnnotation:
