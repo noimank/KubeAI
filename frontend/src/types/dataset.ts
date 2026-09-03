@@ -37,7 +37,6 @@ export interface VersionFile {
   fileSize: number
   contentType: string | null
   uploadedAt: string
-  isAnnotated: boolean
 }
 
 export interface FileTypeDistribution {

@@ -58,7 +58,6 @@ const mockFilesPage = {
       fileSize: 1024,
       contentType: 'text/csv',
       uploadedAt: '2026-05-01T00:00:00Z',
-      isAnnotated: false,
     },
     {
       fileId: FILE_ID_2,
@@ -67,7 +66,6 @@ const mockFilesPage = {
       fileSize: 2048,
       contentType: 'image/png',
       uploadedAt: '2026-05-01T00:00:00Z',
-      isAnnotated: false,
     },
   ],
   total: 2,
@@ -411,40 +409,5 @@ describe('DatasetDetailPage', () => {
     await waitFor(() => {
       expect(mockFetchFileBlob).toHaveBeenCalledWith('ds-1', 'v-2', 'image.png')
     })
-  })
-
-  it('should render annotation column from list payload (no per-row fetch)', async () => {
-    mockGetDatasetDetail.mockResolvedValueOnce(mockDataset)
-    mockGetVersionFiles.mockResolvedValueOnce({
-      ...mockFilesPage,
-      items: [
-        { ...mockFilesPage.items[0], isAnnotated: true },
-        { ...mockFilesPage.items[1], isAnnotated: false },
-      ],
-    })
-    mockGetVersionStats.mockResolvedValueOnce({
-      versionId: 'v-2',
-      versionNumber: 2,
-      fileCount: 2,
-      totalSizeBytes: 3072,
-      fileTypeDistribution: [],
-      annotatedCount: 1,
-    })
-
-    renderPage()
-
-    await waitForDataset()
-
-    const previewTab = screen.getByText('预览')
-    await userEvent.click(previewTab)
-
-    await waitFor(() => {
-      // 第一行已标注 -> Tag
-      const annotatedRows = screen.getAllByText('已标注')
-      expect(annotatedRows.length).toBe(1)
-    })
-
-    // 关键: 列表数据已经带 isAnnotated, 组件不应再调 getFileAnnotation
-    // (该函数已从 services 中删除, 任何调用都会 throw)
   })
 })

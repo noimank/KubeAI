@@ -403,16 +403,6 @@ export default function DatasetDetailPage() {
       ),
     },
     {
-      title: '标注',
-      width: 80,
-      render: (_, record) =>
-        record.isAnnotated ? (
-          <Tag color="success">已标注</Tag>
-        ) : (
-          <span style={{ color: 'var(--text-tertiary)' }}>--</span>
-        ),
-    },
-    {
       title: '上传时间',
       dataIndex: 'uploadedAt',
       width: 190,

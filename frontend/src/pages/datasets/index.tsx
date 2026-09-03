@@ -85,6 +85,7 @@ export default function DatasetsPage() {
     {
       title: '名称',
       dataIndex: 'displayName',
+      width: 280,
       render: (displayName: string | undefined, record: Dataset) => displayName || record.name,
       ellipsis: true,
     },
@@ -107,7 +108,8 @@ export default function DatasetsPage() {
     {
       title: '创建人',
       dataIndex: 'createdByName',
-      width: 120,
+      width: 220,
+      ellipsis: true,
     },
     {
       title: '创建时间',
