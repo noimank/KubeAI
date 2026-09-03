@@ -244,13 +244,7 @@ export function CreateModal({
           </Form.Item>
         ) : null}
         <Form.Item label="环境变量">
-          <EnvVarEditor
-            name="envVars"
-            keyPlaceholder="Key"
-            valuePlaceholder="Value"
-            addButtonText="+ 添加环境变量"
-            presets={configs}
-          />
+          <EnvVarEditor keyPlaceholder="Key" valuePlaceholder="Value" presets={configs} />
         </Form.Item>
       </Form>
     </Modal>

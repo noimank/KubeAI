@@ -15,6 +15,7 @@ import {
   Switch,
   Tag,
   Tooltip,
+  theme,
 } from 'antd'
 import {
   CheckCircleOutlined,
@@ -122,6 +123,7 @@ export default function CreateTuningPage() {
   const [current, setCurrent] = useState(0)
   const [form] = Form.useForm<FormValues>()
   const [submitting, setSubmitting] = useState(false)
+  const { token } = theme.useToken()
 
   const datasetId = Form.useWatch('datasetId', form)
   const useGpu = Form.useWatch('useGpu', form) ?? true
@@ -321,7 +323,7 @@ export default function CreateTuningPage() {
                   <Space size={4}>
                     剪枝 (Pruning)
                     <Tooltip title="启用后, 表现持续差于已完成 trial 中位数的 trial 会被提前终止以节省算力。要求训练脚本对目标指标按 step 上报到 MLflow (mlflow.log_metric(name, value, step=...))。">
-                      <InfoCircleOutlined style={{ color: '#999' }} />
+                      <InfoCircleOutlined style={{ color: token.colorTextTertiary }} />
                     </Tooltip>
                   </Space>
                 ),
@@ -405,7 +407,7 @@ export default function CreateTuningPage() {
                   <Space size={4}>
                     高级配置 (搜索策略 & 终止条件)
                     <Tooltip title="搜索策略选择采样器；终止条件到点后停止补发新 trial（运行中的 trial 自然结束后任务完成）。任务超时若配合 trial 超时使用，可避免单个 trial 卡住阻塞完成。">
-                      <InfoCircleOutlined style={{ color: '#999' }} />
+                      <InfoCircleOutlined style={{ color: token.colorTextTertiary }} />
                     </Tooltip>
                   </Space>
                 ),
@@ -637,19 +639,13 @@ export default function CreateTuningPage() {
                   <Space size={4}>
                     附加环境变量
                     <Tooltip title="附加到每个 trial 的通用环境变量（非超参数），可用于传递 API Key、服务地址等配置。支持从业务配置预设中快速加载。">
-                      <InfoCircleOutlined style={{ color: '#999' }} />
+                      <InfoCircleOutlined style={{ color: token.colorTextTertiary }} />
                     </Tooltip>
                   </Space>
                 ),
                 children: (
                   <Form.Item>
-                    <EnvVarEditor
-                      name="envVars"
-                      keyPlaceholder="变量名"
-                      valuePlaceholder="变量值"
-                      addButtonText="+ 添加环境变量"
-                      presets={configs}
-                    />
+                    <EnvVarEditor presets={configs} />
                   </Form.Item>
                 ),
               },

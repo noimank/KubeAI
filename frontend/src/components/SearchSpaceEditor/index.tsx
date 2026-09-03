@@ -130,10 +130,7 @@ function SearchSpaceRowFields({
         </Form.Item>
       )}
 
-      <DeleteOutlined
-        onClick={onRemove}
-        style={{ color: '#ff4d4f', cursor: 'pointer', fontSize: 14 }}
-      />
+      <Button type="text" danger icon={<DeleteOutlined />} onClick={onRemove} aria-label="删除" />
     </Space>
   )
 }
@@ -157,8 +154,8 @@ export default function SearchSpaceEditor({ name = 'searchSpace' }: SearchSpaceE
               />
             ))}
             <Form.Item>
-              <Button type="dashed" onClick={() => add({})} block>
-                <PlusOutlined /> 添加超参数
+              <Button type="dashed" onClick={() => add({})} block icon={<PlusOutlined />}>
+                添加超参数
               </Button>
             </Form.Item>
           </>

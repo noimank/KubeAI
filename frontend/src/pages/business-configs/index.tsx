@@ -254,12 +254,7 @@ export default function BusinessConfigsPage() {
             />
           </Form.Item>
           <Form.Item label="环境变量">
-            <EnvVarEditor
-              name="envVars"
-              keyPlaceholder="变量名"
-              valuePlaceholder="变量值"
-              addButtonText="+ 添加环境变量"
-            />
+            <EnvVarEditor />
           </Form.Item>
         </Form>
       </Modal>

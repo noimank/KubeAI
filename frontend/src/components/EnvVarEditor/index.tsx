@@ -1,4 +1,4 @@
-import { Form, Input, Select, Space, Typography } from 'antd'
+import { Button, Form, Input, Select, Space, Typography } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { BusinessConfig } from '@/types/business-config'
 
@@ -21,7 +21,7 @@ export default function EnvVarEditor({
   name = 'envVars',
   keyPlaceholder = '变量名',
   valuePlaceholder = '变量值',
-  addButtonText = '+ 添加环境变量',
+  addButtonText = '添加环境变量',
   presets,
   presetsLoading = false,
 }: EnvVarEditorProps) {
@@ -84,21 +84,24 @@ export default function EnvVarEditor({
                 >
                   <Input placeholder={valuePlaceholder} />
                 </Form.Item>
-                <DeleteOutlined
+                <Button
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
                   onClick={() => remove(fieldName)}
-                  style={{ color: '#ff4d4f', cursor: 'pointer', fontSize: 14 }}
+                  aria-label="删除"
                 />
               </Space>
             ))}
             <Form.Item>
-              <button
-                type="button"
-                className="ant-btn ant-btn-dashed"
-                style={{ width: '100%' }}
+              <Button
+                type="dashed"
+                block
+                icon={<PlusOutlined />}
                 onClick={() => add({ key: '', value: '' })}
               >
-                <PlusOutlined /> {addButtonText}
-              </button>
+                {addButtonText}
+              </Button>
             </Form.Item>
           </>
         )}

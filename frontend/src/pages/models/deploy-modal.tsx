@@ -341,13 +341,7 @@ export default function DeployModal({
             </Form.Item>
 
             <Form.Item label="环境变量">
-              <EnvVarEditor
-                name="envVars"
-                keyPlaceholder="变量名"
-                valuePlaceholder="变量值"
-                addButtonText="+ 添加环境变量"
-                presets={configs}
-              />
+              <EnvVarEditor presets={configs} />
             </Form.Item>
 
             <Divider>资源配置</Divider>

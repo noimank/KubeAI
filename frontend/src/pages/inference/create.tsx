@@ -220,13 +220,7 @@ export default function CreateInferenceServicePage() {
           </Form.Item>
 
           <Form.Item label="环境变量">
-            <EnvVarEditor
-              name="envVars"
-              keyPlaceholder="变量名"
-              valuePlaceholder="变量值"
-              addButtonText="+ 添加环境变量"
-              presets={configs}
-            />
+            <EnvVarEditor presets={configs} />
           </Form.Item>
 
           {/* 可选: 从模型注册仓库选择模型版本 (模型文件经共享存储卷直接挂载到 /kubeai/models/). */}

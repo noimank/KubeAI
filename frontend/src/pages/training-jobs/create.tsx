@@ -15,11 +15,14 @@ import {
   Switch,
   Tag,
   Tooltip,
+  theme,
 } from 'antd'
 import {
   CheckCircleOutlined,
+  DeleteOutlined,
   FileTextOutlined,
   InfoCircleOutlined,
+  PlusOutlined,
   RocketOutlined,
 } from '@ant-design/icons'
 import type { FormInstance } from 'antd'
@@ -82,6 +85,7 @@ export default function CreateTrainingJobPage() {
   const [current, setCurrent] = useState(0)
   const [form] = Form.useForm<FormValues>()
   const [submitting, setSubmitting] = useState(false)
+  const { token } = theme.useToken()
 
   const fromExperimentId = searchParams.get('from_experiment')
   const [sourceExperimentId, setSourceExperimentId] = useState<string | undefined>(undefined)
@@ -371,7 +375,7 @@ export default function CreateTrainingJobPage() {
                   <Space size={4}>
                     初始超参数
                     <Tooltip title="这些参数将作为环境变量原样注入容器（如 learning_rate=0.001），键名和值均不做修改。训练脚本可通过 os.environ 读取，通常用于 mlflow.log_params()。实际记录的超参数请查看实验追踪。">
-                      <InfoCircleOutlined style={{ color: '#999' }} />
+                      <InfoCircleOutlined style={{ color: token.colorTextTertiary }} />
                     </Tooltip>
                   </Space>
                 ),
@@ -399,12 +403,16 @@ export default function CreateTrainingJobPage() {
                             >
                               <Input placeholder="参数值" />
                             </Form.Item>
-                            <Button onClick={() => remove(name)} danger>
-                              删除
-                            </Button>
+                            <Button
+                              type="text"
+                              danger
+                              icon={<DeleteOutlined />}
+                              onClick={() => remove(name)}
+                              aria-label="删除"
+                            />
                           </Space>
                         ))}
-                        <Button type="dashed" onClick={() => add({})} block>
+                        <Button type="dashed" onClick={() => add({})} block icon={<PlusOutlined />}>
                           添加超参数
                         </Button>
                       </>
@@ -418,19 +426,13 @@ export default function CreateTrainingJobPage() {
                   <Space size={4}>
                     环境变量
                     <Tooltip title="通用的容器环境变量（非超参数），可用于传递 API Key、服务地址等配置。支持从业务配置预设中快速加载。">
-                      <InfoCircleOutlined style={{ color: '#999' }} />
+                      <InfoCircleOutlined style={{ color: token.colorTextTertiary }} />
                     </Tooltip>
                   </Space>
                 ),
                 children: (
                   <Form.Item>
-                    <EnvVarEditor
-                      name="envVars"
-                      keyPlaceholder="变量名"
-                      valuePlaceholder="变量值"
-                      addButtonText="+ 添加环境变量"
-                      presets={configs}
-                    />
+                    <EnvVarEditor presets={configs} />
                   </Form.Item>
                 ),
               },
