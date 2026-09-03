@@ -86,10 +86,12 @@ export async function batchAssignAnnotationTasks(
 export async function getMyAnnotationTasks(params: {
   current: number
   pageSize: number
+  status?: string
+  keyword?: string
 }): Promise<PageData<AnnotationTask>> {
-  const { current, pageSize } = params
+  const { current, pageSize, ...rest } = params
   const res = await api.get<BaseResponse<PageData<AnnotationTask>>>('/annotations/my-tasks', {
-    params: { page: current, pageSize },
+    params: { page: current, pageSize, ...rest },
   })
   return res.data.data!
 }

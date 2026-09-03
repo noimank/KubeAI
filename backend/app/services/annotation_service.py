@@ -832,17 +832,26 @@ class AnnotationService:
         user_id: uuid.UUID,
         page: int = 1,
         page_size: int = 20,
+        status: str | None = None,
+        keyword: str | None = None,
     ) -> tuple[list[AnnotationTask], int]:
+        conditions: list[Any] = [
+            AnnotationTask.tenant_id == tenant_id,
+            AnnotationTask.assigned_to == user_id,
+        ]
+        if status:
+            conditions.append(AnnotationTask.status == status)
+        if keyword:
+            conditions.append(AnnotationProject.name.ilike(f"%{keyword}%"))
+
         query = (
             select(AnnotationTask)
+            .join(AnnotationProject, AnnotationTask.project_id == AnnotationProject.id)
             .options(
                 selectinload(AnnotationTask.project).selectinload(AnnotationProject.template),
                 selectinload(AnnotationTask.assignee),
             )
-            .where(
-                AnnotationTask.tenant_id == tenant_id,
-                AnnotationTask.assigned_to == user_id,
-            )
+            .where(*conditions)
             .order_by(AnnotationTask.created_at.desc())
         )
 

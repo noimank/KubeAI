@@ -441,3 +441,49 @@ class TestGetTaskDetail:
 
         with pytest.raises(NotFoundException):
             await service.get_task_detail(uuid.uuid4(), uuid.uuid4())
+
+
+class TestListMyTasks:
+    async def test_filters_by_status_and_keyword(self, service, mock_db):
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        project = _make_project(tenant_id=tenant_id)
+        task = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id)
+
+        result = MagicMock()
+        result.scalar_one.return_value = 1
+        result.scalars.return_value.all.return_value = [task]
+        mock_db.execute = AsyncMock(return_value=result)
+
+        tasks, total = await service.list_my_tasks(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            status="assigned",
+            keyword="动物",
+        )
+
+        assert tasks == [task]
+        assert total == 1
+        assert mock_db.execute.await_count == 2
+        for call in mock_db.execute.await_args_list:
+            compiled = str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+            assert "annotation_projects" in compiled
+            assert "annotation_tasks.status = 'assigned'" in compiled
+            assert "LIKE" in compiled.upper()
+            assert "LIMIT" in compiled.upper() or "count" in compiled.lower()
+
+    async def test_without_filters_plain_where(self, service, mock_db):
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        result = MagicMock()
+        result.scalar_one.return_value = 0
+        result.scalars.return_value.all.return_value = []
+        mock_db.execute = AsyncMock(return_value=result)
+
+        await service.list_my_tasks(tenant_id=tenant_id, user_id=user_id)
+
+        count_stmt = mock_db.execute.await_args_list[0].args[0]
+        compiled = str(count_stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "LIKE" not in compiled.upper()
+        assert "annotation_tasks.status =" not in compiled

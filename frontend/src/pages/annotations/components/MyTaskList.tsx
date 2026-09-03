@@ -1,6 +1,8 @@
-import { Card, Col, Row, Statistic, Table, Tag, Empty, Button } from 'antd'
+import { useState } from 'react'
+import { Card, Col, Row, Statistic, Table, Tag, Empty, Button, Input, Select, Space } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { SearchOutlined } from '@ant-design/icons'
 import { getMyAnnotationTasks, getMyAnnotationTaskSummary } from '@/services/annotations'
 import type { AnnotationTaskSummary } from '@/types/annotation'
 import { formatDate } from '@/utils/format'
@@ -13,14 +15,17 @@ interface MyTaskListProps {
 
 export default function MyTaskList({ page, pageSize, onPageChange }: MyTaskListProps) {
   const navigate = useNavigate()
+  const [statusFilter, setStatusFilter] = useState<string | undefined>()
+  const [keyword, setKeyword] = useState<string | undefined>()
+
   const { data: summaryData } = useQuery({
     queryKey: ['myAnnotationTaskSummary'],
     queryFn: getMyAnnotationTaskSummary,
   })
 
   const { data: tasksData, isLoading } = useQuery({
-    queryKey: ['myAnnotationTasks', page, pageSize],
-    queryFn: () => getMyAnnotationTasks({ current: page, pageSize }),
+    queryKey: ['myAnnotationTasks', page, pageSize, statusFilter, keyword],
+    queryFn: () => getMyAnnotationTasks({ current: page, pageSize, status: statusFilter, keyword }),
   })
 
   const totalAssigned =
@@ -53,6 +58,34 @@ export default function MyTaskList({ page, pageSize, onPageChange }: MyTaskListP
           </Card>
         </Col>
       </Row>
+
+      <Space style={{ marginBottom: 12 }}>
+        <Input.Search
+          placeholder="搜索项目名称"
+          allowClear
+          style={{ width: 240 }}
+          prefix={<SearchOutlined />}
+          onSearch={(v) => {
+            setKeyword(v || undefined)
+            onPageChange(1, pageSize)
+          }}
+        />
+        <Select
+          placeholder="状态筛选"
+          allowClear
+          style={{ width: 140 }}
+          value={statusFilter}
+          onChange={(v) => {
+            setStatusFilter(v)
+            onPageChange(1, pageSize)
+          }}
+          options={[
+            { label: '待开始', value: 'assigned' },
+            { label: '进行中', value: 'in_progress' },
+            { label: '已完成', value: 'completed' },
+          ]}
+        />
+      </Space>
 
       <Table
         rowKey="id"

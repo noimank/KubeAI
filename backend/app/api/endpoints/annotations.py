@@ -321,6 +321,8 @@ async def list_my_tasks(
     user: Annotated[CurrentUser, Depends(require_permission("annotations", "read"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    status: str | None = Query(None),
+    keyword: str | None = Query(None),
 ) -> PageResponse[AnnotationTaskResponse]:
     tenant_id = _require_tenant_id(user)
     service = AnnotationService(db, ls)
@@ -329,6 +331,8 @@ async def list_my_tasks(
         user_id=user.id,
         page=page,
         page_size=page_size,
+        status=status,
+        keyword=keyword,
     )
     task_list = [await _build_task_response_with_payload(service, t) for t in tasks]
     page_data = PageData(items=task_list, total=total, page=page, page_size=page_size)
