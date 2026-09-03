@@ -60,9 +60,10 @@ body {
   padding-top: 0;
 }
 
-/* 暗色侧边菜单 (CloudAxis 规格): pro-layout 分组标题默认用全局 colorTextLabel(深色), 在 #001529 底上需显式覆盖 */
-.ant-pro-layout .ant-pro-sider .ant-menu-item-group-title {
-  color: rgba(255, 255, 255, 0.45);
+/* 折叠态弹出子菜单: 经 portal 渲染在 body 下, token.sider 的白色菜单文字会落在
+   antd 亮色弹层(白底)上变成白字白底。内层竖向菜单跟随侧栏暗蓝底色 (CloudAxis 规格)。 */
+.ant-menu-submenu-popup .ant-menu-sub.ant-menu-vertical {
+  background-color: #001529;
 }
 
 /* 暗色侧边菜单滚动条 (CloudAxis 规格) */

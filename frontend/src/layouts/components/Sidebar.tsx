@@ -18,6 +18,12 @@ import {
   ThunderboltOutlined,
   BuildOutlined,
   SettingOutlined,
+  HddOutlined,
+  RocketOutlined,
+  CloudServerOutlined,
+  CrownOutlined,
+  ToolOutlined,
+  FunctionOutlined,
 } from '@ant-design/icons'
 import type { MenuDataItem } from '@ant-design/pro-components'
 import { filterMenuItems, toMenuDataItem } from './sidebar-utils'
@@ -27,6 +33,7 @@ interface MenuGroup {
   type: 'group'
   key: string
   name: string
+  icon: React.ReactNode
   children: MenuItem[]
 }
 
@@ -51,6 +58,7 @@ const MENU_CONFIG: MenuEntry[] = [
     type: 'group',
     key: 'group-data',
     name: '数据管理',
+    icon: <HddOutlined />,
     children: [
       {
         path: '/datasets',
@@ -82,6 +90,7 @@ const MENU_CONFIG: MenuEntry[] = [
     type: 'group',
     key: 'group-dev-train',
     name: '开发与训练',
+    icon: <RocketOutlined />,
     children: [
       {
         path: '/dev-environments',
@@ -120,6 +129,7 @@ const MENU_CONFIG: MenuEntry[] = [
     type: 'group',
     key: 'group-business-algorithm',
     name: '业务算法库',
+    icon: <FunctionOutlined />,
     children: [
       {
         path: '/business-algorithm/metaheuristic',
@@ -142,6 +152,7 @@ const MENU_CONFIG: MenuEntry[] = [
     type: 'group',
     key: 'group-inference',
     name: '推理服务',
+    icon: <CloudServerOutlined />,
     children: [
       {
         path: '/inference',
@@ -161,6 +172,7 @@ const MENU_CONFIG: MenuEntry[] = [
     type: 'group',
     key: 'group-admin',
     name: '管理',
+    icon: <CrownOutlined />,
     children: [
       {
         path: '/monitoring',
@@ -192,6 +204,7 @@ const MENU_CONFIG: MenuEntry[] = [
     type: 'group',
     key: 'group-system',
     name: '系统',
+    icon: <ToolOutlined />,
     children: [
       {
         path: '/notifications',
@@ -221,6 +234,7 @@ export function buildSidebarMenu(
       result.push({
         key: entry.key,
         name: entry.name,
+        icon: entry.icon,
         children: filtered.map(toMenuDataItem),
       })
     } else {
