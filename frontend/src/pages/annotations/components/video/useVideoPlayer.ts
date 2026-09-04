@@ -46,6 +46,9 @@ export function useVideoPlayer(
   const onVideoMetaRef = useRef(onVideoMeta)
   onVideoMetaRef.current = onVideoMeta
 
+  const defaultSpeedRef = useRef(defaultSpeed)
+  defaultSpeedRef.current = defaultSpeed
+
   const updateFrameFromVideo = useCallback(
     (force?: boolean) => {
       const video = videoRef.current
@@ -69,8 +72,8 @@ export function useVideoPlayer(
       setVideoWidth(video.videoWidth)
       setVideoHeight(video.videoHeight)
       setDuration(video.duration || 0)
-      if (defaultSpeed !== 1) video.playbackRate = defaultSpeed
-      setSpeed(defaultSpeed)
+      if (defaultSpeedRef.current !== 1) video.playbackRate = defaultSpeedRef.current
+      setSpeed(defaultSpeedRef.current)
       setReady(true)
     }
     video.addEventListener('loadedmetadata', onLoaded)
