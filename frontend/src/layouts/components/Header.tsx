@@ -1,11 +1,12 @@
 import { useEffect } from 'react'
-import { Avatar, Dropdown } from 'antd'
+import { Avatar, Dropdown, Tag } from 'antd'
 import type { CSSProperties } from 'react'
 import { UserOutlined, LogoutOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
+import { ROLE_LABELS, ROLE_COLORS } from '@/utils/roleLabels'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { NotificationDropdown } from './NotificationDropdown'
 import { getMessageInstance } from '@/utils/messageHolder'
@@ -79,6 +80,14 @@ export function Header() {
             </Avatar>
           )}
           {displayName && <span style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{displayName}</span>}
+          {user?.role && (
+            <Tag
+              color={ROLE_COLORS[user.role]}
+              style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}
+            >
+              {ROLE_LABELS[user.role] || user.role}
+            </Tag>
+          )}
         </button>
       </Dropdown>
     </div>
