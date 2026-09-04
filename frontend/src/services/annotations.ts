@@ -24,6 +24,7 @@ export async function getAnnotationProjects(params: {
   current: number
   pageSize: number
   keyword?: string
+  status?: string
 }): Promise<PageData<AnnotationProject>> {
   const { current, pageSize, ...rest } = params
   const res = await api.get<BaseResponse<PageData<AnnotationProject>>>('/annotations/projects', {

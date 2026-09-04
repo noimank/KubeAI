@@ -499,6 +499,7 @@ class AnnotationService:
         page: int = 1,
         page_size: int = 20,
         keyword: str | None = None,
+        status: str | None = None,
     ) -> tuple[list[AnnotationProject], int]:
         query = (
             select(AnnotationProject)
@@ -511,6 +512,8 @@ class AnnotationService:
         )
         if keyword:
             query = query.where(AnnotationProject.name.ilike(f"%{keyword}%"))
+        if status:
+            query = query.where(AnnotationProject.status == status)
 
         total_q = select(func.count()).select_from(query.subquery())
         total = (await self.db.execute(total_q)).scalar_one()

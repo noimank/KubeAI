@@ -119,10 +119,13 @@ async def list_projects(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     keyword: str | None = _keyword_query,
+    status: str | None = _status_query,
 ) -> PageResponse[AnnotationProjectResponse]:
     tenant_id = _require_tenant_id(user)
     service = AnnotationService(db, ls)
-    items, total = await service.list_projects(tenant_id=tenant_id, page=page, page_size=page_size, keyword=keyword)
+    items, total = await service.list_projects(
+        tenant_id=tenant_id, page=page, page_size=page_size, keyword=keyword, status=status
+    )
     project_list = [_build_project_response(p) for p in items]
     page_data = PageData(items=project_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")

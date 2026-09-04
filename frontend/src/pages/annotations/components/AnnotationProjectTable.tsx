@@ -3,15 +3,7 @@ import { Link } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import type { AnnotationProject } from '@/types/annotation'
 import { formatDate } from '@/utils/format'
-
-const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  draft: { label: '草稿', color: 'default' },
-  pending: { label: '初始化中', color: 'blue' },
-  active: { label: '活跃', color: 'processing' },
-  completed: { label: '已完成', color: 'success' },
-  failed: { label: '失败', color: 'error' },
-  archived: { label: '已归档', color: 'warning' },
-}
+import { STATUS_MAP } from '../utils/projectStatus'
 
 interface AnnotationProjectTableProps {
   data: AnnotationProject[] | undefined

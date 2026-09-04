@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Button, Input, Tabs } from 'antd'
+import { Button, Input, Select, Tabs } from 'antd'
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
@@ -13,6 +13,7 @@ import AnnotationProjectTable from './components/AnnotationProjectTable'
 import AnnotationTemplatesTab from './components/AnnotationTemplatesTab'
 import CreateProjectModal from './components/CreateProjectModal'
 import MyTaskList from './components/MyTaskList'
+import { STATUS_MAP } from './utils/projectStatus'
 
 export default function AnnotationsPage() {
   const queryClient = useQueryClient()
@@ -20,6 +21,7 @@ export default function AnnotationsPage() {
   const [pageSize, setPageSize] = useState(20)
   const [keyword, setKeyword] = useState<string>()
   const [searchText, setSearchText] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string>()
   const [createModalOpen, setCreateModalOpen] = useState(false)
 
   // My tasks pagination (separate from project list)
@@ -33,8 +35,9 @@ export default function AnnotationsPage() {
   const canWriteTemplates = hasPermission('annotation_templates:write') || canManage
 
   const { data, isLoading } = useQuery({
-    queryKey: ['annotationProjects', page, pageSize, keyword],
-    queryFn: () => getAnnotationProjects({ current: page, pageSize, keyword }),
+    queryKey: ['annotationProjects', page, pageSize, keyword, statusFilter],
+    queryFn: () =>
+      getAnnotationProjects({ current: page, pageSize, keyword, status: statusFilter }),
   })
 
   const [retryingId, setRetryingId] = useState<string | null>(null)
@@ -97,15 +100,31 @@ export default function AnnotationsPage() {
               gap: 12,
             }}
           >
-            <Input.Search
-              placeholder="搜索标注项目名称"
-              allowClear
-              style={{ width: 280 }}
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              onSearch={handleSearch}
-              prefix={<SearchOutlined />}
-            />
+            <div style={{ display: 'flex', gap: 12 }}>
+              <Input.Search
+                placeholder="搜索标注项目名称"
+                allowClear
+                style={{ width: 280 }}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                onSearch={handleSearch}
+                prefix={<SearchOutlined />}
+              />
+              <Select
+                placeholder="状态筛选"
+                allowClear
+                style={{ width: 140 }}
+                value={statusFilter}
+                onChange={(v) => {
+                  setStatusFilter(v)
+                  setPage(1)
+                }}
+                options={Object.entries(STATUS_MAP).map(([value, { label }]) => ({
+                  label,
+                  value,
+                }))}
+              />
+            </div>
             {canManage && (
               <Button
                 type="primary"
