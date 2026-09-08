@@ -271,6 +271,56 @@ class TestSyncOAuthProfileRole:
         assert user.role == UserRole.ENGINEER
 
 
+class TestSyncOAuthProfileAvatar:
+    async def test_avatar_synced_when_provided(self, oauth_service):
+        from app.models.user import User
+
+        user = User(username="testuser", email="test@example.com", hashed_password="hashed")
+
+        await oauth_service._sync_oauth_profile(
+            user, "testuser", "test@example.com", avatar="https://idp.example.com/avatar.png"
+        )
+        assert user.avatar == "https://idp.example.com/avatar.png"
+
+    async def test_avatar_kept_when_not_provided(self, oauth_service):
+        from app.models.user import User
+
+        user = User(username="testuser", email="test@example.com", hashed_password="hashed")
+        user.avatar = "data:image/png;base64,abc"
+
+        await oauth_service._sync_oauth_profile(user, "testuser", "test@example.com", avatar=None)
+        assert user.avatar == "data:image/png;base64,abc"
+
+
+class TestFindOrCreateUserAvatar:
+    async def test_new_user_gets_avatar(self, oauth_service, mock_db):
+        mock_db.execute = AsyncMock(return_value=_sync_result(None))
+        mock_db.flush = AsyncMock()
+
+        with patch("app.services.oauth_service.hash_password", new=AsyncMock(return_value="hashed")):
+            user = await oauth_service._find_or_create_user(
+                "ext-123", "testuser", "test@example.com", avatar="https://idp.example.com/avatar.png"
+            )
+
+        assert user.avatar == "https://idp.example.com/avatar.png"
+
+    async def test_existing_user_avatar_updated_on_sync(self, oauth_service, mock_db):
+        from app.models.user import User
+
+        existing = User(username="testuser", email="test@example.com", hashed_password="hashed")
+        existing.auth_provider = "oidc"
+        existing.external_id = "ext-123"
+
+        mock_db.execute = AsyncMock(return_value=_sync_result(existing))
+
+        user = await oauth_service._find_or_create_user(
+            "ext-123", "testuser", "test@example.com", avatar="https://idp.example.com/new.png"
+        )
+
+        assert user is existing
+        assert user.avatar == "https://idp.example.com/new.png"
+
+
 class TestFindOrCreateUserRoleSync:
     async def test_new_user_gets_role_from_oidc(self, oauth_service, mock_db):
         from app.models.enums import UserRole

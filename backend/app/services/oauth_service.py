@@ -126,6 +126,9 @@ class OAuthService:
                         if role_names:
                             userinfo["roles"] = role_names
                             logger.info("oidc_roles_from_casdoor", roles=role_names)
+                        # Casdoor 版本差异: /api/userinfo 可能不含 picture, get-account 的用户对象必有 avatar
+                        if not userinfo.get("picture") and account_data.get("avatar"):
+                            userinfo["picture"] = str(account_data["avatar"])
                 except Exception:
                     logger.warning("oidc_get_account_failed", exc_info=True)
 
@@ -139,10 +142,14 @@ class OAuthService:
         nickname = (
             str(v) if (v := userinfo.get("displayName") or userinfo.get("nickname") or userinfo.get("name")) else None
         )
+        # Casdoor 将内部 avatar 字段映射为标准 OIDC picture claim, 值为可公开访问的图片 URL
+        avatar = str(v) if (v := userinfo.get("picture")) else None
 
         role = self._extract_role_from_userinfo(userinfo)
 
-        user = await self._find_or_create_user(external_id, preferred_username, email, nickname, role=role)
+        user = await self._find_or_create_user(
+            external_id, preferred_username, email, nickname, avatar=avatar, role=role
+        )
         return self._generate_tokens(str(user.id), str(user.tenant_id) if user.tenant_id else None)
 
     async def _restore_if_deleted(self, user: User) -> bool:
@@ -159,6 +166,7 @@ class OAuthService:
         username: str,
         email: str,
         nickname: str | None = None,
+        avatar: str | None = None,
         role: UserRole | None = None,
     ) -> User:
         username = self._normalize_username(username or external_id)
@@ -170,7 +178,7 @@ class OAuthService:
         user = result.scalar_one_or_none()
         if user:
             await self._restore_if_deleted(user)
-            await self._sync_oauth_profile(user, username, email, nickname, role=role)
+            await self._sync_oauth_profile(user, username, email, nickname, avatar=avatar, role=role)
             return user
 
         if email:
@@ -179,7 +187,7 @@ class OAuthService:
                 existing_email.auth_provider = "oidc"
                 existing_email.external_id = external_id
                 await self._restore_if_deleted(existing_email)
-                await self._sync_oauth_profile(existing_email, username, email, nickname, role=role)
+                await self._sync_oauth_profile(existing_email, username, email, nickname, avatar=avatar, role=role)
                 logger.info("oauth_user_bound", user_id=str(existing_email.id), username=existing_email.username)
                 return existing_email
 
@@ -192,6 +200,7 @@ class OAuthService:
             username=username,
             email=email,
             nickname=nickname,
+            avatar=avatar,
             hashed_password=await hash_password("Kubeai#123456"),
             auth_provider="oidc",
             external_id=external_id,
@@ -290,6 +299,7 @@ class OAuthService:
         username: str,
         email: str,
         nickname: str | None = None,
+        avatar: str | None = None,
         role: UserRole | None = None,
     ) -> None:
         if username and user.username != username:
@@ -303,6 +313,9 @@ class OAuthService:
 
         if nickname:
             user.nickname = nickname[:100]
+
+        if avatar:
+            user.avatar = avatar
 
         if role is not None and user.role != role:
             old_role = user.role
