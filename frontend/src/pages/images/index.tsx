@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Button,
+  Divider,
   Drawer,
   Empty,
   Form,
@@ -14,8 +15,10 @@ import {
   Space,
   Table,
   Tag,
+  theme,
 } from 'antd'
 import { BuildOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import type { SegmentedProps } from 'antd'
 import type { TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
@@ -84,6 +87,32 @@ const MAIN_TABS = [
   { label: '业务镜像', value: 'business' },
   { label: '开发环境镜像', value: 'dev-env' },
 ]
+
+/** 带前缀标签的筛选组：标签做成说明文字样式（小号浅色 + 冒号），避免与可点击的选项混淆 */
+function LabeledSegmented({
+  label,
+  active,
+  ...rest
+}: {
+  label: string
+  active?: boolean
+} & SegmentedProps) {
+  const { token } = theme.useToken()
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span
+        style={{
+          fontSize: 12,
+          color: active ? token.colorPrimary : token.colorTextTertiary,
+          transition: 'color 0.2s',
+        }}
+      >
+        {label}：
+      </span>
+      <Segmented {...rest} />
+    </span>
+  )
+}
 
 export default function ImagesPage() {
   const [mainTab, setMainTab] = useState<string>('business')
@@ -428,9 +457,12 @@ function BusinessImagesTab({
   return (
     <div style={{ padding: 0 }}>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-        <Space>
-          <Segmented options={MAIN_TABS} value={mainTab} onChange={onSwitchTab} />
-          <Segmented
+        <Space size={12} wrap>
+          <Segmented shape="round" options={MAIN_TABS} value={mainTab} onChange={onSwitchTab} />
+          <Divider type="vertical" />
+          <LabeledSegmented
+            label="来源"
+            active={sourceFilter !== 'all'}
             options={SOURCE_TABS}
             value={sourceFilter}
             onChange={(val) => {
@@ -438,7 +470,9 @@ function BusinessImagesTab({
               onResetPage()
             }}
           />
-          <Segmented
+          <LabeledSegmented
+            label="用途"
+            active={categoryFilter !== 'all'}
             options={CATEGORY_TABS}
             value={categoryFilter}
             onChange={(val) => {
@@ -873,9 +907,12 @@ function DevEnvImagesTab({
   return (
     <div style={{ padding: 0 }}>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-        <Space>
-          <Segmented options={MAIN_TABS} value={mainTab} onChange={onSwitchTab} />
-          <Segmented
+        <Space size={12} wrap>
+          <Segmented shape="round" options={MAIN_TABS} value={mainTab} onChange={onSwitchTab} />
+          <Divider type="vertical" />
+          <LabeledSegmented
+            label="类型"
+            active={typeFilter !== ''}
             options={ENV_TYPE_TABS}
             value={typeFilter}
             onChange={(val) => {
