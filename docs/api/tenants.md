@@ -4,7 +4,7 @@
 
 ## POST /api/tenants
 
-创建租户，同时创建 Kubernetes 命名空间、ResourceQuota 和 NetworkPolicy。
+创建租户，同时创建 Kubernetes 命名空间和 ResourceQuota。
 
 **请求体：**
 

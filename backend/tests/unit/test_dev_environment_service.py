@@ -153,15 +153,6 @@ def mock_ensure_registry_pull_secret():
         yield m
 
 
-@pytest.fixture(autouse=True)
-def mock_create_tenant_network_policy():
-    with patch(
-        "app.services.dev_environment_service.create_tenant_network_policy",
-        new=AsyncMock(),
-    ) as m:
-        yield m
-
-
 @pytest.fixture
 def mock_dev_pod_manager():
     """Patches get_dev_pod_manager() — the native-Pod lifecycle singleton."""

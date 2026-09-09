@@ -18,7 +18,6 @@ from app.integrations.k8s.namespace import (
     make_namespace_name,
     tenant_namespace_labels,
 )
-from app.integrations.k8s.network_policy import create_tenant_network_policy, delete_network_policy
 from app.integrations.k8s.resource_quota import (
     build_tenant_resource_quota,
     create_resource_quota,
@@ -59,7 +58,6 @@ class TenantService:
             storage_limit=storage_limit,
         )
         await create_resource_quota(namespace, quota)
-        await create_tenant_network_policy(namespace)
         await ensure_s3_credentials_secret(namespace)
 
     async def create_tenant(self, req: TenantCreateRequest, audit_context: dict[str, Any] | None = None) -> Tenant:
@@ -89,7 +87,6 @@ class TenantService:
             except Exception:
                 await delete_s3_credentials_secret(namespace)
                 await delete_resource_quota(namespace)
-                await delete_network_policy(namespace)
                 await delete_namespace(namespace)
                 raise
         except ConflictException:
@@ -272,7 +269,6 @@ class TenantService:
             cleanup_ops: list[tuple[Callable[[str], Awaitable[None]], str]] = [
                 (delete_s3_credentials_secret, "S3CredentialsSecret"),
                 (delete_resource_quota, "ResourceQuota"),
-                (delete_network_policy, "NetworkPolicy"),
                 (delete_namespace, "Namespace"),
             ]
             for delete_fn, label in cleanup_ops:

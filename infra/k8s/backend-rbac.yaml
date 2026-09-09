@@ -1,6 +1,6 @@
 # Backend RBAC - 集群级权限
 # 后端 API、Taskiq Worker、Taskiq Scheduler 共用 backend ServiceAccount。
-# 管理: 租户命名空间、普通 Job、Volcano Job、KServe InferenceService、NetworkPolicy 等
+# 管理: 租户命名空间、普通 Job、Volcano Job、KServe InferenceService 等
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -55,12 +55,6 @@ rules:
   - apiGroups: [batch]
     resources: [jobs]
     verbs: [get, list, watch, create, delete]
-  - apiGroups: [networking.k8s.io]
-    resources: [networkpolicies, ingresses]
-    verbs: [get, list, watch, create, update, delete]
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: [roles, rolebindings]
-    verbs: [get, list, watch, create, update, delete]
   - apiGroups: [batch.volcano.sh]
     resources: [jobs]
     verbs: [get, list, create, delete, watch]

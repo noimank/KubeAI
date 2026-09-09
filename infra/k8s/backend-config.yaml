@@ -94,8 +94,7 @@ data:
   # -- Harbor (非敏感配置)
   HARBOR_PROJECT_PREFIX: "kubeai-"
 
-  # -- K8s 命名空间
-  K8S_PLATFORM_NAMESPACE: "kubeai"
+
 
   # -- 内部服务地址 (按实际部署修改；下文为独立 k8s YAML 部署的默认地址)
   PROMETHEUS_URL: "http://keda-kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"

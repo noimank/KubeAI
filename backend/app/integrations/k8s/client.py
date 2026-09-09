@@ -25,8 +25,6 @@ async def get_k8s_clients() -> dict[str, Any]:
         "api_client": api_client,
         "core_v1": client.CoreV1Api(api_client),
         "apps_v1": client.AppsV1Api(api_client),
-        "networking_v1": client.NetworkingV1Api(api_client),
-        "rbac_v1": client.RbacAuthorizationV1Api(api_client),
         "batch_v1": client.BatchV1Api(api_client),
         "custom_objects": client.CustomObjectsApi(api_client),
     }

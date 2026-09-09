@@ -23,7 +23,6 @@ graph LR
         K8S --> NS1[命名空间<br/>kubeai-tenant-1]
         K8S --> NS2[命名空间<br/>kubeai-tenant-2]
         K8S --> RQ1[ResourceQuota]
-        K8S --> NP1[NetworkPolicy]
     end
 ```
 
@@ -84,7 +83,6 @@ kubeai-team-beta        # Beta 团队租户
 
 1. 创建 Kubernetes 命名空间
 2. 创建 ResourceQuota（CPU、内存、GPU 限制）
-3. 创建 NetworkPolicy（网络隔离）
 
 失败时自动回滚已创建的资源。
 
@@ -105,27 +103,7 @@ spec:
     limits.nvidia.com/gpu: "4"
 ```
 
-### NetworkPolicy
-
-限制租户间网络通信：
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: tenant-isolation
-  namespace: kubeai-team-alpha
-spec:
-  podSelector: {}
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              tenant: team-alpha
-```
+> **注**：平台曾通过 NetworkPolicy 做租户间网络隔离，为保证租户内负载（推理/训练/开发环境）可自由访问外部服务，现已移除网络层限制；命名空间级资源隔离由 ResourceQuota 保障，如后续有安全需求可再引入。
 
 ## 租户生命周期
 

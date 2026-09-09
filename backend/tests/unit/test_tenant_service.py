@@ -47,7 +47,6 @@ def tenant_service(mock_db):
 
 
 class TestCreateTenant:
-    @patch("app.services.tenant_service.create_tenant_network_policy")
     @patch("app.services.tenant_service.ensure_s3_credentials_secret")
     @patch("app.services.tenant_service.create_resource_quota")
     @patch("app.services.tenant_service.build_tenant_resource_quota")
@@ -58,7 +57,6 @@ class TestCreateTenant:
         mock_build_quota,
         mock_create_quota,
         mock_create_s3,
-        mock_create_np,
         tenant_service,
         mock_db,
     ):
@@ -74,7 +72,6 @@ class TestCreateTenant:
         assert result.k8s_namespace_name == "kubeai-test"
         mock_create_ns.assert_called_once()
         mock_create_quota.assert_called_once()
-        mock_create_np.assert_called_once()
 
     async def test_create_tenant_duplicate_name(self, tenant_service, mock_db):
         existing = _make_tenant()
@@ -86,10 +83,8 @@ class TestCreateTenant:
             )
 
     @patch("app.services.tenant_service.delete_s3_credentials_secret")
-    @patch("app.services.tenant_service.delete_network_policy")
     @patch("app.services.tenant_service.delete_resource_quota")
     @patch("app.services.tenant_service.delete_namespace")
-    @patch("app.services.tenant_service.create_tenant_network_policy")
     @patch("app.services.tenant_service.ensure_s3_credentials_secret")
     @patch("app.services.tenant_service.create_resource_quota")
     @patch("app.services.tenant_service.build_tenant_resource_quota")
@@ -100,10 +95,8 @@ class TestCreateTenant:
         mock_build_quota,
         mock_create_quota,
         mock_create_s3,
-        mock_create_np,
         mock_delete_ns,
         mock_delete_quota,
-        mock_delete_np,
         mock_delete_s3,
         tenant_service,
         mock_db,
@@ -119,10 +112,8 @@ class TestCreateTenant:
 
         mock_delete_s3.assert_called_once()
         mock_delete_quota.assert_called_once()
-        mock_delete_np.assert_called_once()
         mock_delete_ns.assert_called_once()
 
-    @patch("app.services.tenant_service.create_tenant_network_policy")
     @patch("app.services.tenant_service.ensure_s3_credentials_secret")
     @patch("app.services.tenant_service.create_resource_quota")
     @patch("app.services.tenant_service.build_tenant_resource_quota")
@@ -133,7 +124,6 @@ class TestCreateTenant:
         mock_build_quota,
         mock_create_quota,
         mock_create_s3,
-        mock_create_np,
         tenant_service,
         mock_db,
     ):
@@ -299,9 +289,8 @@ class TestToggleTenantStatus:
 
 class TestDeleteTenant:
     @patch("app.services.tenant_service.delete_namespace")
-    @patch("app.services.tenant_service.delete_network_policy")
     @patch("app.services.tenant_service.delete_resource_quota")
-    async def test_delete_tenant_no_members(self, mock_del_quota, mock_del_np, mock_del_ns, tenant_service, mock_db):
+    async def test_delete_tenant_no_members(self, mock_del_quota, mock_del_ns, tenant_service, mock_db):
         tenant = _make_tenant()
         tenant.k8s_namespace_name = "kubeai-test"
         tenant_result = _sync_result(tenant)
@@ -314,7 +303,6 @@ class TestDeleteTenant:
         await tenant_service.delete_tenant(tenant.id)
 
         mock_del_quota.assert_called_once_with("kubeai-test")
-        mock_del_np.assert_called_once_with("kubeai-test")
         mock_del_ns.assert_called_once_with("kubeai-test")
         mock_db.delete.assert_called_once_with(tenant)
 
@@ -330,11 +318,8 @@ class TestDeleteTenant:
             await tenant_service.delete_tenant(tenant.id)
 
     @patch("app.services.tenant_service.delete_namespace")
-    @patch("app.services.tenant_service.delete_network_policy")
     @patch("app.services.tenant_service.delete_resource_quota")
-    async def test_delete_tenant_k8s_failure_continues(
-        self, mock_del_quota, mock_del_np, mock_del_ns, tenant_service, mock_db
-    ):
+    async def test_delete_tenant_k8s_failure_continues(self, mock_del_quota, mock_del_ns, tenant_service, mock_db):
         tenant = _make_tenant()
         tenant.k8s_namespace_name = "kubeai-test"
         tenant_result = _sync_result(tenant)
@@ -348,7 +333,6 @@ class TestDeleteTenant:
 
         await tenant_service.delete_tenant(tenant.id)
 
-        mock_del_np.assert_called_once()
         mock_del_ns.assert_called_once()
         mock_db.delete.assert_called_once_with(tenant)
 

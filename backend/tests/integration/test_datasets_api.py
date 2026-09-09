@@ -48,7 +48,6 @@ async def _create_tenant_with_user(client: AsyncClient, headers: dict) -> tuple[
     with (
         patch("app.services.tenant_service.create_namespace"),
         patch("app.services.tenant_service.create_resource_quota"),
-        patch("app.services.tenant_service.create_tenant_network_policy"),
         patch("app.services.tenant_service.ensure_s3_credentials_secret"),
         patch("app.services.tenant_service.build_tenant_resource_quota", return_value=MagicMock()),
     ):

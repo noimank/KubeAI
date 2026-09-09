@@ -47,7 +47,6 @@ async def my_function():
 | `secret.py` | Secret CRUD |
 | `pvc.py` | PersistentVolumeClaim 管理 |
 | `resource_quota.py` | ResourceQuota 管理 |
-| `network_policy.py` | NetworkPolicy 管理 |
 | `upload_job.py` | 文件上传 Job 编排 |
 
 ### Builder 模式

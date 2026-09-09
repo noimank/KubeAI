@@ -29,7 +29,6 @@ from app.integrations.k8s.kubeai_volumes import (
     dataset_mount_path,
 )
 from app.integrations.k8s.namespace import make_namespace_name
-from app.integrations.k8s.network_policy import create_tenant_network_policy
 from app.integrations.k8s.pvc import (
     make_dataset_host_path,
     make_user_home_host_path,
@@ -318,7 +317,6 @@ class DevEnvironmentService:
 
         pod_mgr = get_dev_pod_manager()
         try:
-            await create_tenant_network_policy(namespace)
             pull_secret_name = await ensure_registry_pull_secret(namespace)
             final_env_vars = self._build_env_vars(env)
 

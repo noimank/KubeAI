@@ -140,7 +140,7 @@ class DatasetService:
 | 服务 | 职责 |
 |------|------|
 | `AuthService` | 注册/登录/锁定/刷新/登出 |
-| `TenantService` | K8s 命名空间 + ResourceQuota + NetworkPolicy，失败回滚 |
+| `TenantService` | K8s 命名空间 + ResourceQuota，失败回滚 |
 | `DatasetService` | MinIO 数据集/版本管理 + 预签名 URL |
 | `TrainingJobService` | Volcano VCJob 创建，PVC 数据集挂载，配额追踪 |
 | `InferenceService` | KServe 推理服务 + KEDA 自动扩缩容 + 金丝雀发布 |

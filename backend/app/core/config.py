@@ -104,8 +104,6 @@ class Settings(BaseSettings):
     #   Production:     http://backend.kubeai.svc.cluster.local:8000
     KUBEAI_BACKEND_INTERNAL_URL: str = "http://backend.kubeai.svc.cluster.local:8000"
 
-    K8S_PLATFORM_NAMESPACE: str = "kubeai"
-
     KANIKO_IMAGE: str = "gcr.io/kaniko-project/executor:latest"
     MINIO_MC_IMAGE: str = "minio/mc:latest"
     BUSYBOX_IMAGE: str = "busybox:1.36"
