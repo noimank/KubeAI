@@ -40,6 +40,7 @@ interface DevEnvListProps {
   onStatusChange: (val: string) => void
   onSearch: (val: string) => void
   onOpenEnv: (envId: string) => void
+  onTrain: (envId: string) => void
   onStop: (envId: string) => void
   onStart: (envId: string) => void
   onDelete: (envId: string) => void
@@ -59,6 +60,7 @@ export function DevEnvList({
   onStatusChange,
   onSearch,
   onOpenEnv,
+  onTrain,
   onStop,
   onStart,
   onDelete,
@@ -151,9 +153,14 @@ export function DevEnvList({
       },
       {
         title: '操作',
-        width: 280,
+        width: 320,
         render: (_: unknown, record: DevEnvironment) => (
           <Space size="small">
+            {canWrite && record.status === 'running' && (
+              <Button type="link" size="small" onClick={() => onTrain(record.id)}>
+                提交训练
+              </Button>
+            )}
             {record.status === 'running' && (
               <Button type="link" size="small" onClick={() => onOpenEnv(record.id)}>
                 打开环境
@@ -206,7 +213,7 @@ export function DevEnvList({
         ),
       },
     ],
-    [canWrite, canManage, currentUserId, onOpenEnv, onStop, onStart, onDelete],
+    [canWrite, canManage, currentUserId, onOpenEnv, onTrain, onStop, onStart, onDelete],
   )
 
   return (

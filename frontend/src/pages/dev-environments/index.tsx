@@ -33,6 +33,10 @@ export default function DevEnvironmentsPage() {
 
   const openCreateModal = () => setModalOpen(true)
 
+  const handleTrainFromEnv = (envId: string) => {
+    navigate(`/training-jobs/create?from_environment=${envId}`)
+  }
+
   const closeCreateModal = () => {
     setModalOpen(false)
     if (algorithmId) {
@@ -63,6 +67,7 @@ export default function DevEnvironmentsPage() {
         onStatusChange={list.onStatusChange}
         onSearch={list.onSearch}
         onOpenEnv={handleOpenEnvironment}
+        onTrain={handleTrainFromEnv}
         onStop={list.stop.mutate}
         onStart={list.start.mutate}
         onDelete={list.del.mutate}

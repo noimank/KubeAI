@@ -23,6 +23,11 @@ export async function getDevEnvironments(params: {
   return res.data.data!
 }
 
+export async function getDevEnvironment(id: string): Promise<DevEnvironment> {
+  const res = await api.get<BaseResponse<DevEnvironment>>(`/dev-environments/${id}`)
+  return res.data.data!
+}
+
 export async function createDevEnvironment(
   data: DevEnvironmentCreateParams,
 ): Promise<DevEnvironment> {

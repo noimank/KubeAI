@@ -60,7 +60,7 @@ class TrainingJob(Base, TimestampMixin):
         String(30),
         nullable=False,
         default="manual",
-        comment="任务来源: manual=手动创建, dev_environment=开发环境, experiment_reproduction=实验复现",
+        comment="任务来源: manual=手动创建, dev_environment=开发环境, experiment_reproduction=实验复现, tuning=超参调优",
     )
     source_env_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("dev_environments.id", ondelete="SET NULL"),

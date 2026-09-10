@@ -34,7 +34,8 @@ import ResourceAwarePanel from '@/components/ResourceAwarePanel'
 import EnvVarEditor from '@/components/EnvVarEditor'
 import { getDatasets, getDatasetDetail } from '@/services/datasets'
 import { getSelectableImages } from '@/services/images'
-import { createTrainingJob } from '@/services/training-jobs'
+import { createTrainingJob, createTrainingJobFromEnvironment } from '@/services/training-jobs'
+import { getDevEnvironment } from '@/services/dev-environments'
 import { getExperiment } from '@/services/experiments'
 import { getBusinessConfigs } from '@/services/business-configs'
 
@@ -89,6 +90,7 @@ export default function CreateTrainingJobPage() {
 
   const fromExperimentId = searchParams.get('from_experiment')
   const [sourceExperimentId, setSourceExperimentId] = useState<string | undefined>(undefined)
+  const fromEnvironmentId = searchParams.get('from_environment')
 
   const datasetId = Form.useWatch('datasetId', form)
   const useGpu = Form.useWatch('useGpu', form) ?? true
@@ -126,6 +128,35 @@ export default function CreateTrainingJobPage() {
     enabled: !!fromExperimentId,
   })
 
+  const { data: envDetail } = useQuery({
+    queryKey: ['dev-environment-for-training', fromEnvironmentId],
+    queryFn: () => getDevEnvironment(fromEnvironmentId!),
+    enabled: !!fromEnvironmentId,
+  })
+
+  useEffect(() => {
+    if (!envDetail || !fromEnvironmentId) return
+    const firstMount = envDetail.mountedDatasets?.[0]
+    // 环境名符合任务名规则时预填「{环境名}-train」, 中文等不合规名称留空待用户填写
+    const namePrefill = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(envDetail.name)
+      ? `${envDetail.name}-train`
+      : undefined
+    const envVarEntries = envDetail.envVars
+      ? Object.entries(envDetail.envVars).map(([key, value]) => ({ key, value }))
+      : []
+    form.setFieldsValue({
+      name: namePrefill,
+      description: `来自开发环境「${envDetail.name}」`,
+      datasetId: firstMount?.datasetId,
+      datasetVersionId: firstMount?.versionId,
+      useGpu: envDetail.gpuCount > 0,
+      gpuCount: envDetail.gpuCount > 0 ? envDetail.gpuCount : 1,
+      cpu: envDetail.cpu,
+      memory: envDetail.memory,
+      envVars: envVarEntries.length > 0 ? envVarEntries : undefined,
+    })
+  }, [envDetail, fromEnvironmentId, form])
+
   useEffect(() => {
     if (!experimentDetail || !fromExperimentId) return
     const job = experimentDetail.trainingJob
@@ -156,6 +187,27 @@ export default function CreateTrainingJobPage() {
     }
     form.setFieldsValue(values)
   }, [experimentDetail, fromExperimentId, form])
+
+  // Collapse 面板惰性挂载, 未展开面板里的 Form.List 值会被 validateFields 丢弃,
+  // 因此预填了超参数/环境变量时须展开对应面板使其挂载 (key 变化触发重挂载)
+  const prefilledCollapseKeys: string[] = []
+  if (envDetail?.envVars && Object.keys(envDetail.envVars).length > 0) {
+    prefilledCollapseKeys.push('envVars')
+  }
+  if (experimentDetail) {
+    if (
+      experimentDetail.hyperparameters &&
+      Object.keys(experimentDetail.hyperparameters).length > 0
+    ) {
+      prefilledCollapseKeys.push('hyperparams')
+    }
+    if (
+      experimentDetail.trainingJob?.envVars &&
+      Object.keys(experimentDetail.trainingJob.envVars).length > 0
+    ) {
+      prefilledCollapseKeys.push('envVars')
+    }
+  }
 
   const handleNext = async () => {
     try {
@@ -189,12 +241,11 @@ export default function CreateTrainingJobPage() {
         },
         {} as Record<string, string>,
       )
-      const res = await createTrainingJob({
+      const commonPayload = {
         name: values.name,
         description: values.description,
         datasetId: values.datasetId,
         datasetVersionId: values.datasetVersionId,
-        imageId: values.imageId,
         command: values.command,
         hyperparameters: values.hyperparameters?.filter((h) => h?.key && h?.value),
         envVars: envVars && Object.keys(envVars).length > 0 ? envVars : undefined,
@@ -204,10 +255,20 @@ export default function CreateTrainingJobPage() {
         memory: values.memory,
         priority: values.priority,
         workerCount: values.workerCount,
-        sourceExperimentId,
         mlflowEnabled: values.mlflowEnabled ?? false,
         tensorboardEnabled: values.tensorboardEnabled ?? false,
-      })
+      }
+      const res = fromEnvironmentId
+        ? await createTrainingJobFromEnvironment({
+            ...commonPayload,
+            environmentId: fromEnvironmentId,
+            imageId: values.imageId || undefined,
+          })
+        : await createTrainingJob({
+            ...commonPayload,
+            imageId: values.imageId,
+            sourceExperimentId,
+          })
       getMessageInstance()?.success('训练任务创建成功')
       navigate(`/training-jobs/${res.id}`)
     } catch {
@@ -262,9 +323,19 @@ export default function CreateTrainingJobPage() {
           <Form.Item
             name="imageId"
             label="镜像"
-            rules={[{ required: true, message: '请选择镜像' }]}
+            rules={fromEnvironmentId ? [] : [{ required: true, message: '请选择镜像' }]}
+            extra={
+              fromEnvironmentId
+                ? envDetail
+                  ? `留空则使用环境当前镜像 ${envDetail.image}`
+                  : '留空则使用开发环境当前镜像'
+                : undefined
+            }
           >
-            <ImageSelect placeholder="请选择训练镜像" category="training" />
+            <ImageSelect
+              placeholder={fromEnvironmentId ? '默认使用开发环境镜像（可留空）' : '请选择训练镜像'}
+              category="training"
+            />
           </Form.Item>
           <Form.Item
             name="command"
@@ -368,6 +439,8 @@ export default function CreateTrainingJobPage() {
 
           <Collapse
             ghost
+            key={prefilledCollapseKeys.join('|')}
+            defaultActiveKey={prefilledCollapseKeys}
             items={[
               {
                 key: 'hyperparams',
@@ -490,7 +563,14 @@ export default function CreateTrainingJobPage() {
     {
       title: '确认提交',
       icon: <CheckCircleOutlined />,
-      content: <ConfirmStep form={form} datasets={datasets} images={images} />,
+      content: (
+        <ConfirmStep
+          form={form}
+          datasets={datasets}
+          images={images}
+          envImage={fromEnvironmentId ? envDetail?.image : undefined}
+        />
+      ),
     },
   ]
 
@@ -511,6 +591,25 @@ export default function CreateTrainingJobPage() {
             type="warning"
             showIcon
             message="原始训练任务信息不可用，请手动填写配置"
+            style={{ marginBottom: 16 }}
+            closable
+          />
+        ))}
+      {fromEnvironmentId &&
+        envDetail &&
+        (envDetail.status === 'running' ? (
+          <Alert
+            type="info"
+            showIcon
+            message={`正在从开发环境「${envDetail.name}」发起训练，数据集与资源配置已按环境预填，可修改后提交`}
+            style={{ marginBottom: 16 }}
+            closable
+          />
+        ) : (
+          <Alert
+            type="warning"
+            showIcon
+            message={`开发环境「${envDetail.name}」当前未在运行中，请先在开发环境页面启动后再提交`}
             style={{ marginBottom: 16 }}
             closable
           />
@@ -537,7 +636,14 @@ export default function CreateTrainingJobPage() {
               </Button>
             )}
             {current === steps.length - 1 && (
-              <Button type="primary" loading={submitting} onClick={handleSubmit}>
+              <Button
+                type="primary"
+                loading={submitting}
+                disabled={
+                  !!fromEnvironmentId && envDetail !== undefined && envDetail.status !== 'running'
+                }
+                onClick={handleSubmit}
+              >
                 提交任务
               </Button>
             )}
@@ -557,10 +663,12 @@ function ConfirmStep({
   form,
   datasets,
   images,
+  envImage,
 }: {
   form: FormInstance<FormValues>
   datasets: { id: string; name: string }[]
   images: { id: string; name: string; tag: string }[]
+  envImage?: string
 }) {
   const values = Form.useWatch<FormValues>([], form)
   if (!values) return null
@@ -569,7 +677,16 @@ function ConfirmStep({
     ? (datasets.find((d) => d.id === values.datasetId)?.name ?? '—')
     : '未选择'
   const image = values.imageId ? images.find((i) => i.id === values.imageId) : null
-  const imageLabel = image ? `${image.name}:${image.tag}` : '未选择'
+  const imageLabel = image ? (
+    `${image.name}:${image.tag}`
+  ) : envImage ? (
+    <Space size={4}>
+      <span>{envImage}</span>
+      <Tag color="blue">继承自开发环境</Tag>
+    </Space>
+  ) : (
+    '未选择'
+  )
   const hp = values.hyperparameters?.filter((h) => h?.key && h?.value) ?? []
   const ev = values.envVars?.filter((e) => e?.key?.trim()) ?? []
   const gpuEnabled = values.useGpu ?? true

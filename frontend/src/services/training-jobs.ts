@@ -5,6 +5,7 @@ import type {
   PodInfo,
   TrainingJob,
   TrainingJobCreate,
+  TrainingJobFromEnvironmentCreate,
   TrainingMetrics,
 } from '@/types/training-job'
 import { buildWsUrl } from '@/utils/constants'
@@ -33,6 +34,13 @@ export async function getTrainingJob(id: string): Promise<TrainingJob> {
 
 export async function createTrainingJob(data: TrainingJobCreate): Promise<TrainingJob> {
   const res = await api.post('/training-jobs', data)
+  return res.data.data!
+}
+
+export async function createTrainingJobFromEnvironment(
+  data: TrainingJobFromEnvironmentCreate,
+): Promise<TrainingJob> {
+  const res = await api.post('/training-jobs/from-environment', data)
   return res.data.data!
 }
 

@@ -66,6 +66,15 @@ export interface TrainingJobCreate {
   tensorboardEnabled?: boolean
 }
 
+/** 从开发环境发起训练: 镜像可留空由后端按环境镜像解析, 资源缺省继承环境配置 */
+export interface TrainingJobFromEnvironmentCreate extends Omit<
+  TrainingJobCreate,
+  'imageId' | 'sourceExperimentId'
+> {
+  environmentId: string
+  imageId?: string
+}
+
 export interface PodInfo {
   podName: string
   role: string
