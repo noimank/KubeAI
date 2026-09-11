@@ -162,6 +162,7 @@ export default function TrainingJobsPage() {
       dataIndex: 'source',
       width: 100,
       render: (val: string) => {
+        if (val === 'manual') return <Tag>手动创建</Tag>
         if (val === 'dev_environment') return <Tag color="blue">开发环境</Tag>
         if (val === 'experiment_reproduction') return <Tag color="green">实验复现</Tag>
         if (val === 'tuning') return <Tag color="purple">超参调优</Tag>

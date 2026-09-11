@@ -615,15 +615,15 @@ export default function TrainingJobDetailPage() {
                 {formatDuration(job.startedAt, job.finishedAt)}
               </Descriptions.Item>
               <Descriptions.Item label="来源">
-                {job.source === 'dev_environment' ? (
+                {job.source === 'manual' ? (
+                  <Tag>手动创建</Tag>
+                ) : job.source === 'dev_environment' ? (
                   <Tag color="blue">开发环境</Tag>
                 ) : job.source === 'experiment_reproduction' ? (
                   <Tag color="green">实验复现</Tag>
                 ) : job.source === 'tuning' ? (
                   <Tag color="purple">超参调优</Tag>
-                ) : (
-                  <Tag>手动创建</Tag>
-                )}
+                ) : null}
               </Descriptions.Item>
             </Descriptions>
           </Card>
