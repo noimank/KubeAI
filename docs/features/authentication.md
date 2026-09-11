@@ -83,12 +83,16 @@ sequenceDiagram
 
 **配置要点：**
 
-1. **Casdoor 端**：在 Casdoor 应用中为用户分配 `kubeai_` 前缀的角色即可，KubeAI 通过 `/api/get-account` 接口自动获取
-2. **同步行为**：
+1. **Casdoor 端**：在 Casdoor 应用中创建 `kubeai_` 前缀的角色，为用户分配即可，KubeAI 通过 `/api/get-account` 接口自动获取
+2. **登录回填（Casdoor → KubeAI）**：
    - 登录时如果 userinfo 中包含 `kubeai_` 前缀的角色，直接覆盖 KubeAI 用户角色
    - 用户拥有多个 `kubeai_` 角色时，取优先级最高者（admin > mlops > engineer > annotator）
    - 如果 userinfo 中没有 `kubeai_` 前缀的角色，不修改用户现有角色
    - 无效的角色名（如 `kubeai_superuser`）会被跳过并记录警告日志
+3. **管理端推送（KubeAI → Casdoor）**：在 KubeAI 管理后台修改三方登录用户的角色时，会实时推送到 Casdoor —— 先从旧的 `kubeai_*` 角色成员中移除该用户、再加入目标角色（通过 Casdoor 管理 API `/api/get-roles` + `/api/update-role`，凭证复用 OIDC Client ID/Secret，Basic 认证，权限等同组织管理员）。覆盖入口：用户管理页（`PUT /users/{id}`）、租户成员管理的添加成员与修改角色（`POST/PATCH /tenants/{id}/members/...`）。注意：租户成员管理不提供管理员角色（防提权，后端同层拦截），管理员授予只能在用户管理页进行
+   - 推送成功后才写本地数据库；推送失败（如目标角色在 Casdoor 中不存在）则本地角色不变更，接口明确报错
+   - 角色变更同时立即失效该用户的身份缓存，新权限即时生效
+   - 仅对三方登录账号（`auth_provider = oidc`）推送，本地账号不受影响
 
 ## 账户安全
 

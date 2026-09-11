@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from app.core.config import settings
+from app.integrations.casdoor.client import CasdoorClient
 from app.integrations.harbor.client import HarborClient
 from app.integrations.minio import MinIOClient
 from app.integrations.prometheus.client import PrometheusClient
@@ -41,6 +42,7 @@ _minio_client: MinIOClient | None = None
 _prometheus_client: PrometheusClient | None = None
 _labelstudio_client: LabelStudioClient | None = None
 _mlflow_client: MLflowClient | None = None
+_casdoor_client: CasdoorClient | None = None
 
 
 def get_harbor_client() -> HarborClient:
@@ -82,6 +84,15 @@ def get_mlflow_client() -> MLflowClient:
 
         _mlflow_client = MLflowClient()
     return _mlflow_client
+
+
+def get_casdoor_client() -> CasdoorClient:
+    global _casdoor_client
+    if _casdoor_client is None:
+        if not settings.OIDC_ISSUER:
+            raise RuntimeError("Casdoor 客户端未初始化: 未配置 OIDC_ISSUER")
+        _casdoor_client = CasdoorClient()
+    return _casdoor_client
 
 
 async def _check_mlflow_health() -> bool:
@@ -128,6 +139,8 @@ async def init_clients() -> None:
     if settings.LABEL_STUDIO_API_TOKEN:
         get_labelstudio_client()
     get_mlflow_client()
+    if settings.OIDC_ISSUER:
+        get_casdoor_client()
     await _check_mlflow_health()
 
     logger.info("clients_initialized")
@@ -136,7 +149,7 @@ async def init_clients() -> None:
 async def close_clients() -> None:
     """Close all integration clients.  Idempotent — safe to call more than once."""
     global _harbor_client, _minio_client, _prometheus_client
-    global _labelstudio_client, _mlflow_client
+    global _labelstudio_client, _mlflow_client, _casdoor_client
 
     if _harbor_client is not None:
         await _harbor_client.close()
@@ -153,6 +166,9 @@ async def close_clients() -> None:
     if _mlflow_client is not None:
         await _mlflow_client.close()
         _mlflow_client = None
+    if _casdoor_client is not None:
+        await _casdoor_client.close()
+        _casdoor_client = None
 
     from app.core.redis import close_redis
     from app.integrations.k8s.client import close_k8s_clients

@@ -12,6 +12,7 @@ from app.core.exceptions import (
     NotFoundException,
     QuotaExceededException,
 )
+from app.core.identity import invalidate_user_identity
 from app.integrations.k8s.namespace import (
     create_namespace,
     delete_namespace,
@@ -31,11 +32,13 @@ from app.models.enums import AuditAction, ResourceType, TenantStatus, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.audit_service import AuditService
+from app.services.casdoor_service import sync_role_to_casdoor
 
 if TYPE_CHECKING:
     import uuid
     from collections.abc import Awaitable, Callable
 
+    import redis.asyncio as aioredis
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.schemas.tenant import TenantCreateRequest, TenantQuotaUpdateRequest, TenantUpdateRequest
@@ -44,8 +47,9 @@ logger = logging.getLogger(__name__)
 
 
 class TenantService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, redis: aioredis.Redis | None = None):
         self.db = db
+        self.redis = redis
 
     @staticmethod
     async def ensure_tenant_k8s_infra(
@@ -419,10 +423,15 @@ class TenantService:
         if user.tenant_id is not None:
             raise ConflictException("该用户已属于其他租户, 请先将其移出原租户")
 
+        # 先推 Casdoor 再写本地库, 推送失败则本次添加不生效 (本地账号自动跳过)
+        await sync_role_to_casdoor(user, role)
         user.tenant_id = tenant_id
         user.role = role
         await self.db.flush()
         await self.db.refresh(user)
+
+        if self.redis is not None:
+            await invalidate_user_identity(self.redis, user.id)
 
         if audit_context:
             audit_svc = AuditService(self.db)
@@ -476,9 +485,15 @@ class TenantService:
             raise NotFoundException("该用户不属于此租户")
 
         old_role = user.role
-        user.role = new_role
+        if new_role != old_role:
+            # 先推 Casdoor 再写本地库, 推送失败则角色不变更; 不变更时同步登录回填即闭环
+            await sync_role_to_casdoor(user, new_role)
+            user.role = new_role
         await self.db.flush()
         await self.db.refresh(user)
+
+        if new_role != old_role and self.redis is not None:
+            await invalidate_user_identity(self.redis, user.id)
 
         if audit_context:
             audit_svc = AuditService(self.db)

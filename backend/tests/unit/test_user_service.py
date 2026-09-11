@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.exceptions import ConflictException, NotFoundException
+from app.core.exceptions import ConflictException, ExternalServiceException, NotFoundException
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services.user_service import UserService
@@ -174,6 +174,78 @@ class TestUpdateUser:
             mock_audit_cls.return_value = mock_audit_svc
             await user_service.update_user(user.id, {"role": UserRole.MLOPS}, audit_context=audit_ctx)
             mock_audit_svc.log_action.assert_called_once()
+
+    async def test_update_role_pushes_to_casdoor_for_oidc_user(self, mock_db):
+        user = _make_user(role=UserRole.ENGINEER, auth_provider="oidc", external_id="kubeai/alice")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = user
+        mock_db.execute.return_value = result
+        redis = AsyncMock()
+        service = UserService(mock_db, redis)
+
+        with (
+            patch.object(service, "get_user", return_value={"username": "testuser"}),
+            patch("app.services.user_service.sync_role_to_casdoor", new=AsyncMock()) as mock_sync,
+            patch("app.services.user_service.invalidate_user_identity", new=AsyncMock()) as mock_invalidate,
+        ):
+            await service.update_user(user.id, {"role": UserRole.MLOPS})
+
+        mock_sync.assert_awaited_once_with(user, UserRole.MLOPS)
+        mock_invalidate.assert_awaited_once_with(redis, user.id)
+        assert user.role == UserRole.MLOPS
+        mock_db.flush.assert_called_once()
+
+    async def test_update_role_casdoor_failure_keeps_local_role(self, mock_db):
+        user = _make_user(role=UserRole.ENGINEER, auth_provider="oidc", external_id="kubeai/alice")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = user
+        mock_db.execute.return_value = result
+        service = UserService(mock_db)
+
+        with (
+            pytest.raises(ExternalServiceException),
+            patch(
+                "app.services.user_service.sync_role_to_casdoor",
+                new=AsyncMock(side_effect=ExternalServiceException("Casdoor 中不存在角色 kubeai_mlops")),
+            ),
+        ):
+            await service.update_user(user.id, {"role": UserRole.MLOPS})
+
+        assert user.role == UserRole.ENGINEER
+        mock_db.flush.assert_not_called()
+
+    async def test_update_tenant_does_not_invalidate_identity(self, mock_db):
+        user = _make_user(role=UserRole.ENGINEER, auth_provider="oidc", external_id="kubeai/alice")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = user
+        mock_db.execute.return_value = result
+        redis = AsyncMock()
+        service = UserService(mock_db, redis)
+
+        with (
+            patch.object(service, "get_user", return_value={"username": "testuser"}),
+            patch("app.services.user_service.sync_role_to_casdoor", new=AsyncMock()) as mock_sync,
+            patch("app.services.user_service.invalidate_user_identity", new=AsyncMock()) as mock_invalidate,
+        ):
+            await service.update_user(user.id, {"tenant_id": uuid.uuid4()})
+
+        mock_sync.assert_not_awaited()
+        mock_invalidate.assert_not_awaited()
+
+    async def test_update_role_without_redis_skips_invalidate(self, user_service, mock_db):
+        user = _make_user(role=UserRole.ENGINEER, auth_provider="oidc", external_id="kubeai/alice")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = user
+        mock_db.execute.return_value = result
+
+        with (
+            patch.object(user_service, "get_user", return_value={"username": "testuser"}),
+            patch("app.services.user_service.sync_role_to_casdoor", new=AsyncMock()),
+            patch("app.services.user_service.invalidate_user_identity", new=AsyncMock()) as mock_invalidate,
+        ):
+            await user_service.update_user(user.id, {"role": UserRole.MLOPS})
+
+        mock_invalidate.assert_not_awaited()
 
 
 class TestToggleUserStatus:

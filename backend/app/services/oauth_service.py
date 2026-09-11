@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.core.exceptions import ConflictException, ExternalServiceException, UnauthorizedException
 from app.core.security import create_access_token, create_refresh_token, hash_password
+from app.integrations.casdoor.client import KUBEAI_ROLE_PREFIX
 from app.models.enums import UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -276,9 +277,9 @@ class OAuthService:
 
         mapped: list[UserRole] = []
         for r in roles:
-            if not isinstance(r, str) or not r.startswith("kubeai_"):
+            if not isinstance(r, str) or not r.startswith(KUBEAI_ROLE_PREFIX):
                 continue
-            role_name = r.removeprefix("kubeai_")
+            role_name = r.removeprefix(KUBEAI_ROLE_PREFIX)
             try:
                 mapped.append(UserRole(role_name))
             except ValueError:

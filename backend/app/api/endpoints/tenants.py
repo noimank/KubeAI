@@ -287,9 +287,10 @@ async def add_member(
     req: AddMemberRequest,
     db: DbDep,
     request: Request,
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
     current_user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[TenantMemberResponse]:
-    service = TenantService(db)
+    service = TenantService(db, redis)
     user = await service.add_member(tenant_id, req.user_id, req.role, audit_context=_audit_ctx(request, current_user))
     data = TenantMemberResponse(
         id=user.id,
@@ -321,9 +322,10 @@ async def update_member_role(
     req: UpdateMemberRoleRequest,
     db: DbDep,
     request: Request,
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
     current_user: Annotated[CurrentUser, Depends(require_permission("tenants", "manage"))],
 ) -> BaseResponse[TenantMemberResponse]:
-    service = TenantService(db)
+    service = TenantService(db, redis)
     user = await service.update_member_role(
         tenant_id, user_id, req.role, current_user.id, audit_context=_audit_ctx(request, current_user)
     )

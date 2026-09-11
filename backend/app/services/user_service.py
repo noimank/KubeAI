@@ -3,21 +3,25 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import redis.asyncio as aioredis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, NotFoundException
+from app.core.identity import invalidate_user_identity
 from app.models.enums import AuditAction, ResourceType, UserRole
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.audit_service import AuditService
+from app.services.casdoor_service import sync_role_to_casdoor
 
 logger = logging.getLogger(__name__)
 
 
 class UserService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, redis: aioredis.Redis | None = None):
         self.db = db
+        self.redis = redis
 
     async def list_users(
         self,
@@ -116,10 +120,14 @@ class UserService:
             raise NotFoundException("用户不存在")
 
         changes: dict[str, dict[str, Any]] = {}
-        if "role" in data and data["role"] is not None:
+        new_role = data.get("role")
+        if new_role is not None and new_role != user.role:
+            # 先推 Casdoor 再写本地库: 推送失败则本地不变更; 推送成功而本地落库失败时,
+            # 用户下次 SSO 登录会以 Casdoor 角色回写本地, 最终一致
+            await sync_role_to_casdoor(user, new_role)
             old_role = user.role
-            user.role = data["role"]
-            changes["role"] = {"old": old_role.value, "new": data["role"].value}
+            user.role = new_role
+            changes["role"] = {"old": old_role.value, "new": new_role.value}
         if "tenant_id" in data:
             old_tenant_id = user.tenant_id
             user.tenant_id = data["tenant_id"]
@@ -130,6 +138,10 @@ class UserService:
 
         await self.db.flush()
         await self.db.refresh(user)
+
+        if changes.get("role") and self.redis is not None:
+            # 角色缓存在身份缓存中, 立即失效避免等待 5 分钟 TTL
+            await invalidate_user_identity(self.redis, user.id)
 
         if audit_context and changes:
             audit_svc = AuditService(self.db)

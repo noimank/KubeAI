@@ -87,12 +87,13 @@ async def update_user(
     req: UserUpdateRequest,
     db: DbDep,
     request: Request,
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
     user: Annotated[CurrentUser, Depends(require_permission("users", "manage"))],
 ) -> BaseResponse[UserDetailResponse]:
     data = req.model_dump(exclude_unset=True)
     if user_id == user.id:
         raise ForbiddenException("不能修改自身账户的角色或租户")
-    service = UserService(db)
+    service = UserService(db, redis)
     detail = await service.update_user(user_id, data, audit_context=_audit_ctx(request, user))
     return BaseResponse(data=UserDetailResponse(**detail), message="用户更新成功")
 
