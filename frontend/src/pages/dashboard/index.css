@@ -1,4 +1,4 @@
-/* 概览页: 深色品牌 Hero + 全流程闭环全景(阶段卡片 + 立体基座 + 流动虚线) + 最近动态, 配色沿用登录页 CloudAxis 规范 */
+/* 概览页: 主色蓝 Hero + 全流程闭环全景(阶段卡片 + 立体基座 + 流动虚线) + 最近动态, 配色沿用登录页 CloudAxis 规范 */
 
 /* ===== Hero 横幅 ===== */
 .dash-hero {
@@ -6,15 +6,11 @@
   overflow: hidden;
   padding: 22px 24px;
   border-radius: 12px;
-  color: #f7fbff;
+  color: #fff;
   background:
-    linear-gradient(
-      120deg,
-      rgba(8, 12, 22, 0.94),
-      rgba(11, 23, 36, 0.9) 46%,
-      rgba(18, 20, 33, 0.94)
-    ),
-    linear-gradient(45deg, #0b111d, #13291f 45%, #201926);
+    radial-gradient(130% 200% at 100% 0%, rgba(255, 255, 255, 0.18), transparent 55%),
+    linear-gradient(120deg, #0958d9, #1890ff 55%, #4096ff);
+  box-shadow: 0 10px 28px -14px rgba(24, 144, 255, 0.55);
 }
 
 .dash-hero::before {
@@ -23,8 +19,8 @@
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(125, 211, 252, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(125, 211, 252, 0.07) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.09) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.2));
 }
@@ -38,13 +34,13 @@
 .dash-hero-desc {
   max-width: 720px;
   margin: 4px 0 0;
-  color: rgba(247, 251, 255, 0.68);
+  color: rgba(255, 255, 255, 0.82);
   font-size: 12.5px;
   line-height: 1.7;
 }
 
 .dash-hero-desc strong {
-  color: #7dd3fc;
+  color: #bae0ff;
   font-weight: 500;
 }
 
