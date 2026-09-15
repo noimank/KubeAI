@@ -1,3 +1,37 @@
+export interface DeployImageOption {
+  imageId: string
+  imageName?: string | null
+  imageTag?: string | null
+}
+
+/** 模型版本部署配置 (响应形态): 候选镜像列表 + 部署参数, 部署为推理服务时作预填 */
+export interface ModelDeployConfig {
+  images?: DeployImageOption[]
+  containerPort?: number | null
+  subpathMode?: 'rewrite' | 'native' | null
+  command?: string[] | null
+  args?: string[] | null
+  envVars?: Record<string, string> | null
+  gpuCount?: number | null
+  cpu?: string | null
+  memory?: string | null
+  replicas?: number | null
+}
+
+/** 部署配置提交形态: images → imageIds */
+export interface ModelDeployConfigInput {
+  imageIds?: string[]
+  containerPort?: number
+  subpathMode?: 'rewrite' | 'native'
+  command?: string[]
+  args?: string[]
+  envVars?: Record<string, string>
+  gpuCount?: number
+  cpu?: string
+  memory?: string
+  replicas?: number
+}
+
 export interface ModelVersion {
   id: string
   registeredModelId: string
@@ -17,6 +51,7 @@ export interface ModelVersion {
   imageName?: string
   imageTag?: string
   hyperparameters?: Record<string, string>
+  deployConfig?: ModelDeployConfig | null
   createdBy: string
   createdAt: string
 }
@@ -43,6 +78,7 @@ export interface ModelVersionCreate {
   description?: string
   filePaths: string[]
   trainingJobId?: string
+  deployConfig?: ModelDeployConfigInput
 }
 
 export interface ModelVersionFile {

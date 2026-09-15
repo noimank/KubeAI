@@ -28,10 +28,11 @@ class AutoScalingConfig(BaseModel):
 
 class InferenceServiceCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    gpu_count: int = Field(default=0, ge=0)
-    cpu: str = Field(default="2")
-    memory: str = Field(default="4Gi")
-    replicas: int = Field(default=1, ge=1)
+    # 以下字段未指定 (None) 时, 若携带 model_version_id 则从模型版本部署配置回填, 否则落平台默认值
+    gpu_count: int | None = Field(default=None, ge=0)
+    cpu: str | None = None
+    memory: str | None = None
+    replicas: int | None = Field(default=None, ge=1)
     image: str | None = None
     image_id: uuid.UUID | None = None
     model_version_id: uuid.UUID | None = None
@@ -41,14 +42,16 @@ class InferenceServiceCreateRequest(BaseModel):
     env_vars: dict[str, str] | None = None
     description: str | None = None
     auto_scaling: AutoScalingConfig | None = None
-    subpath_mode: Literal["rewrite", "native"] = "rewrite"
+    subpath_mode: Literal["rewrite", "native"] | None = None
 
     @model_validator(mode="after")
     def _validate_required(self) -> "InferenceServiceCreateRequest":
-        if self.image_id is None and not self.image:
-            raise ValueError("必须选择推理运行时镜像")
-        if self.container_port is None:
-            raise ValueError("必须指定容器端口")
+        # 携带模型版本时允许缺省 — 镜像/端口可由版本部署配置补齐; 无模型版本则必须显式给出
+        if self.model_version_id is None:
+            if self.image_id is None and not self.image:
+                raise ValueError("必须选择推理运行时镜像")
+            if self.container_port is None:
+                raise ValueError("必须指定容器端口")
         return self
 
 

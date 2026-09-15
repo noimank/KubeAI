@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import (
+    BadRequestException,
     ConflictException,
     ExternalServiceException,
     NotFoundException,
@@ -61,8 +63,6 @@ from app.models.user import User
 from app.schemas.inference_service import AutoScalingConfig
 
 if TYPE_CHECKING:
-    import uuid
-
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.integrations.prometheus.client import PrometheusClient
@@ -79,6 +79,60 @@ NON_TERMINAL_STATUSES = {
 
 KEDA_SCALER_SUFFIX = "-autoscaler"
 
+# 推理服务部署参数的平台默认值 (用户与模型版本部署配置均未指定时生效)
+PLATFORM_DEFAULTS = {"gpu_count": 0, "cpu": "2", "memory": "4Gi", "replicas": 1, "subpath_mode": "rewrite"}
+
+
+def resolve_deploy_defaults(
+    *,
+    image: str | None,
+    image_id: uuid.UUID | None,
+    container_port: int | None,
+    command: list[str] | None,
+    args: list[str] | None,
+    env_vars: dict[str, str] | None,
+    subpath_mode: str | None,
+    gpu_count: int | None,
+    cpu: str | None,
+    memory: str | None,
+    replicas: int | None,
+    deploy_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """部署参数缺省解析: 用户值 → 模型版本 deploy_config → 平台默认.
+
+    返回可直接落库的字段 dict; 镜像/端口回填后仍缺失时抛 BadRequestException.
+    """
+    cfg = deploy_config or {}
+    resolved: dict[str, Any] = {
+        "image": image,
+        "image_id": image_id,
+        "container_port": container_port if container_port is not None else cfg.get("container_port"),
+        "command": command if command is not None else cfg.get("command"),
+        "args": args if args is not None else cfg.get("args"),
+        "env_vars": env_vars,
+        "subpath_mode": subpath_mode if subpath_mode is not None else cfg.get("subpath_mode"),
+        "gpu_count": gpu_count if gpu_count is not None else cfg.get("gpu_count"),
+        "cpu": cpu if cpu is not None else cfg.get("cpu"),
+        "memory": memory if memory is not None else cfg.get("memory"),
+        "replicas": replicas if replicas is not None else cfg.get("replicas"),
+    }
+    # 环境变量按键合并: 模型版本配置打底, 用户键覆盖
+    cfg_env = cfg.get("env_vars") or {}
+    if cfg_env or env_vars:
+        resolved["env_vars"] = {**cfg_env, **(env_vars or {})} or None
+    if resolved["image_id"] is None and not resolved["image"]:
+        cfg_image_ids = cfg.get("image_ids") or []
+        if cfg_image_ids:
+            resolved["image_id"] = uuid.UUID(str(cfg_image_ids[0]))
+    for key, default in PLATFORM_DEFAULTS.items():
+        if resolved[key] is None:
+            resolved[key] = default
+    if resolved["image_id"] is None and not resolved["image"]:
+        raise BadRequestException("必须选择推理运行时镜像: 请传入镜像或在模型版本部署配置中完善")
+    if resolved["container_port"] is None:
+        raise BadRequestException("必须指定容器端口: 请传入 container_port 或在模型版本部署配置中完善")
+    return resolved
+
 
 class InferenceServiceService:
     def __init__(self, db: AsyncSession):
@@ -90,10 +144,10 @@ class InferenceServiceService:
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str,
-        gpu_count: int = 0,
-        cpu: str = "2",
-        memory: str = "4Gi",
-        replicas: int = 1,
+        gpu_count: int | None = None,
+        cpu: str | None = None,
+        memory: str | None = None,
+        replicas: int | None = None,
         image: str | None = None,
         image_id: uuid.UUID | None = None,
         container_port: int | None = None,
@@ -103,7 +157,7 @@ class InferenceServiceService:
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
         model_version_id: uuid.UUID | None = None,
-        subpath_mode: str = "rewrite",
+        subpath_mode: str | None = None,
     ) -> tuple[InferenceService, str]:
         svc, tenant, api_token = await self._create_inference_service_record(
             tenant_id=tenant_id,
@@ -134,10 +188,10 @@ class InferenceServiceService:
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str,
-        gpu_count: int = 0,
-        cpu: str = "2",
-        memory: str = "4Gi",
-        replicas: int = 1,
+        gpu_count: int | None = None,
+        cpu: str | None = None,
+        memory: str | None = None,
+        replicas: int | None = None,
         image: str | None = None,
         image_id: uuid.UUID | None = None,
         container_port: int | None = None,
@@ -147,7 +201,7 @@ class InferenceServiceService:
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
         model_version_id: uuid.UUID | None = None,
-        subpath_mode: str = "rewrite",
+        subpath_mode: str | None = None,
     ) -> tuple[InferenceService, str]:
         svc, _, api_token = await self._create_inference_service_record(
             tenant_id=tenant_id,
@@ -176,10 +230,10 @@ class InferenceServiceService:
         tenant_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str,
-        gpu_count: int = 0,
-        cpu: str = "2",
-        memory: str = "4Gi",
-        replicas: int = 1,
+        gpu_count: int | None = None,
+        cpu: str | None = None,
+        memory: str | None = None,
+        replicas: int | None = None,
         image: str | None = None,
         image_id: uuid.UUID | None = None,
         container_port: int | None = None,
@@ -189,15 +243,35 @@ class InferenceServiceService:
         description: str | None = None,
         auto_scaling: AutoScalingConfig | None = None,
         model_version_id: uuid.UUID | None = None,
-        subpath_mode: str = "rewrite",
+        subpath_mode: str | None = None,
     ) -> tuple[InferenceService, Tenant, str]:
         tenant = await self._get_tenant_or_fail(tenant_id)
         namespace = tenant.k8s_namespace_name or make_namespace_name(tenant.name)
 
+        model_version: ModelVersion | None = None
+        if model_version_id is not None:
+            model_version = await self._get_model_version_or_fail(model_version_id)
+
+        # 部署参数缺省解析: 用户值 → 模型版本 deploy_config → 平台默认
+        r = resolve_deploy_defaults(
+            image=image,
+            image_id=image_id,
+            container_port=container_port,
+            command=command,
+            args=args,
+            env_vars=env_vars,
+            subpath_mode=subpath_mode,
+            gpu_count=gpu_count,
+            cpu=cpu,
+            memory=memory,
+            replicas=replicas,
+            deploy_config=model_version.deploy_config if model_version is not None else None,
+        )
+
         is_auto = auto_scaling is not None and auto_scaling.scaling_mode == "auto"
-        min_rep = auto_scaling.min_replicas if auto_scaling is not None and is_auto else replicas
-        max_rep = auto_scaling.max_replicas if auto_scaling is not None and is_auto else replicas
-        gpu_needed = gpu_count * max_rep if is_auto else gpu_count * replicas
+        min_rep = auto_scaling.min_replicas if auto_scaling is not None and is_auto else r["replicas"]
+        max_rep = auto_scaling.max_replicas if auto_scaling is not None and is_auto else r["replicas"]
+        gpu_needed = r["gpu_count"] * max_rep if is_auto else r["gpu_count"] * r["replicas"]
         await self._check_gpu_quota(namespace, tenant.gpu_limit, gpu_needed)
 
         api_token = generate_api_token()
@@ -206,29 +280,28 @@ class InferenceServiceService:
             tenant_id=tenant_id,
             created_by=user_id,
             name=name,
-            image=image,
-            gpu_count=gpu_count,
-            cpu=cpu,
-            memory=memory,
-            replicas=replicas,
+            image=r["image"],
+            gpu_count=r["gpu_count"],
+            cpu=r["cpu"],
+            memory=r["memory"],
+            replicas=r["replicas"],
             min_replicas=min_rep,
             max_replicas=max_rep,
             scaling_mode="auto" if is_auto else "fixed",
-            subpath_mode=subpath_mode,
+            subpath_mode=r["subpath_mode"],
             status=InferenceServiceStatus.PENDING,
             description=description,
-            env_vars=env_vars,
+            env_vars=r["env_vars"],
             auth_token_hash=hash_api_token(api_token),
         )
-        if model_version_id is not None:
-            await self._get_model_version_or_fail(model_version_id)
-            svc_kwargs["model_version_id"] = model_version_id
+        if model_version is not None:
+            svc_kwargs["model_version_id"] = model_version.id
         # 运行时镜像 (从 inference 类镜像解析) / 端口 / 命令. 模型/代码可打进镜像或放挂载卷.
-        if image_id is not None:
-            svc_kwargs["image"] = await self._resolve_image_ref(image_id, tenant_id)
-        svc_kwargs["container_port"] = container_port
-        svc_kwargs["command"] = json.dumps(command) if command else None
-        svc_kwargs["args"] = json.dumps(args) if args else None
+        if r["image_id"] is not None:
+            svc_kwargs["image"] = await self._resolve_image_ref(r["image_id"], tenant_id)
+        svc_kwargs["container_port"] = r["container_port"]
+        svc_kwargs["command"] = json.dumps(r["command"]) if r["command"] else None
+        svc_kwargs["args"] = json.dumps(r["args"]) if r["args"] else None
         if is_auto and auto_scaling is not None:
             svc_kwargs["target_metric_type"] = auto_scaling.target_metric_type
             svc_kwargs["target_metric_value"] = auto_scaling.target_metric_value

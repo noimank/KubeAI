@@ -1,14 +1,20 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Button, Descriptions, Divider, Drawer, Space, Spin, Table, Tag } from 'antd'
+import { Button, Descriptions, Divider, Drawer, Modal, Space, Spin, Table, Tag } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import LineageFlow from '@/components/LineageFlow'
 import type { LineageNode } from '@/components/LineageFlow'
-import { getModelVersionFiles, getModelFileDownloadUrl } from '@/services/models'
+import {
+  getModelVersionFiles,
+  getModelFileDownloadUrl,
+  updateModelVersionDeployConfig,
+} from '@/services/models'
 import { formatDate, formatFileSize } from '@/utils/format'
 import { getMessageInstance } from '@/utils/messageHolder'
-import type { ModelVersion, ModelVersionFile } from '@/types/model'
+import type { ModelDeployConfigInput, ModelVersion, ModelVersionFile } from '@/types/model'
+import DeployConfigForm from './components/deploy-config-form'
+import type { DeployConfigFormRef } from './components/deploy-config-form'
 
 const VERSION_STATUS_MAP: Record<string, { color: string; text: string }> = {
   uploading: { color: 'processing', text: '上传中' },
@@ -133,18 +139,140 @@ function DatasetInfoSection({ version }: { version: ModelVersion }) {
   )
 }
 
+function DeployConfigSection({
+  modelId,
+  version,
+  canWrite,
+  onUpdated,
+}: {
+  modelId: string
+  version: ModelVersion
+  canWrite?: boolean
+  onUpdated?: (version: ModelVersion) => void
+}) {
+  const [editOpen, setEditOpen] = useState(false)
+  const formRef = useRef<DeployConfigFormRef>(null)
+  const queryClient = useQueryClient()
+
+  const updateMutation = useMutation({
+    mutationFn: (data: ModelDeployConfigInput) =>
+      updateModelVersionDeployConfig(modelId, version.id, data),
+    onSuccess: (updated) => {
+      getMessageInstance()?.success('部署配置已更新')
+      setEditOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['model'] })
+      onUpdated?.(updated)
+    },
+  })
+
+  const handleEditOk = async () => {
+    let data: ModelDeployConfigInput | undefined
+    try {
+      data = await formRef.current?.getSubmitConfig()
+    } catch {
+      getMessageInstance()?.warning('请检查推理部署配置')
+      return
+    }
+    // 全部留空 = 清除配置
+    updateMutation.mutate(data ?? { imageIds: [] })
+  }
+
+  const cfg = version.deployConfig
+  const hasResourceHint =
+    cfg?.gpuCount != null || cfg?.cpu != null || cfg?.memory != null || cfg?.replicas != null
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 8,
+        }}
+      >
+        <strong>部署配置</strong>
+        {canWrite && (
+          <Button size="small" onClick={() => setEditOpen(true)}>
+            {cfg ? '编辑' : '添加'}
+          </Button>
+        )}
+      </div>
+      <Descriptions bordered size="small" column={1}>
+        <Descriptions.Item label="候选镜像">
+          {cfg?.images?.length ? (
+            <Space size={[4, 8]} wrap>
+              {cfg.images.map((img, idx) => (
+                <Tag key={img.imageId} color={idx === 0 ? 'geekblue' : 'default'}>
+                  {idx === 0 ? '默认 ' : ''}
+                  {img.imageName ? `${img.imageName}:${img.imageTag ?? ''}` : img.imageId}
+                </Tag>
+              ))}
+            </Space>
+          ) : (
+            '-'
+          )}
+        </Descriptions.Item>
+        <Descriptions.Item label="容器端口">{cfg?.containerPort ?? '-'}</Descriptions.Item>
+        <Descriptions.Item label="子路径模式">
+          {cfg?.subpathMode === 'native'
+            ? '透传（保留前缀）'
+            : cfg?.subpathMode === 'rewrite'
+              ? '重写（剥前缀）'
+              : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="启动命令">{cfg?.command?.join(' ') || '-'}</Descriptions.Item>
+        <Descriptions.Item label="启动参数">{cfg?.args?.join(' ') || '-'}</Descriptions.Item>
+        <Descriptions.Item label="环境变量">
+          {cfg?.envVars && Object.keys(cfg.envVars).length > 0 ? (
+            <Space size={[4, 8]} wrap>
+              {Object.entries(cfg.envVars).map(([k, v]) => (
+                <Tag key={k}>
+                  {k}={v}
+                </Tag>
+              ))}
+            </Space>
+          ) : (
+            '-'
+          )}
+        </Descriptions.Item>
+        <Descriptions.Item label="资源建议">
+          {hasResourceHint
+            ? `${cfg?.gpuCount ?? '-'} GPU · ${cfg?.cpu ?? '-'} 核 · ${cfg?.memory ?? '-'} · ${cfg?.replicas ?? '-'} 副本`
+            : '-'}
+        </Descriptions.Item>
+      </Descriptions>
+      <Modal
+        title="编辑部署配置"
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={handleEditOk}
+        confirmLoading={updateMutation.isPending}
+        width={640}
+        destroyOnHidden
+      >
+        <DeployConfigForm ref={formRef} initialConfig={version.deployConfig} />
+      </Modal>
+    </div>
+  )
+}
+
 export default function VersionDetailDrawer({
   modelId,
   modelName,
   version,
   open,
   onClose,
+  canWrite,
+  onUpdated,
 }: {
   modelId: string
   modelName: string
   version: ModelVersion | null
   open: boolean
   onClose: () => void
+  canWrite?: boolean
+  onUpdated?: (version: ModelVersion) => void
 }) {
   const [showFiles, setShowFiles] = useState(false)
 
@@ -217,6 +345,13 @@ export default function VersionDetailDrawer({
         <strong style={{ display: 'block', marginBottom: 8 }}>数据集信息</strong>
         <DatasetInfoSection version={version} />
       </div>
+      <Divider />
+      <DeployConfigSection
+        modelId={modelId}
+        version={version}
+        canWrite={canWrite}
+        onUpdated={onUpdated}
+      />
       <Divider />
       <div>
         {!showFiles ? (

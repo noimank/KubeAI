@@ -4,13 +4,15 @@ import { getSelectableImages } from '@/services/images'
 import type { ImageCategory, ImageSelectable } from '@/types/image'
 
 interface ImageSelectProps {
-  value?: string | null
-  onChange?: (imageId: string | null) => void
+  value?: string | string[] | null
+  onChange?: (imageId: string | string[] | null) => void
   placeholder?: string
   disabled?: boolean
   style?: React.CSSProperties
   /** 仅展示该类别的镜像 (训练表单传 'training', 推理表单传 'inference') */
   category?: ImageCategory
+  /** 多选模式 (如模型部署配置的候选镜像列表) */
+  multiple?: boolean
 }
 
 function groupBySource(images: ImageSelectable[]) {
@@ -33,6 +35,7 @@ export default function ImageSelect({
   disabled,
   style,
   category,
+  multiple,
 }: ImageSelectProps) {
   const { data: images = [], isLoading } = useQuery({
     queryKey: ['selectableImages', category ?? 'all'],
@@ -44,8 +47,9 @@ export default function ImageSelect({
 
   return (
     <Select
-      value={value ?? undefined}
-      onChange={(val) => onChange?.(val ?? null)}
+      mode={multiple ? 'multiple' : undefined}
+      value={(value as string | string[] | undefined) ?? undefined}
+      onChange={(val) => onChange?.(val as string | string[] | null)}
       placeholder={placeholder}
       disabled={disabled}
       loading={isLoading}

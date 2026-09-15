@@ -175,6 +175,12 @@ export default function ModelDetailPage() {
       render: (_: unknown, record: ModelVersion) => record.trainingJobName || '-',
     },
     {
+      title: '部署配置',
+      width: 90,
+      render: (_: unknown, record: ModelVersion) =>
+        record.deployConfig ? <Tag color="geekblue">已配置</Tag> : '-',
+    },
+    {
       title: '训练参数',
       width: 260,
       render: (_: unknown, record: ModelVersion) => formatHyperparamsTags(record.hyperparameters),
@@ -341,12 +347,17 @@ export default function ModelDetailPage() {
         version={selectedVersion}
         open={detailDrawerOpen}
         onClose={() => setDetailDrawerOpen(false)}
+        canWrite={canWrite}
+        onUpdated={(v) => setSelectedVersion(v)}
       />
       <UploadModal
         open={uploadModalOpen}
         onClose={() => setUploadModalOpen(false)}
         modelId={id}
         modelName={model.name}
+        initialDeployConfig={
+          [...(model.versions ?? [])].reverse().find((v) => v.deployConfig)?.deployConfig ?? null
+        }
         onSuccess={(version) => {
           setUploadModalOpen(false)
           queryClient.invalidateQueries({ queryKey: ['model', id] })

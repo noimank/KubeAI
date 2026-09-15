@@ -1,6 +1,7 @@
 import { api } from './api'
 import type { PageData } from '@/types/api'
 import type {
+  ModelDeployConfigInput,
   ModelVersion,
   ModelVersionCreate,
   ModelVersionFile,
@@ -43,6 +44,7 @@ export async function uploadModelFiles(params: {
   modelId?: string
   description?: string
   trainingJobId?: string
+  deployConfig?: ModelDeployConfigInput
   files: File[]
 }): Promise<ModelVersion> {
   const formData = new FormData()
@@ -50,8 +52,39 @@ export async function uploadModelFiles(params: {
   if (params.modelId) formData.append('model_id', params.modelId)
   if (params.description) formData.append('description', params.description)
   if (params.trainingJobId) formData.append('training_job_id', params.trainingJobId)
+  if (params.deployConfig) {
+    // multipart 不走 axios 的 camelCase→snake_case JSON 转换, 手动按后端字段名序列化
+    const c = params.deployConfig
+    formData.append(
+      'deploy_config',
+      JSON.stringify({
+        image_ids: c.imageIds ?? [],
+        container_port: c.containerPort ?? null,
+        subpath_mode: c.subpathMode ?? null,
+        command: c.command ?? null,
+        args: c.args ?? null,
+        env_vars: c.envVars ?? null,
+        gpu_count: c.gpuCount ?? null,
+        cpu: c.cpu ?? null,
+        memory: c.memory ?? null,
+        replicas: c.replicas ?? null,
+      }),
+    )
+  }
   params.files.forEach((f) => formData.append('files', f))
   const res = await api.post('/model-registry/local-upload', formData)
+  return res.data.data!
+}
+
+export async function updateModelVersionDeployConfig(
+  modelId: string,
+  versionId: string,
+  data: ModelDeployConfigInput,
+): Promise<ModelVersion> {
+  const res = await api.patch(
+    `/model-registry/${modelId}/versions/${versionId}/deploy-config`,
+    data,
+  )
   return res.data.data!
 }
 

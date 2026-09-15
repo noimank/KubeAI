@@ -129,16 +129,23 @@ export default function DeployModal({
     if (fallback) setSelectedVersionId(fallback.id)
   }, [open, defaultVersionId, versions])
 
-  // 弹窗打开或版本变化时, 重置非模型相关字段默认值.
+  // 弹窗打开或版本变化时, 重置字段: 平台默认值 → 版本部署配置预填 (逐字段 ?? 默认).
+  const deployConfig = selectedVersion?.deployConfig
   useEffect(() => {
     if (!open) return
     form.setFieldsValue({
-      containerPort: 8080,
-      subpathMode: 'rewrite',
-      gpuCount: 0,
-      cpu: '2',
-      memory: '4Gi',
-      replicas: 1,
+      imageId: deployConfig?.images?.[0]?.imageId,
+      containerPort: deployConfig?.containerPort ?? 8080,
+      subpathMode: deployConfig?.subpathMode ?? 'rewrite',
+      command: deployConfig?.command?.join(' '),
+      args: deployConfig?.args?.join(' '),
+      envVars: deployConfig?.envVars
+        ? Object.entries(deployConfig.envVars).map(([key, value]) => ({ key, value }))
+        : [],
+      gpuCount: deployConfig?.gpuCount ?? 0,
+      cpu: deployConfig?.cpu ?? '2',
+      memory: deployConfig?.memory ?? '4Gi',
+      replicas: deployConfig?.replicas ?? 1,
       scalingMode: 'fixed',
       minReplicas: 0,
       maxReplicas: 5,
@@ -147,7 +154,7 @@ export default function DeployModal({
       cooldownPeriod: 300,
       pollingInterval: 30,
     })
-  }, [open, selectedVersionId, form])
+  }, [open, selectedVersion, deployConfig, form])
 
   const handleSubmit = async () => {
     if (!selectedVersion) {
@@ -269,6 +276,15 @@ export default function DeployModal({
                 type="warning"
                 showIcon
                 message="该模型当前没有可用的版本（需状态为「可用」），无法部署"
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
+            {deployConfig && (
+              <Alert
+                type="info"
+                showIcon
+                message="已预填该版本的部署配置（镜像取第一个候选），可按需调整或切换镜像"
                 style={{ marginBottom: 16 }}
               />
             )}

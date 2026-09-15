@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Button,
   Collapse,
@@ -85,6 +85,32 @@ export default function CreateInferenceServicePage() {
     enabled: !!selectedModelId,
   })
   const versions = modelDetail?.versions ?? []
+
+  const selectedModelVersionId = Form.useWatch('modelVersionId', form)
+  const selectedModelVersion = versions.find((v) => v.id === selectedModelVersionId)
+
+  // 选择模型版本后, 用该版本的部署配置预填容器/资源字段 (仅覆盖配置中实际有值的字段)
+  useEffect(() => {
+    const cfg = selectedModelVersion?.deployConfig
+    if (!cfg) return
+    const patch: Partial<FormValues> = {}
+    if (cfg.images?.length) patch.imageId = cfg.images[0].imageId
+    if (cfg.containerPort != null) patch.containerPort = cfg.containerPort
+    if (cfg.subpathMode) patch.subpathMode = cfg.subpathMode
+    if (cfg.command?.length) patch.command = cfg.command.join(' ')
+    if (cfg.args?.length) patch.args = cfg.args.join(' ')
+    if (cfg.envVars && Object.keys(cfg.envVars).length > 0) {
+      patch.envVars = Object.entries(cfg.envVars).map(([key, value]) => ({ key, value }))
+    }
+    if (cfg.gpuCount != null) patch.gpuCount = cfg.gpuCount
+    if (cfg.cpu) patch.cpu = cfg.cpu
+    if (cfg.memory) patch.memory = cfg.memory
+    if (cfg.replicas != null) patch.replicas = cfg.replicas
+    if (Object.keys(patch).length > 0) {
+      form.setFieldsValue(patch)
+      getMessageInstance()?.info('已应用该模型版本的部署配置，可按需调整')
+    }
+  }, [selectedModelVersion, form])
 
   const { data: configsData } = useQuery({
     queryKey: ['business-configs-list', 1, 100],

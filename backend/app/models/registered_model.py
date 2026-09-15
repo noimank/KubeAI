@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import JSON, BigInteger, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -48,6 +49,7 @@ class ModelVersion(Base, TimestampMixin):
     dataset_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("dataset_versions.id"), nullable=True)
     image_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("images.id"), nullable=True)
     hyperparameters: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+    deploy_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
 
     model: Mapped[RegisteredModel] = relationship(back_populates="versions", lazy="joined")

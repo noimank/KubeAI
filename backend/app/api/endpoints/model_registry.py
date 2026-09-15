@@ -4,6 +4,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +17,7 @@ from app.integrations.base import sanitize_k8s_name
 from app.integrations.k8s.pvc import make_user_home_host_path, make_workspace_host_path
 from app.integrations.storage.model_storage import ModelStorage, get_model_storage
 from app.models.dataset import Dataset, DatasetVersion
-from app.models.enums import ModelVersionStatus
+from app.models.enums import ImageCategory, ModelVersionStatus
 from app.models.image import Image
 from app.models.registered_model import ModelVersion, RegisteredModel
 from app.models.tenant import Tenant
@@ -24,6 +25,9 @@ from app.models.training_job import TrainingJob
 from app.models.user import User
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.model_registry import (
+    DeployImageOption,
+    ModelDeployConfig,
+    ModelDeployConfigResponse,
     ModelFileDownloadRequest,
     ModelVersionCreateRequest,
     ModelVersionFileResponse,
@@ -86,6 +90,7 @@ def _build_model_response(
                 _dvn.get(latest.dataset_version_id) if latest and latest.dataset_version_id else None,
                 (_ii.get(latest.image_id) or (None, None))[0] if latest and latest.image_id else None,
                 (_ii.get(latest.image_id) or (None, None))[1] if latest and latest.image_id else None,
+                deploy_config=_deploy_config_response(latest, _ii) if latest else None,
             )
             if latest
             else None
@@ -102,6 +107,7 @@ def _build_version_response(
     dataset_version_number: int | None = None,
     image_name: str | None = None,
     image_tag: str | None = None,
+    deploy_config: ModelDeployConfigResponse | None = None,
 ) -> ModelVersionResponse:
     return ModelVersionResponse(
         id=v.id,
@@ -122,6 +128,7 @@ def _build_version_response(
         image_name=image_name,
         image_tag=image_tag,
         hyperparameters=v.hyperparameters,
+        deploy_config=deploy_config,
         created_by=v.created_by,
         created_at=v.created_at,
     )
@@ -165,8 +172,52 @@ async def _resolve_dataset_info(
     return dataset_names, version_numbers
 
 
+def _dump_deploy_config(config: ModelDeployConfig | None) -> dict[str, Any] | None:
+    """config → JSON 列存储值; 全空 (仅空镜像列表) 视为未配置, 存 None."""
+    if config is None:
+        return None
+    data = config.model_dump(mode="json", exclude_none=True)
+    if set(data) <= {"image_ids"} and not data.get("image_ids"):
+        return None
+    return data
+
+
+async def _validate_deploy_config_images(db: AsyncSession, config: ModelDeployConfig, tenant_id: uuid.UUID) -> None:
+    if not config.image_ids:
+        return
+    result = await db.execute(select(Image).where(Image.id.in_(config.image_ids), Image.deleted_at.is_(None)))
+    images = {img.id: img for img in result.scalars().all()}
+    for image_id in config.image_ids:
+        img = images.get(image_id)
+        if img is None or (img.tenant_id is not None and img.tenant_id != tenant_id):
+            raise BadRequestException(f"部署配置中的镜像不存在或不可用: {image_id}")
+        if img.category != ImageCategory.INFERENCE.value:
+            raise BadRequestException(f"部署配置中的镜像非推理类镜像: {img.name}:{img.tag}")
+
+
+def _deploy_config_response(
+    v: ModelVersion, image_info: dict[uuid.UUID, tuple[str, str]] | None = None
+) -> ModelDeployConfigResponse | None:
+    if not v.deploy_config:
+        return None
+    cfg = ModelDeployConfig.model_validate(v.deploy_config)
+    _ii = image_info or {}
+    images = [
+        DeployImageOption(
+            image_id=image_id,
+            image_name=(_ii.get(image_id) or (None, None))[0],
+            image_tag=(_ii.get(image_id) or (None, None))[1],
+        )
+        for image_id in cfg.image_ids
+    ]
+    return ModelDeployConfigResponse(**cfg.model_dump(exclude={"image_ids"}), images=images)
+
+
 async def _resolve_image_info(db: AsyncSession, versions: list[ModelVersion]) -> dict[uuid.UUID, tuple[str, str]]:
-    image_ids = {v.image_id for v in versions if v.image_id}
+    image_ids: set[uuid.UUID] = {v.image_id for v in versions if v.image_id}
+    for v in versions:
+        if v.deploy_config:
+            image_ids.update(uuid.UUID(str(i)) for i in v.deploy_config.get("image_ids", []))
     if not image_ids:
         return {}
     result = await db.execute(select(Image.id, Image.name, Image.tag).where(Image.id.in_(image_ids)))
@@ -196,6 +247,8 @@ async def register_model(
         dataset_version_id = training_job.dataset_version_id
         image_id = training_job.image_id
         hyperparameters = training_job.hyperparameters
+    if req.deploy_config is not None:
+        await _validate_deploy_config_images(db, req.deploy_config, tenant_id)
 
     model = await _get_or_create_registered_model(db, tenant_id, user.id, req.name)
 
@@ -227,6 +280,7 @@ async def register_model(
         dataset_version_id=dataset_version_id,
         image_id=image_id,
         hyperparameters=hyperparameters,
+        deploy_config=_dump_deploy_config(req.deploy_config),
         created_by=user.id,
     )
     db.add(version)
@@ -246,7 +300,11 @@ async def register_model(
 
     await db.flush()
     await db.refresh(version)
-    return BaseResponse(data=_build_version_response(version), message="模型注册成功")
+    img_info = await _resolve_image_info(db, [version])
+    return BaseResponse(
+        data=_build_version_response(version, deploy_config=_deploy_config_response(version, img_info)),
+        message="模型注册成功",
+    )
 
 
 @router.post("/local-upload", response_model=BaseResponse[ModelVersionResponse])
@@ -259,6 +317,7 @@ async def register_model_local(
     description: str | None = Form(None),
     model_id: uuid.UUID | None = Form(None),  # noqa: B008
     training_job_id: uuid.UUID | None = Form(None),  # noqa: B008
+    deploy_config: str | None = Form(None, description="推理部署配置 (ModelDeployConfig JSON 字符串)"),
     files: list[UploadFile] = File(..., min_length=1),  # noqa: B008
 ) -> BaseResponse[ModelVersionResponse]:
     """本地上传模型文件 — 流式分块直写到本地模型目录, 同步完成 (不再经 /tmp 与 Taskiq worker)."""
@@ -266,6 +325,15 @@ async def register_model_local(
         raise BadRequestException("请提供模型名称或模型 ID")
     tenant_id = _require_tenant_id(user)
     tenant = await _get_tenant_or_fail(db, tenant_id)
+
+    parsed_deploy_config: ModelDeployConfig | None = None
+    if deploy_config:
+        try:
+            parsed_deploy_config = ModelDeployConfig.model_validate_json(deploy_config)
+        except ValidationError as e:
+            raise BadRequestException(f"部署配置格式错误: {e}") from e
+    if parsed_deploy_config is not None:
+        await _validate_deploy_config_images(db, parsed_deploy_config, tenant_id)
 
     dataset_id: uuid.UUID | None = None
     dataset_version_id: uuid.UUID | None = None
@@ -317,6 +385,7 @@ async def register_model_local(
         dataset_version_id=dataset_version_id,
         image_id=image_id,
         hyperparameters=hyperparameters,
+        deploy_config=_dump_deploy_config(parsed_deploy_config),
         created_by=user.id,
     )
     db.add(version)
@@ -336,7 +405,11 @@ async def register_model_local(
 
     await db.flush()
     await db.refresh(version)
-    return BaseResponse(data=_build_version_response(version), message="模型上传成功")
+    img_info = await _resolve_image_info(db, [version])
+    return BaseResponse(
+        data=_build_version_response(version, deploy_config=_deploy_config_response(version, img_info)),
+        message="模型上传成功",
+    )
 
 
 @router.get("", response_model=PageResponse[RegisteredModelResponse])
@@ -406,6 +479,7 @@ async def get_model(
                 dataset_version_numbers.get(v.dataset_version_id) if v.dataset_version_id else None,
                 (image_info.get(v.image_id) or (None, None))[0] if v.image_id else None,
                 (image_info.get(v.image_id) or (None, None))[1] if v.image_id else None,
+                deploy_config=_deploy_config_response(v, image_info),
             )
             for v in versions
         ],
@@ -444,8 +518,48 @@ async def get_model_version(
             ds_ver_nums.get(version.dataset_version_id) if version.dataset_version_id else None,
             (img_info.get(version.image_id) or (None, None))[0] if version.image_id else None,
             (img_info.get(version.image_id) or (None, None))[1] if version.image_id else None,
+            deploy_config=_deploy_config_response(version, img_info),
         ),
         message="获取成功",
+    )
+
+
+@router.patch("/{model_id}/versions/{version_id}/deploy-config", response_model=BaseResponse[ModelVersionResponse])
+async def update_version_deploy_config(
+    model_id: uuid.UUID,
+    version_id: uuid.UUID,
+    req: ModelDeployConfig,
+    db: DbDep,
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_permission("models", "write"))],
+) -> BaseResponse[ModelVersionResponse]:
+    """更新模型版本的推理部署配置 (全量替换) — 上传时未填/填错的事后补救入口."""
+    tenant_id = _require_tenant_id(user)
+    await _verify_model_tenant(db, model_id, tenant_id)
+    version = await _get_version_or_fail(db, version_id, model_id)
+    await _validate_deploy_config_images(db, req, tenant_id)
+
+    version.deploy_config = _dump_deploy_config(req)
+
+    audit_service = AuditService(db)
+    await audit_service.log_action(
+        action="update",
+        resource_type="model",
+        ip_address=_audit_ctx(request, user)["ip_address"],
+        user_id=user.id,
+        tenant_id=tenant_id,
+        resource_id=str(version.id),
+        detail={"model_id": str(model_id), "version_id": str(version_id), "deploy_config": version.deploy_config},
+        user_agent=_audit_ctx(request, user).get("user_agent"),
+        request_id=_audit_ctx(request, user).get("request_id"),
+    )
+
+    await db.flush()
+    await db.refresh(version)
+    img_info = await _resolve_image_info(db, [version])
+    return BaseResponse(
+        data=_build_version_response(version, deploy_config=_deploy_config_response(version, img_info)),
+        message="部署配置已更新",
     )
 
 

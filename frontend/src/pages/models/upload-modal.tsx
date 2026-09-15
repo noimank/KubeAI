@@ -1,14 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Button, Input, Modal, Tabs, Typography, Upload } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
 import { useMutation } from '@tanstack/react-query'
 import type { UploadChangeParam, UploadFile } from 'antd/es/upload/interface'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { uploadModelFiles, registerModel } from '@/services/models'
-import type { ModelVersion } from '@/types/model'
+import type { ModelDeployConfig, ModelDeployConfigInput, ModelVersion } from '@/types/model'
 import { useAuthStore } from '@/stores/authStore'
 import { useTenantStore } from '@/stores/tenantStore'
 import FileBrowser from '@/components/FileBrowser'
+import DeployConfigForm from './components/deploy-config-form'
+import type { DeployConfigFormRef } from './components/deploy-config-form'
 
 type UploadTab = 'local' | 'browser'
 
@@ -19,6 +21,8 @@ interface UploadModalProps {
   /** 若提供，则为"上传新版本"模式，名称锁定 */
   modelId?: string
   modelName?: string
+  /** 上传新版本时预填的部署配置 (取最新版本) */
+  initialDeployConfig?: ModelDeployConfig | null
 }
 
 export default function UploadModal({
@@ -27,12 +31,14 @@ export default function UploadModal({
   onSuccess,
   modelId,
   modelName = '',
+  initialDeployConfig,
 }: UploadModalProps) {
   const [tab, setTab] = useState<UploadTab>('local')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [fileList, setFileList] = useState<UploadFile[]>([])
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
+  const configFormRef = useRef<DeployConfigFormRef>(null)
 
   const authUser = useAuthStore((s) => s.user)
   const currentTenant = useTenantStore((s) => s.currentTenant)
@@ -75,7 +81,14 @@ export default function UploadModal({
     setFileList(info.fileList)
   }
 
-  const handleOk = () => {
+  const handleOk = async () => {
+    let deployConfig: ModelDeployConfigInput | undefined
+    try {
+      deployConfig = await configFormRef.current?.getSubmitConfig()
+    } catch {
+      getMessageInstance()?.warning('请检查推理部署配置')
+      return
+    }
     if (tab === 'local') {
       if (!isVersionMode && !name.trim()) {
         getMessageInstance()?.warning('请输入模型名称')
@@ -90,6 +103,7 @@ export default function UploadModal({
         name: isVersionMode ? undefined : name.trim(),
         modelId: modelId || undefined,
         description: description.trim() || undefined,
+        deployConfig,
         files,
       })
     } else {
@@ -105,6 +119,7 @@ export default function UploadModal({
         name: isVersionMode ? modelName || name.trim() : name.trim(),
         description: description.trim() || undefined,
         filePaths: selectedPaths,
+        deployConfig,
       })
     }
   }
@@ -223,6 +238,9 @@ export default function UploadModal({
           { key: 'browser', label: '从文件浏览器选择', children: browserTab },
         ]}
       />
+      <div style={{ marginTop: 16 }}>
+        <DeployConfigForm ref={configFormRef} initialConfig={initialDeployConfig} />
+      </div>
     </Modal>
   )
 }
