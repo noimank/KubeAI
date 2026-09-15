@@ -106,13 +106,6 @@ mlflow:
   persistence:
     size: 5Gi
 
-labelstudio:
-  enabled: true
-  secretKey: "ac858f0dc5b07255d98f759596ed068ba665743e0cdc6f5fad1fee17413715c9"
-  service:
-    type: NodePort
-    nodePort: 30800
-
 # -- APISIX API gateway for local Docker Desktop dev.
 # Routes are pushed directly via Admin API (no ingress-controller/CRD).
 # Gateway NodePort :30080 for browser access, Admin NodePort :30918 for backend.

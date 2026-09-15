@@ -24,7 +24,6 @@ dependencies = [
     "httpx>=0.28.1",
     "minio>=7.2.20",
     "python-multipart>=0.0.32",
-    "label-studio-sdk>=2.0.0",
     "aiofiles>=25.1.0",
     "taskiq>=0.12.6,<1.0.0",
     "taskiq-redis>=1.2.3,<2.0.0",

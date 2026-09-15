@@ -78,7 +78,7 @@ sequenceDiagram
 数据集版本可以直接创建标注项目：
 
 1. 选择数据集版本作为标注数据源
-2. `AnnotationService` 将文件导入 Label Studio 项目
+2. `AnnotationService` 为数据集文件创建本地标注任务
 3. 标注完成后将结果写回数据集版本
 
 ## 相关 API

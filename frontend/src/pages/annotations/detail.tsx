@@ -388,9 +388,6 @@ function TaskPreviewModal({
             {statusInfo ? <Tag color={statusInfo.color}>{statusInfo.label}</Tag> : '-'}
           </Descriptions.Item>
           <Descriptions.Item label="分配人">{task.assignedToName || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Label Studio 任务 ID">
-            {task.labelStudioTaskId}
-          </Descriptions.Item>
           <Descriptions.Item label="项目">{task.projectName || '-'}</Descriptions.Item>
           <Descriptions.Item label="提交时间">
             {task.submittedAt ? formatDate(task.submittedAt) : '-'}

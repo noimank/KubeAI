@@ -76,7 +76,6 @@ const mockProject = {
 const mockTask = {
   id: 'task-1',
   projectId: 'proj-1',
-  labelStudioTaskId: 1,
   data: {},
   status: 'assigned' as const,
   projectName: '测试标注项目',

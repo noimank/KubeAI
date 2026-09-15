@@ -13,7 +13,7 @@ infra/k8s/
 │
 ├── postgresql/                  # PostgreSQL 数据库
 │   ├── postgresql-secret.yaml   #   数据库密码 (部署前必须修改)
-│   └── postgresql.yaml          #   含 mlflow/labelstudio 数据库初始化
+│   └── postgresql.yaml          #   含 mlflow 数据库初始化
 ├── redis/                       # Redis 缓存
 │   └── redis.yaml
 ├── minio/                       # MinIO 对象存储
@@ -30,9 +30,6 @@ infra/k8s/
 ├── mlflow/                      # MLflow 实验追踪 (可选)
 │   ├── mlflow-secret.yaml       #   数据库连接 URI
 │   └── mlflow.yaml
-├── labelstudio/                 # Label Studio 数据标注 (可选)
-│   ├── labelstudio-secret.yaml  #   数据库密码、JWT 签名密钥 (SECRET_KEY)
-│   └── labelstudio.yaml
 ├── ingress/                     # ApisixRoute 入口 (依赖公司 APISIX 网关)
 │   └── ingress.yaml             #   路由到 frontend，APISIX 内部代理 /api 和 /ws
 │
@@ -163,7 +160,6 @@ kubectl apply -f infra/k8s/frontend/
 
 # 6. 可选应用
 kubectl apply -f infra/k8s/mlflow/          # 实验追踪
-kubectl apply -f infra/k8s/labelstudio/     # 数据标注
 
 # 7. 平台组件 (按需部署)
 kubectl apply -f infra/k8s/volcano/00-namespace.yaml
@@ -202,7 +198,7 @@ kubectl -n kubeai logs deploy/backend-taskiq-worker -f
 namespace.yaml
   │
   ├── 基础设施
-  │   ├── postgresql/        ← mlflow/labelstudio 依赖此数据库
+  │   ├── postgresql/        ← mlflow 依赖此数据库
   │   ├── redis/             ← backend + taskiq 依赖
   │   └── minio/             ← backend 依赖
   │
@@ -212,7 +208,6 @@ namespace.yaml
   │
   ├── 可选应用
   │   ├── mlflow/            ← 依赖 postgresql (mlflow 库)
-  │   ├── labelstudio/       ← 依赖 postgresql (labelstudio 库)
   │   └── ingress/           ← 依赖 frontend + Ingress Controller
   │
   └── 平台组件
@@ -249,7 +244,6 @@ kubectl port-forward -n kubeai svc/backend 8000:8000
 kubectl port-forward -n kubeai svc/frontend 3000:80
 kubectl port-forward -n kubeai svc/minio 9001:9001
 kubectl port-forward -n kubeai svc/mlflow 5000:5000
-kubectl port-forward -n kubeai svc/labelstudio 8080:8080
 ```
 
 外部访问通过 `kubectl port-forward` 或 Ingress 实现：
@@ -288,7 +282,6 @@ kubectl get nodes -l 'node-role.kubernetes.io/worker' -o name | xargs -I {} kube
 | 组件 | 启用方式 |
 |-----|---------|
 | MLflow | `MLFLOW_TRACKING_URI` 指向 MLflow Service；后端启动时会做健康检查, 不可达则 fail-fast. 前端创建训练任务时可选择是否启用实验追踪. |
-| Label Studio | `LABEL_STUDIO_URL` 指向 Label Studio Service + Secret 中配置 `LABEL_STUDIO_API_TOKEN` |
 | 开发环境 | 由 Backend 动态管理 Pod/Service/Ingress，无需额外组件部署 |
 | OIDC/SSO | `OIDC_ENABLED: "true"` + Secret 中配置 `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` |
 | Harbor | Secret 中配置 `HARBOR_URL` / `HARBOR_PASSWORD` |
@@ -297,7 +290,6 @@ kubectl get nodes -l 'node-role.kubernetes.io/worker' -o name | xargs -I {} kube
 
 ```bash
 kubectl delete -f infra/k8s/ingress/
-kubectl delete -f infra/k8s/labelstudio/
 kubectl delete -f infra/k8s/mlflow/
 kubectl delete -f infra/k8s/frontend/
 kubectl delete -f infra/k8s/backend/

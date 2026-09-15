@@ -45,7 +45,6 @@ graph TB
     subgraph "外部集成"
         HARBOR[Harbor<br/>镜像仓库]
         MLFLOW[MLflow<br/>实验跟踪]
-        LABEL_STUDIO[Label Studio<br/>数据标注]
         DEVPOD[原生 Pod<br/>开发环境]
         PROMETHEUS[Prometheus<br/>监控]
     end
@@ -65,7 +64,6 @@ graph TB
 
     SERVICES --> HARBOR
     SERVICES --> MLFLOW
-    SERVICES --> LABEL_STUDIO
     SERVICES --> DEVPOD
     SERVICES --> PROMETHEUS
 ```
@@ -95,7 +93,7 @@ KubeAI 后端采用经典的分层架构：
 - `integrations/minio/` — MinIO 对象存储
 - `integrations/harbor/` — Harbor 镜像仓库
 - `integrations/mlflow/` — MLflow 实验跟踪
-- `integrations/labelstudio/` — Label Studio 数据标注
+- `integrations/labelstudio/` — 标注 XML 模板格式层 (标注链路自研, 无外部标注服务)
 - `integrations/k8s/dev_pod.py` — 原生 Pod 开发环境
 - `integrations/prometheus/` — Prometheus 监控指标
 

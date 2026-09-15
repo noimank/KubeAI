@@ -1,4 +1,4 @@
-# PostgreSQL - KubeAI 主数据库 (含 mlflow/labelstudio 初始化)
+# PostgreSQL - KubeAI 主数据库 (含 mlflow 初始化)
 # 部署: kubectl apply -k infra/k8s/postgresql/
 # 端口: ClusterIP 5432 (仅集群内访问)
 #
@@ -18,8 +18,6 @@ metadata:
 data:
   01-create-mlflow-db.sql: |
     CREATE DATABASE mlflow;
-  02-create-labelstudio-db.sql: |
-    CREATE DATABASE labelstudio;
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

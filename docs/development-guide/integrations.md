@@ -15,7 +15,6 @@ KubeAI 通过 `backend/app/integrations/` 目录封装所有外部系统交互�
 | `minio/` | `minio` (同步) | `asyncio.to_thread()` | MinIO S3 |
 | `harbor/` | `httpx` (同步) | `asyncio.to_thread()` | Harbor REST API |
 | `mlflow/` | `httpx` (同步) | `asyncio.to_thread()` | MLflow REST API |
-| `labelstudio/` | `httpx` (同步) | `asyncio.to_thread()` | Label Studio REST API |
 | `prometheus/` | `httpx` (同步) | `asyncio.to_thread()` | Prometheus HTTP API |
 
 ## Kubernetes 集成

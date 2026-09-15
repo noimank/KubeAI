@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,7 +27,6 @@ class AnnotationTask(Base, TimestampMixin, TenantMixin):
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("annotation_projects.id", ondelete="CASCADE"), nullable=False
     )
-    label_studio_task_id: Mapped[int] = mapped_column(Integer, nullable=False)
     kubeai_object_name: Mapped[str] = mapped_column(String(1024), nullable=False)
     data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     assigned_to: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

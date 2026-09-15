@@ -21,7 +21,6 @@ class AnnotationProjectResponse(BaseModel):
     dataset_version_id: uuid.UUID
     template_id: uuid.UUID | None
     template_name: str | None = None
-    label_studio_project_id: int | None
     total_tasks: int
     completed_tasks: int
     status: str
@@ -53,7 +52,6 @@ class MyTaskIdsResponse(BaseModel):
 class AnnotationTaskResponse(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
-    label_studio_task_id: int
     data: dict[str, Any]
     assigned_to: uuid.UUID | None = None
     assigned_to_name: str | None = None

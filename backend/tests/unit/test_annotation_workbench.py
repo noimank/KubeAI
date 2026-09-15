@@ -66,12 +66,10 @@ def _make_task(
     tenant_id=None,
     assigned_to=None,
     status="assigned",
-    ls_task_id=100,
     kubeai_object_name="datasets/default-tenant/test-dataset/v1/img.jpg",
 ):
     task = AnnotationTask(
         project_id=project_id or uuid.uuid4(),
-        label_studio_task_id=ls_task_id,
         kubeai_object_name=kubeai_object_name,
         data={"image": "/data/kubeai/datasets/test-tenant/test-dataset/v1/img.jpg"},
         assigned_to=assigned_to,
@@ -101,15 +99,8 @@ def mock_db():
 
 
 @pytest.fixture
-def mock_ls():
-    ls = MagicMock()
-    ls.create_annotation = AsyncMock(return_value={"id": 1})
-    return ls
-
-
-@pytest.fixture
-def service(mock_db, mock_ls):
-    svc = AnnotationService(mock_db, mock_ls)
+def service(mock_db):
+    svc = AnnotationService(mock_db)
     svc._get_tenant_name = AsyncMock(return_value="default-tenant")
     svc.storage = MagicMock()
     svc.storage.write_file = AsyncMock()
@@ -128,7 +119,7 @@ class TestListMyTaskIds:
         t1 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id, status="completed")
         t2 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id)
         t3 = _make_task(project_id=project.id, tenant_id=tenant_id, assigned_to=user_id, status="completed")
-        # 模拟 SQL 过滤 + (created_at, label_studio_task_id) 排序后的返回(Row 支持属性访问)
+        # 模拟 SQL 过滤 + (created_at, kubeai_object_name) 排序后的返回(Row 支持属性访问)
         result = MagicMock()
         result.all.return_value = [
             SimpleNamespace(id=t1.id, status=t1.status),
@@ -147,7 +138,7 @@ class TestListMyTaskIds:
         assert "project_id" in compiled
         assert "assigned_to" in compiled
         assert "created_at" in compiled  # order_by
-        assert "label_studio_task_id" in compiled  # 稳定排序 tiebreaker
+        assert "kubeai_object_name" in compiled  # 稳定排序 tiebreaker
 
 
 class TestStartAnnotation:
@@ -214,7 +205,7 @@ class TestStartAnnotation:
 
 
 class TestSubmitAnnotation:
-    async def test_submit_annotation_success(self, service, mock_db, mock_ls):
+    async def test_submit_annotation_success(self, service, mock_db):
         tenant_id = uuid.uuid4()
         user_id = uuid.uuid4()
         project = _make_project(tenant_id=tenant_id)
@@ -238,7 +229,6 @@ class TestSubmitAnnotation:
 
         assert result.status == "completed"
         assert project.completed_tasks == 1
-        mock_ls.create_annotation.assert_called_once()
 
         # Per-file JSON write assertions
         assert service.storage.write_file.await_count == 1

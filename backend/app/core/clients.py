@@ -28,7 +28,6 @@ from app.integrations.minio import MinIOClient
 from app.integrations.prometheus.client import PrometheusClient
 
 if TYPE_CHECKING:
-    from app.integrations.labelstudio import LabelStudioClient
     from app.integrations.mlflow.client import MLflowClient
 
 logger = structlog.get_logger(__name__)
@@ -40,7 +39,6 @@ logger = structlog.get_logger(__name__)
 _harbor_client: HarborClient | None = None
 _minio_client: MinIOClient | None = None
 _prometheus_client: PrometheusClient | None = None
-_labelstudio_client: LabelStudioClient | None = None
 _mlflow_client: MLflowClient | None = None
 _casdoor_client: CasdoorClient | None = None
 
@@ -64,17 +62,6 @@ def get_prometheus_client() -> PrometheusClient | None:
     if _prometheus_client is None and settings.PROMETHEUS_URL:
         _prometheus_client = PrometheusClient()
     return _prometheus_client
-
-
-def get_labelstudio_client() -> LabelStudioClient:
-    global _labelstudio_client
-    if _labelstudio_client is None:
-        if not settings.LABEL_STUDIO_API_TOKEN:
-            raise RuntimeError("LabelStudio 客户端未初始化")
-        from app.integrations.labelstudio import LabelStudioClient
-
-        _labelstudio_client = LabelStudioClient()
-    return _labelstudio_client
 
 
 def get_mlflow_client() -> MLflowClient:
@@ -136,8 +123,6 @@ async def init_clients() -> None:
     get_minio_client()
     get_prometheus_client()  # may be None if PROMETHEUS_URL not set
 
-    if settings.LABEL_STUDIO_API_TOKEN:
-        get_labelstudio_client()
     get_mlflow_client()
     if settings.OIDC_ISSUER:
         get_casdoor_client()
@@ -149,7 +134,7 @@ async def init_clients() -> None:
 async def close_clients() -> None:
     """Close all integration clients.  Idempotent — safe to call more than once."""
     global _harbor_client, _minio_client, _prometheus_client
-    global _labelstudio_client, _mlflow_client, _casdoor_client
+    global _mlflow_client, _casdoor_client
 
     if _harbor_client is not None:
         await _harbor_client.close()
@@ -160,9 +145,6 @@ async def close_clients() -> None:
     if _prometheus_client is not None:
         await _prometheus_client.close()
         _prometheus_client = None
-    if _labelstudio_client is not None:
-        await _labelstudio_client.close()
-        _labelstudio_client = None
     if _mlflow_client is not None:
         await _mlflow_client.close()
         _mlflow_client = None

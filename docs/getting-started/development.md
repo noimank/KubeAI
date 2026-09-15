@@ -37,7 +37,6 @@ helm upgrade --install kubeai infra/helm/kubeai/ \
 | MinIO API | `localhost:30900` |
 | MinIO Console | `localhost:30901` |
 | MLflow | `localhost:30500` |
-| Label Studio | `localhost:30800` |
 | APISIX 网关 | Gateway `localhost:30080` / Admin `localhost:30918` |
 
 Helm 还会安装 cert-manager、Volcano、KEDA、KServe 等本地联调基础设施。Helm 不部署后端、Taskiq worker/scheduler 和前端，这三个进程都在本机启动。
@@ -68,10 +67,6 @@ MINIO_SECRET_KEY=minioadmin
 
 # JWT 密钥（开发环境可使用默认值）
 SECRET_KEY=your-secret-key-here
-
-# Label Studio
-LABEL_STUDIO_URL=http://localhost:30800
-LABEL_STUDIO_API_TOKEN=your-token
 
 # MLflow
 MLFLOW_TRACKING_URI=http://localhost:30500

@@ -26,7 +26,6 @@ function makeTask(id: string, status: AnnotationTask['status'] = 'assigned'): An
   return {
     id,
     projectId: 'p1',
-    labelStudioTaskId: 1,
     data: {},
     status,
     createdAt: '2026-01-01T00:00:00Z',

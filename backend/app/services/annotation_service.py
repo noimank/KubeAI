@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.integrations.labelstudio.client import LabelStudioClient
     from app.schemas.annotation import (
         AnnotationBatchAssignRequest,
         AnnotationTaskAssignRequest,
@@ -42,8 +41,6 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
-
-_LS_BATCH_SIZE = 250
 
 
 def _annotation_filename(kubeai_object_name: str) -> str:
@@ -77,9 +74,8 @@ async def _load_annotation_result(
 
 
 class AnnotationService:
-    def __init__(self, db: AsyncSession, labelstudio_client: LabelStudioClient) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
-        self.ls_client = labelstudio_client
         self.storage = FileSystemStorage()
 
     async def _get_tenant_name(self, tenant_id: uuid.UUID) -> str:
@@ -103,7 +99,7 @@ class AnnotationService:
         template_id: uuid.UUID,
         audit_context: dict[str, Any] | None = None,
     ) -> AnnotationProject:
-        """创建标注项目 DB 记录 (仅验证 + 记录, LabelStudio 交互由 Taskiq worker 异步执行)."""
+        """创建标注项目 DB 记录 (仅验证 + 记录, 任务导入由 Taskiq worker 异步执行)."""
         await self._get_dataset_or_fail(dataset_id, tenant_id)
         await self._get_version_or_fail(dataset_version_id, dataset_id)
 
@@ -128,7 +124,6 @@ class AnnotationService:
             dataset_id=dataset_id,
             dataset_version_id=dataset_version_id,
             template_id=tpl.id,
-            label_studio_project_id=None,
             label_config=tpl.label_config,  # 拍快照, 模板后续编辑不影响该项目
             total_tasks=0,
             completed_tasks=0,
@@ -160,7 +155,7 @@ class AnnotationService:
         return project
 
     async def execute_project_setup(self, project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-        """由 Taskiq worker 调用: 枚举文件 + 创建 LabelStudio 项目 + 导入任务."""
+        """由 Taskiq worker 调用: 枚举文件 + 创建标注任务记录."""
         from app.models.annotation_task import AnnotationTask
 
         result = await self.db.execute(
@@ -187,59 +182,36 @@ class AnnotationService:
             await self.db.commit()
             return
 
-        # Prepare task data
-        config_info = parse_label_config(project.label_config)
-        tasks = await self._prepare_task_data(
-            files,
-            dataset.id,
-            version.id,
-            config_info,
-            tenant_name,
-            dataset.name,
-            version.version_number,
-        )
-
-        # Create project in LabelStudio
+        # Prepare task data; 失败(如结构化文件解析错误)时置 failed 供用户重试
         try:
-            ls_project_id = await self.ls_client.create_project(
-                project.name,
-                project.description or "",
-                project.label_config or "",
+            config_info = parse_label_config(project.label_config)
+            tasks = await self._prepare_task_data(
+                files,
+                dataset.id,
+                version.id,
+                config_info,
+                tenant_name,
+                dataset.name,
+                version.version_number,
             )
-        except ExternalServiceException:
+        except Exception:
             await self._mark_project_failed(project_id, tenant_id)
             raise
-        except Exception as e:
-            await self._mark_project_failed(project_id, tenant_id)
-            raise ExternalServiceException(f"创建 LabelStudio 项目失败: {e}") from e
 
-        project.label_studio_project_id = ls_project_id
-
-        # Import tasks to LabelStudio and create DB records
-        if tasks:
-            try:
-                ls_tasks = await self._import_tasks_batched(ls_project_id, tasks)
-                self.db.add_all(
-                    [
-                        AnnotationTask(
-                            project_id=project.id,
-                            label_studio_task_id=ls_task["id"],
-                            data=ls_task["data"],
-                            kubeai_object_name=ls_task["data"]["kubeai_object_name"],
-                            assigned_to=None,
-                            status="unassigned",
-                            tenant_id=tenant_id,
-                        )
-                        for ls_task in ls_tasks
-                    ]
+        self.db.add_all(
+            [
+                AnnotationTask(
+                    project_id=project.id,
+                    data=task,
+                    kubeai_object_name=task["kubeai_object_name"],
+                    assigned_to=None,
+                    status="unassigned",
+                    tenant_id=tenant_id,
                 )
-                project.total_tasks = len(ls_tasks)
-            except Exception as e:
-                logger.warning("导入 LabelStudio tasks 失败, 准备清理项目: %s", e)
-                await self.ls_client.delete_project(ls_project_id)
-                await self._mark_project_failed(project_id, tenant_id)
-                raise ExternalServiceException(f"导入 LabelStudio tasks 失败: {e}") from e
-
+                for task in tasks
+            ]
+        )
+        project.total_tasks = len(tasks)
         project.status = AnnotationProjectStatus.ACTIVE
         await self.db.commit()
 
@@ -269,9 +241,8 @@ class AnnotationService:
         project = result.scalar_one_or_none()
         if not project:
             return 0
-
-        ls_project_id = project.label_studio_project_id
-        if ls_project_id is None:
+        # 仅已完成初始化的项目可同步 (PENDING 未导入过任务, FAILED 需先重试)
+        if project.status not in (AnnotationProjectStatus.ACTIVE, AnnotationProjectStatus.COMPLETED):
             return 0
         assert project.label_config is not None, "execute_sync_tasks requires label_config snapshot"
 
@@ -304,25 +275,23 @@ class AnnotationService:
             dataset.name,
             version.version_number,
         )
-        ls_tasks = await self._import_tasks_batched(ls_project_id, tasks)
 
         self.db.add_all(
             [
                 AnnotationTask(
                     project_id=project.id,
-                    label_studio_task_id=ls_task["id"],
-                    data=ls_task["data"],
-                    kubeai_object_name=ls_task["data"]["kubeai_object_name"],
+                    data=task,
+                    kubeai_object_name=task["kubeai_object_name"],
                     assigned_to=None,
                     status="unassigned",
                     tenant_id=tenant_id,
                 )
-                for ls_task in ls_tasks
+                for task in tasks
             ]
         )
-        project.total_tasks = (project.total_tasks or 0) + len(ls_tasks)
+        project.total_tasks = (project.total_tasks or 0) + len(tasks)
         await self.db.commit()
-        return len(ls_tasks)
+        return len(tasks)
 
     _STRUCTURED_EXTENSIONS = frozenset({".json", ".jsonl", ".csv"})
 
@@ -391,7 +360,7 @@ class AnnotationService:
                 content = await self.storage.get_file_content(file_path)
                 data[data_object.field] = content.decode("utf-8", errors="replace")
 
-            results.append({"data": data})
+            results.append(data)
 
         return results
 
@@ -451,7 +420,7 @@ class AnnotationService:
                             value = self._build_download_url(dataset_id, version_id, value_str)
                     data[field_name] = value
 
-                results.append({"data": data})
+                results.append(data)
 
         if not results:
             logger.warning(
@@ -483,15 +452,6 @@ class AnnotationService:
             raise ExternalServiceException(f"解析文件 '{file_name}' 失败: {e}") from e
 
         raise ValueError(f"不支持的文件类型: {ext}")
-
-    async def _import_tasks_batched(self, ls_project_id: int, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Import tasks to LabelStudio in batches and return all LS task records."""
-        all_ls_tasks: list[dict[str, Any]] = []
-        for i in range(0, len(tasks), _LS_BATCH_SIZE):
-            batch = tasks[i : i + _LS_BATCH_SIZE]
-            ls_tasks = await self.ls_client.import_tasks(ls_project_id, batch)
-            all_ls_tasks.extend(ls_tasks)
-        return all_ls_tasks
 
     async def list_projects(
         self,
@@ -537,9 +497,6 @@ class AnnotationService:
         if not project:
             raise NotFoundException("标注项目不存在")
 
-        # Sync stats from LabelStudio
-        await self._sync_project_stats(project)
-
         return project
 
     async def delete_project(
@@ -556,13 +513,6 @@ class AnnotationService:
         project = result.scalar_one_or_none()
         if not project:
             raise NotFoundException("标注项目不存在")
-
-        # Delete from LabelStudio
-        if project.label_studio_project_id is not None:
-            try:
-                await self.ls_client.delete_project(project.label_studio_project_id)
-            except Exception as e:
-                logger.warning("删除 LabelStudio 项目失败: %s", e)
 
         if audit_context:
             await self._log_audit(
@@ -584,36 +534,20 @@ class AnnotationService:
     ) -> AnnotationProject:
         """Reset a failed annotation project to pending and prepare for retry.
 
-        Only projects in 'failed' status can be retried. Stale LabelStudio
-        resources from the prior attempt are cleaned up on a best-effort basis.
+        Only projects in 'failed' status can be retried.
         """
         project = await self._validate_project_membership(project_id, tenant_id)
 
         if project.status != AnnotationProjectStatus.FAILED:
             raise ConflictException(f"当前状态为 {project.status}，仅失败的项目可以重试")
 
-        # 残留 LabelStudio 项目尽力清理; delete_project 内部吞掉所有异常只记日志, 这里不会再抛
-        if project.label_studio_project_id is not None:
-            await self.ls_client.delete_project(project.label_studio_project_id)
-
         # Reset project state for a fresh setup attempt.
         project.status = AnnotationProjectStatus.PENDING
-        project.label_studio_project_id = None
         project.total_tasks = 0
         project.completed_tasks = 0
         await self.db.commit()
 
         return project
-
-    async def _sync_project_stats(self, project: AnnotationProject) -> None:
-        if project.label_studio_project_id is None:
-            return
-        try:
-            stats = await self.ls_client.get_project_stats(project.label_studio_project_id)
-            project.total_tasks = stats.get("total", project.total_tasks)
-            project.completed_tasks = stats.get("completed", project.completed_tasks)
-        except Exception as e:
-            logger.warning("同步 LabelStudio 统计失败: %s", e)
 
     async def list_project_tasks(
         self,
@@ -855,7 +789,7 @@ class AnnotationService:
                 selectinload(AnnotationTask.assignee),
             )
             .where(*conditions)
-            .order_by(AnnotationTask.created_at.desc(), AnnotationTask.label_studio_task_id.desc())
+            .order_by(AnnotationTask.created_at.desc(), AnnotationTask.kubeai_object_name.desc())
         )
 
         total_q = select(func.count()).select_from(query.subquery())
@@ -872,7 +806,7 @@ class AnnotationService:
     ) -> tuple[list[uuid.UUID], int]:
         """返回当前用户在项目内的任务 ID 列表(稳定升序)与已完成数,用于工作台线性导航与进度。
 
-        排序以 (created_at, label_studio_task_id) 保证批量导入(同一时间戳)时顺序确定,
+        排序以 (created_at, kubeai_object_name) 保证批量导入(同一时间戳)时顺序确定,
         否则任务序号会在多次查询间漂移。
         """
         await self._validate_project_membership(project_id, tenant_id)
@@ -883,7 +817,7 @@ class AnnotationService:
                 AnnotationTask.tenant_id == tenant_id,
                 AnnotationTask.assigned_to == user_id,
             )
-            .order_by(AnnotationTask.created_at, AnnotationTask.label_studio_task_id)
+            .order_by(AnnotationTask.created_at, AnnotationTask.kubeai_object_name)
         )
         rows = result.all()
         ids = [row.id for row in rows]
@@ -957,11 +891,7 @@ class AnnotationService:
         if task.status not in ("assigned", "in_progress"):
             raise ForbiddenException("任务状态不是「已分配」或「进行中」，无法提交")
 
-        # 1. Mirror to Label Studio.
-        if task.label_studio_task_id:
-            await self.ls_client.create_annotation(task.label_studio_task_id, result)
-
-        # 2. Write per-file JSON into the source dataset version's annotations/ dir.
+        # Write per-file JSON into the source dataset version's annotations/ dir.
         project = task.project
         dataset = project.dataset
         version = project.dataset_version
@@ -988,7 +918,7 @@ class AnnotationService:
             json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
         )
 
-        # 4. Update task + project counters.
+        # Update task + project counters.
         task.status = "completed"
         project.completed_tasks = (project.completed_tasks or 0) + 1
         if (
@@ -1084,7 +1014,7 @@ class AnnotationService:
             .order_by(
                 case((AnnotationTask.status == "in_progress", 0), else_=1),
                 AnnotationTask.created_at,
-                AnnotationTask.label_studio_task_id,
+                AnnotationTask.kubeai_object_name,
             )
             .limit(1)
         )

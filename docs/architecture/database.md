@@ -138,7 +138,6 @@ erDiagram
 | `project_type` | StrEnum | 标注类型 |
 | `label_config` | JSON | 标签配置 |
 | `dataset_id` | UUID | 关联数据集 |
-| `ls_project_id` | Integer | Label Studio 项目 ID |
 
 | AnnotationTask 字段 | 类型 | 说明 |
 |---------------------|------|------|

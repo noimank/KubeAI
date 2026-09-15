@@ -63,5 +63,3 @@ dependencies:
     repository: https://charts.apiseven.com
     condition: apisix.enabled
     alias: apisix
-
-  # Label Studio: deployed as custom template (templates/labelstudio.yaml)

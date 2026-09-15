@@ -2,7 +2,7 @@
 
 ## 概述
 
-KubeAI 集成 Label Studio 提供数据标注功能，支持多种标注类型，包括图像分类、目标检测、语义分割和文本分类等。
+KubeAI 内置自研数据标注能力（前端标注工作台 + 后端任务管线），支持图像分类、目标检测、语义分割、文本分类等多种标注类型。标签配置采用 Label Studio 兼容的 XML 格式作为标注模板语言。
 
 ## 核心概念
 
@@ -28,9 +28,7 @@ KubeAI 集成 Label Studio 提供数据标注功能，支持多种标注类型�
 ```mermaid
 graph TD
     FRONTEND[前端标注工作台] -->|API| BACKEND[AnnotationService]
-    BACKEND -->|REST API| LS[Label Studio]
     BACKEND -->|ORM| DB[(PostgreSQL)]
-    LS -->|Webhook| BACKEND
     BACKEND -->|写回| DATASET[数据集版本]
 
     subgraph "前端标注工作台"
@@ -40,12 +38,14 @@ graph TD
     end
 ```
 
-### Label Studio 集成
+### 标签配置格式层
 
-- `integrations/labelstudio/client.py` — Label Studio REST API 客户端
-- `integrations/labelstudio/templates.py` — XML 模板构建器
+标注不依赖外部标注服务，仅沿用 Label Studio 的 XML 标注配置作为模板语言：
 
-`templates.py` 为每种标注类型生成 Label Studio 兼容的 XML 配置。
+- `integrations/labelstudio/templates.py` — XML 配置解析与工具（`parse_label_config` 等）
+- `integrations/labelstudio/builtin_templates.json` — 内置标注模板
+
+前端 `pages/annotations` 下的 `parseLabelConfig` 解析同一 XML 配置，由自研标注组件（Konva Canvas 等）渲染标注界面。
 
 ## 标注项目创建流程
 
@@ -53,24 +53,16 @@ graph TD
 sequenceDiagram
     participant U as 用户
     participant A as API
+    participant W as Taskiq Worker
     participant S as AnnotationService
-    participant LS as Label Studio
 
     U->>A: POST /api/annotations (创建标注项目)
-    A->>S: create_project()
-    S->>S: 解析标签配置
-    S->>LS: 创建 Label Studio 项目
-    S->>LS: 设置 XML 标注模板
-    S->>LS: 导入数据集文件
-    S->>S: 生成本地标注任务
-    S-->>A: 返回项目信息
+    A->>S: create_project() 校验并落库
+    A->>W: 异步派发 execute_project_setup
+    W->>S: 枚举数据集版本文件
+    S->>S: 解析标签配置, 生成标注任务落库
+    S-->>U: 项目状态置为 ACTIVE
 
-    Note over U,LS: 标注过程
-
-    LS->>A: Webhook 回调（标注完成）
-    A->>S: 处理标注结果
-    S->>S: 写回标注数据到数据集版本
-```
 
 ## 标注工作台
 
@@ -102,15 +94,13 @@ sequenceDiagram
 
 ## 标注写回
 
-标注员每次 submit 时，结果立即落盘：
+标注员每次 submit 时，结果立即落盘（文件系统为唯一真理）：
 
-- 原始 payload 写入 `AnnotationTask.result`（JSONB）。
-- 包装后的 JSON（包含 task_id、annotation_project_id、annotation_type、submitted_at、submitted_by）写入源数据集版本的 `annotations/<源文件名>.json`，例如 `datasets/<tenant>/<dataset>/v1/annotations/a.jpg.json`。
-- Label Studio 同步收到一份镜像。
+- 标注 JSON（包含 task_id、annotation_project_id、result、submitted_at、submitted_by）写入源数据集版本的 `annotations/<源文件名>.json`，例如 `datasets/<tenant>/<dataset>/v1/annotations/a.jpg.json`。
 
 数据集预览页对每个有标注的文件显示"已标注 / 查看"徽标。训练 pipeline 通过 hostPath 挂载直接读取 `annotations/<file>.json`，不需要额外的 API。
 
-已完成标注的任务在"我的任务"或详情页中可点击"取消标注"回到 in_progress，删除 `annotations/<file>.json`，清空 `task.result`，已完成的 `project.completed_tasks` 同步递减。
+已完成标注的任务在"我的任务"或详情页中可点击"取消标注"回到 in_progress，删除 `annotations/<file>.json`，已完成的 `project.completed_tasks` 同步递减。
 
 ## 相关 API
 

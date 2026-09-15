@@ -22,7 +22,7 @@
 
 KubeAI 是一款**面向企业级 Kubernetes 环境的一站式 AI/ML 平台**，将模型开发全生命周期——数据探索、模型训练、模型仓库、推理服务、实验追踪、数据标注——统一纳管到单个控制面，并以细粒度多租户 RBAC 贯穿始终。
 
-**为什么还需要一个 ML 平台？** 当前开源生态不缺优秀组件：Volcano 做批量调度、KEDA 做弹性伸缩、MLflow 做实验追踪、Label Studio 做数据标注。但把这些拼到一起，还需要自己解决统一认证、多租户隔离、权限管控、前端界面和运维部署这些"看不见"的工程问题。KubeAI 的价值正在于此：**把这些久经考验的 Kubernetes 原生组件无缝集成为一个整体**，对外提供统一的身份认证、四级 RBAC 权限体系和开箱即用的 Web 管理界面，让 ML 团队不必折腾基础设施，专注模型本身。
+**为什么还需要一个 ML 平台？** 当前开源生态不缺优秀组件：Volcano 做批量调度、KEDA 做弹性伸缩、MLflow 做实验追踪。但把这些拼到一起，还需要自己解决统一认证、多租户隔离、权限管控、前端界面和运维部署这些"看不见"的工程问题。KubeAI 的价值正在于此：**把这些久经考验的 Kubernetes 原生组件无缝集成为一个整体**，对外提供统一的身份认证、四级 RBAC 权限体系和开箱即用的 Web 管理界面，让 ML 团队不必折腾基础设施，专注模型本身。
 
 ### 平台规模一览
 
@@ -53,7 +53,7 @@ KubeAI 是一款**面向企业级 Kubernetes 环境的一站式 AI/ML 平台**�
 
 ### 数据标注平台
 
-- 集成 **Label Studio** 标注引擎，支持图像分类、目标检测、语义分割、文本分类、视频标注、音频标注
+- 内置自研数据标注，支持图像分类、目标检测、语义分割、文本分类、视频标注、时序标注等类型（标签配置采用 Label Studio 兼容 XML 格式）
 - 自研标注模板系统，结构化配置管理，模板可复用
 - 标注画布内置 Konva（图像区域标注）、WaveSurfer.js（音频标注）、PDF.js（文档查看）
 - 标注任务分配与进度追踪，与模型训练形成数据闭环
@@ -100,7 +100,7 @@ KubeAI 是一款**面向企业级 Kubernetes 环境的一站式 AI/ML 平台**�
 │      认证 JWT · 鉴权 Casbin · 身份解析 (Redis Cache) · 租户中间件     │
 │   ┌──────────┬──────────┬──────────┬──────────┬────────────────┐ │
 │   │  训练任务  │  推理服务  │  数据集   │  模型仓库  │    标注平台     │ │
-│   │ (Volcano) │(K8s+KEDA)│          │ (MinIO)  │ (LabelStudio)  │ │
+│   │ (Volcano) │(K8s+KEDA)│          │ (MinIO)  │                │ │
 │   └──────────┴──────────┴──────────┴──────────┴────────────────┘ │
 │   ┌──────────┬──────────┬──────────┬──────────┬────────────────┐ │
 │   │  开发环境  │  实验追踪  │  镜像管理  │  运维监控  │   审计 & 通知   │ │
@@ -117,7 +117,7 @@ KubeAI 是一款**面向企业级 Kubernetes 环境的一站式 AI/ML 平台**�
 │  │ (VCJob) │ │ (弹性伸缩) │ │(镜像仓库) │ │(对象存储) │ │ (API网关)  │ │
 │  └─────────┘ └──────────┘ └─────────┘ └─────────┘ └───────────┘ │
 │  ┌──────────┐ ┌─────────┐ ┌───────────┐ ┌──────────────────────┐ │
-│  │PostgreSQL│ │  Redis  │ │Prometheus │ │    Label Studio      │ │
+│  │PostgreSQL│ │  Redis  │ │Prometheus │ │                      │ │
 │  │   17     │ │    7    │ │  + DCGM   │ │    (数据标注引擎)      │ │
 │  └──────────┘ └─────────┘ └───────────┘ └──────────────────────┘ │
 │  ┌──────────────────────────────────────────────────────────────┐ │
@@ -134,7 +134,7 @@ KubeAI 是一款**面向企业级 Kubernetes 环境的一站式 AI/ML 平台**�
 |------|------|------|
 | **API 服务** | Python 3.12 · FastAPI · SQLAlchemy 2.0 (async) · Pydantic v2 | 全异步，`BaseResponse[T]` 统一响应封装 |
 | **前端** | React 18 · TypeScript strict · Ant Design 5 Pro · Zustand · TanStack Query · Tailwind CSS | snake↔camel 自动转换 |
-| **数据库** | PostgreSQL 17 + asyncpg 异步驱动 · Alembic 迁移 | 同时承载 MLflow / Label Studio 元数据库 |
+| **数据库** | PostgreSQL 17 + asyncpg 异步驱动 · Alembic 迁移 | 同时承载 MLflow 元数据库 |
 | **缓存 / 消息** | Redis 7 | 令牌黑名单、身份缓存、Taskiq 消息代理、WebSocket Pub/Sub 跨实例广播 |
 | **异步任务** | Taskiq · Redis Streams | Worker 执行异步任务，Scheduler 单副本定时调度 |
 | **权限模型** | Casbin + SQLAlchemy Adapter | 四级角色，`resource:action` 权限字符串 |
@@ -145,7 +145,7 @@ KubeAI 是一款**面向企业级 Kubernetes 环境的一站式 AI/ML 平台**�
 | **批量调度** | Volcano | GPU 训练任务调度、优先级队列 |
 | **弹性伸缩** | KEDA | 推理服务自动扩缩容 |
 | **实验追踪** | MLflow | 实验管理、指标对比 |
-| **数据标注** | Label Studio | 多模态标注引擎 |
+| **数据标注** | 自研标注工作台 | 多模态标注，Label Studio 兼容 XML 模板格式 |
 | **GPU 监控** | Prometheus + DCGM Exporter + Grafana | GPU 利用率、显存、温度等指标 |
 | **开发环境** | K8s 原生 Pod | Jupyter / VS Code / RStudio 容器化 |
 
@@ -194,7 +194,7 @@ helm upgrade --install kubeai infra/helm/kubeai/ \
   -n kubeai --create-namespace
 ```
 
-> 部署内容：PostgreSQL · Redis · MinIO · Volcano · KEDA · Harbor · APISIX · MLflow · Label Studio · Prometheus + DCGM · cert-manager
+> 部署内容：PostgreSQL · Redis · MinIO · Volcano · KEDA · Harbor · APISIX · MLflow · Prometheus + DCGM · cert-manager
 
 ### 2. 启动后端
 
@@ -238,7 +238,7 @@ KubeAI/
 │   │   │                           #   audit_logs, notifications, credentials,
 │   │   │                           #   db_connections, query_results, filesystem, ws ...
 │   │   ├── core/                    # 配置 · 安全 · RBAC (Casbin) · 身份解析 · 客户端管理
-│   │   ├── integrations/            # K8s · Volcano · Harbor · MinIO · MLflow · LabelStudio 等
+│   │   ├── integrations/            # K8s · Volcano · Harbor · MinIO · MLflow 等
 │   │   ├── middleware/              # RequestId · Tenant · ErrorHandler
 │   │   ├── models/                  # SQLAlchemy 2.0 ORM（17 个实体）
 │   │   ├── schemas/                 # Pydantic v2 请求/响应模型

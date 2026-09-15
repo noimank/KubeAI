@@ -14,7 +14,6 @@ export interface AnnotationProject {
   datasetVersionId: string
   templateId?: string | null
   templateName?: string | null
-  labelStudioProjectId?: number
   totalTasks: number
   completedTasks: number
   status: AnnotationProjectStatus
@@ -45,7 +44,6 @@ export type AnnotationTaskStatus = 'unassigned' | 'assigned' | 'in_progress' | '
 export interface AnnotationTask {
   id: string
   projectId: string
-  labelStudioTaskId: number
   data: Record<string, unknown>
   assignedTo?: string
   assignedToName?: string

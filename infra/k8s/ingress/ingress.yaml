@@ -13,7 +13,7 @@
 # [ ] 2. SSL 证书: 在 APISIX Admin API 或 Dashboard 中为域名配置 SSL 证书
 #          - 参考命令: curl -X PUT http://apisix-admin:9180/apisix/admin/ssls/<ssl_id> \
 #                       -H 'X-API-KEY: <key>' -d '{"cert":"...","key":"...","snis":["<domain>"]}'
-# [ ] 3. 子路径: 如果 Label Studio / API / MLflow 有子路径变更，同步修改
+# [ ] 3. 子路径: 如果 API / MLflow 有子路径变更，同步修改
 #          - backend-api 路由将 /api/* 直接转发到 backend，不经过前端 Nginx
 #          - 避免 Nginx client_max_body_size 等默认限制影响后端接口
 # [ ] 4. 开发环境: devenv 路由由 Backend 通过 APISIX Admin API 动态创建/销毁
@@ -29,7 +29,7 @@
 # ============================================================
 # APISIX 按优先级 (priority, 越高越优先) + 匹配精确度排序:
 #   - /devenv/<uuid>/*           → priority 100 (动态创建，高于通配)
-#   - /api/*, /labelstudio/*     → priority 100 (子路径路由，高于通配)
+#   - /api/*                     → priority 100 (子路径路由，高于通配)
 #   - /*                         → priority 0   (兜底路由，匹配静态资源)
 # ============================================================
 # 生产环境参考配置 (aiaxis.uimpcloud.com)
@@ -74,32 +74,7 @@ spec:
       websocket: true
 
     # ============================================================
-    # 路由 2: Label Studio 标注平台 (子路径 /labelstudio)
-    # 优先级必须高于 /* 通配路由，否则通配路由会抢先匹配
-    # proxy-rewrite 将 /labelstudio$PATH 重写为 /$PATH 再转发
-    # ============================================================
-    - name: labelstudio
-      priority: 100
-      match:
-        hosts:
-          - kubeai.example.com # FIXME: 改为实际生产域名
-        paths:
-          - /labelstudio
-          - /labelstudio/*
-      backends:
-        - serviceName: labelstudio
-          servicePort: 8080
-      websocket: true
-      plugins:
-        - name: proxy-rewrite
-          enable: true
-          config:
-            regex_uri:
-              - ^/labelstudio/?(.*)$
-              - /$1
-
-    # ============================================================
-    # 路由 3: MLflow 实验追踪 UI (子路径 /mlflow)
+    # 路由 2: MLflow 实验追踪 UI (子路径 /mlflow)
     # 优先级必须高于 /* 通配路由, 否则通配路由会抢先匹配
     # proxy-rewrite 将 /mlflow$PATH 重写为 /$PATH 再转发
     # 部署前必须: 在 APISIX 上配置 forward-auth 鉴权 (见顶部 checklist #5)

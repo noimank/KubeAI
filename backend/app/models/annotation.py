@@ -26,7 +26,6 @@ class AnnotationProject(Base, TimestampMixin, TenantMixin):
     template_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("annotation_templates.id", ondelete="SET NULL"), nullable=True
     )
-    label_studio_project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     label_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_tasks: Mapped[int] = mapped_column(Integer, default=0)
     completed_tasks: Mapped[int] = mapped_column(Integer, default=0)

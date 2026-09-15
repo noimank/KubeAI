@@ -31,8 +31,6 @@ postgresql:
       scripts:
         01-create-mlflow-db.sql: |
           CREATE DATABASE mlflow;
-        02-create-labelstudio-db.sql: |
-          CREATE DATABASE labelstudio;
 
 # -- Redis
 redis:
@@ -195,25 +193,3 @@ mlflow:
     limits:
       cpu: "1"
       memory: 2Gi
-
-# -- Label Studio (data annotation service)
-# Deploys Label Studio with PostgreSQL backend store.
-labelstudio:
-  enabled: false
-  image:
-    repository: heartexlabs/label-studio
-    tag: "1.23.0"
-  # -- Fixed JWT signing key (SECRET_KEY) for Label Studio.
-  # Signs PATs and session cookies; must stay identical across pod restarts,
-  # otherwise every issued token/session is invalidated.
-  secretKey: ""
-  service:
-    type: ClusterIP
-    nodePort: null
-  resources:
-    requests:
-      cpu: 250m
-      memory: 512Mi
-    limits:
-      cpu: "1"
-      memory: 1Gi

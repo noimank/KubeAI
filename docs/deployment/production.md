@@ -52,7 +52,6 @@ kubectl apply --server-side -f infra/k8s/kserve/kserve-cluster-resources.yaml
 ```bash
 kubectl apply -f infra/k8s/harbor/
 kubectl apply -f infra/k8s/mlflow/
-kubectl apply -f infra/k8s/labelstudio/
 kubectl apply -f infra/k8s/prometheus/
 kubectl apply -f infra/k8s/dcgm-exporter/
 ```

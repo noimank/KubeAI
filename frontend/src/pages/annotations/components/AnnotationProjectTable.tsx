@@ -124,7 +124,7 @@ export default function AnnotationProjectTable({
           {canManage && (
             <Popconfirm
               title="确认删除该标注项目？"
-              description="删除后，LabelStudio 中的项目和标注数据将被同步删除，此操作不可恢复。"
+              description="删除后，项目和标注数据将被同步删除，此操作不可恢复。"
               onConfirm={() => onDelete(record.id)}
               okText="确认"
               cancelText="取消"

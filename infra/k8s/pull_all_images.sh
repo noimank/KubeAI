@@ -97,7 +97,7 @@ LOCAL+=("kubeai-frontend:0.1.0")
 # ============================================
 # 数据库 & 缓存
 # ============================================
-section "[1/13] 数据库 & 缓存"
+section "[1/10] 数据库 & 缓存"
 
 REQUIRED+=("postgres:17-alpine")
 REQUIRED+=("redis:7-alpine")
@@ -105,28 +105,21 @@ REQUIRED+=("redis:7-alpine")
 # ============================================
 # 对象存储
 # ============================================
-section "[2/13] 对象存储"
+section "[2/10] 对象存储"
 
 REQUIRED+=("minio/minio:RELEASE.2025-03-12T18-04-18Z")
 
 # ============================================
 # 实验追踪
 # ============================================
-section "[3/13] MLflow"
+section "[3/10] MLflow"
 
 REQUIRED+=("ghcr.io/mlflow/mlflow:v3.12.0")
 
 # ============================================
-# 数据标注
-# ============================================
-section "[4/13] Label Studio"
-
-REQUIRED+=("heartexlabs/label-studio:1.23.0")
-
-# ============================================
 # Harbor 容器仓库
 # ============================================
-section "[5/12] Harbor"
+section "[4/10] Harbor"
 
 REQUIRED+=("docker.io/goharbor/harbor-core:v2.15.1")
 REQUIRED+=("docker.io/goharbor/harbor-jobservice:v2.15.1")
@@ -140,7 +133,7 @@ REQUIRED+=("docker.io/goharbor/trivy-adapter-photon:v2.15.1")
 # ============================================
 # KEDA 自动扩缩容
 # ============================================
-section "[9/14] KEDA"
+section "[5/10] KEDA"
 
 REQUIRED+=("ghcr.io/kedacore/keda:2.19.0")
 REQUIRED+=("ghcr.io/kedacore/keda-metrics-apiserver:2.19.0")
@@ -149,7 +142,7 @@ REQUIRED+=("ghcr.io/kedacore/keda-admission-webhooks:2.19.0")
 # ============================================
 # Volcano 批调度器
 # ============================================
-section "[10/14] Volcano"
+section "[6/10] Volcano"
 
 REQUIRED+=("docker.io/volcanosh/vc-webhook-manager:v1.14.2")
 REQUIRED+=("docker.io/volcanosh/vc-controller-manager:v1.14.2")
@@ -158,7 +151,7 @@ REQUIRED+=("docker.io/volcanosh/vc-scheduler:v1.14.2")
 # ============================================
 # Prometheus 监控栈
 # ============================================
-section "[11/14] Prometheus 监控栈"
+section "[7/10] Prometheus 监控栈"
 
 REQUIRED+=("quay.io/prometheus/prometheus:v3.1.0")
 REQUIRED+=("docker.io/grafana/grafana:11.4.0")
@@ -171,14 +164,14 @@ REQUIRED+=("registry.k8s.io/ingress-nginx/kube-webhook-certgen:v20221220-control
 # ============================================
 # GPU 监控
 # ============================================
-section "[12/14] DCGM Exporter (GPU)"
+section "[8/10] DCGM Exporter (GPU)"
 
 REQUIRED+=("nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04")
 
 # ============================================
 # 镜像构建工具 (后端 K8s Job 使用)
 # ============================================
-section "[13/14] 镜像构建 & 工具镜像"
+section "[9/10] 镜像构建 & 工具镜像"
 
 REQUIRED+=("gcr.io/kaniko-project/executor:latest")
 REQUIRED+=("minio/mc:latest")
@@ -187,7 +180,7 @@ REQUIRED+=("busybox:1.36")
 # ============================================
 # 构建基础镜像 (Dockerfile 中使用)
 # ============================================
-section "[14/14] 构建基础镜像"
+section "[10/10] 构建基础镜像"
 
 REQUIRED+=("python:3.12-slim")
 REQUIRED+=("ghcr.io/astral-sh/uv:latest")

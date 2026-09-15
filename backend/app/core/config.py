@@ -82,9 +82,6 @@ class Settings(BaseSettings):
 
     MLFLOW_TRACKING_URI: str = "http://localhost:5000"
 
-    LABEL_STUDIO_URL: str = "http://labelstudio.kubeai.local"
-    LABEL_STUDIO_API_TOKEN: str = ""
-
     # -- 业务算法库 (balibrary) 独立服务地址
     BALIBRARY_URL: str = "http://balibrary.kubeai.svc:8800"
 

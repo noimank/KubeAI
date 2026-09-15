@@ -38,7 +38,6 @@
 | KEDA | 推理服务自动伸缩 | 集群内服务 |
 | KServe | 模型推理服务 | 集群内服务 |
 | MLflow | 实验跟踪 | NodePort 30500 |
-| Label Studio | 数据标注 | NodePort 30800 |
 | APISIX | 开发环境路由网关 | Gateway: 30080, Admin: 30918 |
 
 本地开发基础设施统一通过 `infra/helm/kubeai/` 安装；生产部署使用 `infra/k8s/`。

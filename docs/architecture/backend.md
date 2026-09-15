@@ -144,7 +144,7 @@ class DatasetService:
 | `DatasetService` | MinIO 数据集/版本管理 + 预签名 URL |
 | `TrainingJobService` | Volcano VCJob 创建，PVC 数据集挂载，配额追踪 |
 | `InferenceService` | KServe 推理服务 + KEDA 自动扩缩容 + 金丝雀发布 |
-| `AnnotationService` | Label Studio 标注项目 + XML 模板 + 标注写回 |
+| `AnnotationService` | 自研标注项目 + XML 模板 + 标注写回 |
 | `DevEnvironmentService` | 原生 K8s Pod 环境 + 数据集挂载 + 空闲自动停止 |
 | `ImageService` | K8s Job 自定义镜像构建 + Harbor 推送 |
 | `ExperimentService` | MLflow 实验跟踪 + 实验复现为训练任务 |
@@ -178,7 +178,7 @@ result = await asyncio.to_thread(self.minio_client.list_objects, bucket_name)
 2. 初始化 Casbin RBAC 引擎并加载权限策略
 3. 创建默认租户和管理员用户（如不存在）
 4. 为默认租户创建 Kubernetes 命名空间
-5. 初始化集成客户端（MinIO、Harbor、Prometheus、Label Studio、MLflow）
+5. 初始化集成客户端（MinIO、Harbor、Prometheus、MLflow）
 6. 启动 `IdleChecker` 后台任务
 7. 启动 `ResourceCleaner` 后台任务
 8. 启动指标推送循环（每 30 秒通过 WebSocket 推送集群指标）

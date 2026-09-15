@@ -24,7 +24,6 @@
 | KServe | 开发启用 | 本地推理联调基础设施，随 Helm release 安装到 `kubeai` namespace |
 | Prometheus/Grafana | 启用 | 本地监控调试，`values-dev.yaml` 暴露 `30090/30030` |
 | MLflow | 开发启用 | `values-dev.yaml` 暴露 `30500` |
-| Label Studio | 开发启用 | `values-dev.yaml` 暴露 `30800` |
 | APISIX | 启用 | `values-dev.yaml` Gateway `30080` / Admin `30918` |
 | Harbor | 默认关闭 | 按需启用，资源占用较高 |
 
@@ -85,6 +84,5 @@ Helm Chart 仅保留依赖服务模板：
 | `redis.yaml` | Redis |
 | `minio.yaml` | MinIO |
 | `mlflow.yaml` | MLflow |
-| `labelstudio.yaml` | Label Studio |
 
 其他依赖来自 Helm sub-chart：cert-manager、PostgreSQL、Volcano、KEDA、Prometheus、DCGM Exporter、Harbor、KServe、APISIX。

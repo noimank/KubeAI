@@ -27,7 +27,6 @@ _training_pod_watcher_stop: asyncio.Event | None = None
 # ``app.core.clients`` directly in new code.
 from app.core.clients import (  # noqa: E402, F401
     get_harbor_client,
-    get_labelstudio_client,
     get_minio_client,
     get_mlflow_client,
     get_prometheus_client,
