@@ -13,7 +13,8 @@ uv sync
 uv run uvicorn app.main:app --reload                                                 # API (port 8000)
 uv run taskiq worker app.core.taskiq_app:broker --fs-discover                         # 异步任务 (开发环境/推理等须并行运行)
 uv run taskiq scheduler app.core.taskiq_app:scheduler --skip-first-run                # 定时任务
-uv run pytest tests/unit/test_security.py::test_hash_password -v                      # 单个测试
+uv run pytest tests/unit/test_security.py::TestPasswordHash -v                         # 单个测试 (纯单测, 无需 DB)
+uv run pytest tests/integration/ -v                                                    # 连库测试: 须 TEST_DATABASE_URL 指向 *_test 库 (backend/.env 或环境变量, 自动建库建表), 未设置拒绝运行不回落开发库
 uv run alembic revision --autogenerate -m "desc" && uv run alembic upgrade head       # 生成+迁移
 uv run ruff check . && uv run ruff format . && uv run mypy app/                       # lint+format+type
 ```

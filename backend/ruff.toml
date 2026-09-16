@@ -19,6 +19,11 @@ ignore = ["E501", "N818", "RUF001", "RUF002", "RUF003"]
 [lint.isort]
 known-first-party = ["app"]
 
+# conftest 必须在 import app 之前注入环境变量 (SECRET_KEY / TEST_DATABASE_URL),
+# import 不在文件顶部是该文件的本质需求
+[lint.per-file-ignores]
+"tests/conftest.py" = ["E402"]
+
 [format]
 quote-style = "double"
 indent-style = "space"

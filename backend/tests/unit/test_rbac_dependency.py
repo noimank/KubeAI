@@ -17,7 +17,9 @@ class MockUser:
 
 
 @pytest.fixture(scope="module", autouse=True)
-def init_casbin():
+def init_casbin(_ensure_test_db):
+    # 依赖 _ensure_test_db: casbin 适配器会在目标库自建 casbin_rule 表,
+    # 必须先保证测试库存在, 否则会写进 .env 指向的开发库
     CasbinEnforcer.initialize(settings.DATABASE_URL)
 
 

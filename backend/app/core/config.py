@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 10
 
+    # pytest 专用测试库, 仅 tests/conftest.py 读取 (真实环境变量优先于 .env, 会整条
+    # 替换 DATABASE_URL)。应用运行时不使用此变量; 在此声明仅为允许写入 .env —
+    # BaseSettings 默认 extra="forbid", 未声明的变量会让 Settings 直接校验失败。
+    TEST_DATABASE_URL: str | None = None
+
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_MAX_CONNECTIONS: int = 20
     TASKIQ_BROKER_DB: int = 1
