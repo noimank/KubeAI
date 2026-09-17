@@ -5,19 +5,10 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
 import type { RecentTrainingJob } from '@/types/dashboard'
+import { TRAINING_JOB_STATUS_CONFIG } from '@/utils/constants'
 
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
-
-const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
-  pending: { color: 'default', text: '等待中' },
-  queued: { color: 'warning', text: '排队中' },
-  initializing: { color: 'processing', text: '初始化' },
-  running: { color: 'processing', text: '运行中' },
-  succeeded: { color: 'success', text: '已完成' },
-  failed: { color: 'error', text: '已失败' },
-  stopped: { color: 'default', text: '已停止' },
-}
 
 interface Props {
   data: RecentTrainingJob[]
@@ -38,7 +29,7 @@ export default function RecentTrainingJobs({ data }: Props) {
       key: 'status',
       width: 100,
       render: (status: string) => {
-        const cfg = STATUS_CONFIG[status] || { color: 'default', text: status }
+        const cfg = TRAINING_JOB_STATUS_CONFIG[status] || { color: 'default', text: status }
         return <Tag color={cfg.color}>{cfg.text}</Tag>
       },
     },

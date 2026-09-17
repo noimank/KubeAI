@@ -37,6 +37,8 @@ export interface TrainingJob {
   errorMessage?: string
   source?: string
   sourceEnvId?: string
+  /** 调优来源任务的所属调优 study, 用于回跳调优详情 */
+  tuningStudyId?: string
   workspacePath?: string
   homePath?: string
   mlflowEnabled: boolean

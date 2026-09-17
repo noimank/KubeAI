@@ -21,6 +21,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { formatDate } from '@/utils/format'
+import { TRAINING_JOB_STATUS_CONFIG } from '@/utils/constants'
 import { useRbacStore } from '@/stores/rbacStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useTenantStore } from '@/stores/tenantStore'
@@ -195,13 +196,24 @@ export default function TuningDetailPage() {
     {
       title: '训练任务',
       key: 'job',
-      width: 200,
-      render: (_, record: TuningTrial) =>
-        record.trainingJobId ? (
-          <Link to={`/training-jobs/${record.trainingJobId}`}>{record.jobName ?? '查看任务'}</Link>
-        ) : (
-          '已删除'
-        ),
+      width: 260,
+      render: (_, record: TuningTrial) => {
+        if (!record.trainingJobId) return '已删除'
+        const jobCfg = record.jobStatus
+          ? (TRAINING_JOB_STATUS_CONFIG[record.jobStatus] ?? {
+              color: 'default',
+              text: record.jobStatus,
+            })
+          : null
+        return (
+          <Space size={4}>
+            <Link to={`/training-jobs/${record.trainingJobId}`}>
+              {record.jobName ?? '查看任务'}
+            </Link>
+            {jobCfg && <Tag color={jobCfg.color}>{jobCfg.text}</Tag>}
+          </Space>
+        )
+      },
     },
     {
       title: '创建时间',

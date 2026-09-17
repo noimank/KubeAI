@@ -47,17 +47,8 @@ import {
 } from '@/services/training-jobs'
 import { registerModel } from '@/services/models'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { TRAINING_JOB_STATUS_CONFIG } from '@/utils/constants'
 import type { TrainingJobStatus } from '@/types/training-job'
-
-const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
-  pending: { color: 'default', text: '等待中' },
-  queued: { color: 'warning', text: '排队中' },
-  initializing: { color: 'processing', text: '初始化' },
-  running: { color: 'processing', text: '运行中' },
-  succeeded: { color: 'success', text: '已完成' },
-  failed: { color: 'error', text: '已失败' },
-  stopped: { color: 'default', text: '已停止' },
-}
 
 const STATUS_STEPS = [
   { key: 'pending', title: '等待' },
@@ -228,7 +219,7 @@ export default function TrainingJobDetailPage() {
     )
   }
 
-  const statusCfg = STATUS_CONFIG[job.status] || { color: 'default', text: job.status }
+  const statusCfg = TRAINING_JOB_STATUS_CONFIG[job.status] || { color: 'default', text: job.status }
   const hpEntries = job.hyperparameters ? Object.entries(job.hyperparameters) : []
   const isStreamable = STREAMABLE_STATUSES.includes(job.status)
   const isNotStarted = NOT_STARTED_STATUSES.includes(job.status)
@@ -621,8 +612,12 @@ export default function TrainingJobDetailPage() {
                   <Tag color="blue">开发环境</Tag>
                 ) : job.source === 'experiment_reproduction' ? (
                   <Tag color="green">实验复现</Tag>
-                ) : job.source === 'tuning' ? (
-                  <Tag color="purple">超参调优</Tag>
+                ) : job.source === 'tuning' && job.tuningStudyId ? (
+                  <Link to={`/tuning/${job.tuningStudyId}`}>
+                    <Tag color="purple" style={{ cursor: 'pointer' }}>
+                      超参调优 · 返回调优详情
+                    </Tag>
+                  </Link>
                 ) : null}
               </Descriptions.Item>
             </Descriptions>

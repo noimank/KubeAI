@@ -765,6 +765,37 @@ class TestSourceFieldDefaults:
         assert f"基于实验 #{source_exp_id} 复现" in job.description
 
 
+class TestListTrainingJobs:
+    """训练任务列表须排除超参调优 trial 任务 (归调优详情页展示)."""
+
+    async def test_excludes_tuning_source(self, service, mock_db):
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        jobs_result = MagicMock()
+        jobs_result.scalars.return_value.all.return_value = []
+        mock_db.execute.side_effect = [count_result, jobs_result]
+
+        await service.list_training_jobs(tenant_id=uuid.uuid4())
+
+        # 计数与列表两条查询都须携带 source != 'tuning' 过滤 (分页 total 与数据同口径)
+        for call in mock_db.execute.call_args_list:
+            params = call.args[0].compile().params
+            assert "tuning" in params.values()
+
+    async def test_no_tuning_filter_when_not_requested(self, service, mock_db):
+        """对照: 其他来源不过滤 (防止测试恒真的空断言)."""
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        jobs_result = MagicMock()
+        jobs_result.scalars.return_value.all.return_value = []
+        mock_db.execute.side_effect = [count_result, jobs_result]
+
+        await service.list_training_jobs(tenant_id=uuid.uuid4())
+
+        params = mock_db.execute.call_args_list[1].args[0].compile().params
+        assert "manual" not in params.values()
+
+
 class TestMlflowPerJobBinding:
     @patch("app.services.training_job_service.create_vcjob", new_callable=AsyncMock)
     @patch("app.services.training_job_service.build_vcjob", new_callable=AsyncMock)

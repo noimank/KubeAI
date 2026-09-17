@@ -19,6 +19,7 @@ from app.core.redis import get_redis
 from app.integrations.k8s.kubeai_volumes import HOME_MOUNT_PATH, WORKSPACE_MOUNT_PATH
 from app.models.enums import TrainingJobStatus, UserRole
 from app.models.experiment import Experiment
+from app.models.tuning import TuningTrial
 from app.schemas.base import BaseResponse, PageData, PageResponse
 from app.schemas.training_job import (
     LogResponse,
@@ -237,12 +238,21 @@ async def get_training_job(
     exp_result = await db.execute(select(Experiment.id).where(Experiment.training_job_id == training_job_id))
     experiment_id = exp_result.scalar_one_or_none()
 
+    # 调优 trial 任务反查所属 study (用于前端回跳调优详情)
+    tuning_study_id = None
+    if job.source == "tuning":
+        trial_result = await db.execute(
+            select(TuningTrial.study_id).where(TuningTrial.training_job_id == training_job_id)
+        )
+        tuning_study_id = trial_result.scalar_one_or_none()
+
     return BaseResponse(
         data=_to_response(
             job,
             workspace_path=WORKSPACE_MOUNT_PATH,
             home_path=HOME_MOUNT_PATH,
             experiment_id=experiment_id,
+            tuning_study_id=tuning_study_id,
         ),
         message="获取成功",
     )

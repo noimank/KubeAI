@@ -6,6 +6,7 @@ import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { formatDate } from '@/utils/format'
+import { TRAINING_JOB_STATUS_CONFIG } from '@/utils/constants'
 import { useRbacStore } from '@/stores/rbacStore'
 import {
   getTrainingJob,
@@ -14,16 +15,6 @@ import {
   deleteTrainingJob,
 } from '@/services/training-jobs'
 import type { TrainingJob, TrainingJobStatus } from '@/types/training-job'
-
-const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
-  pending: { color: 'default', text: '等待中' },
-  queued: { color: 'warning', text: '排队中' },
-  initializing: { color: 'processing', text: '初始化' },
-  running: { color: 'processing', text: '运行中' },
-  succeeded: { color: 'success', text: '已完成' },
-  failed: { color: 'error', text: '已失败' },
-  stopped: { color: 'default', text: '已停止' },
-}
 
 const STATUS_TABS = [
   { label: '全部', value: '' },
@@ -128,7 +119,7 @@ export default function TrainingJobsPage() {
       dataIndex: 'status',
       width: 100,
       render: (val: TrainingJobStatus) => {
-        const cfg = STATUS_CONFIG[val] || { color: 'default', text: val }
+        const cfg = TRAINING_JOB_STATUS_CONFIG[val] || { color: 'default', text: val }
         return <Tag color={cfg.color}>{cfg.text}</Tag>
       },
     },
@@ -165,7 +156,6 @@ export default function TrainingJobsPage() {
         if (val === 'manual') return <Tag>手动创建</Tag>
         if (val === 'dev_environment') return <Tag color="blue">开发环境</Tag>
         if (val === 'experiment_reproduction') return <Tag color="green">实验复现</Tag>
-        if (val === 'tuning') return <Tag color="purple">超参调优</Tag>
         return null
       },
     },

@@ -55,8 +55,9 @@ class DashboardService:
 
     async def _get_recent_training_jobs(self, tenant_id: uuid.UUID, limit: int = 5) -> list[dict[str, Any]]:
         result = await self.db.execute(
+            # 与训练任务列表口径一致: 超参调优 trial 任务不进最近训练任务
             select(TrainingJob)
-            .where(TrainingJob.tenant_id == tenant_id)
+            .where(TrainingJob.tenant_id == tenant_id, TrainingJob.source != "tuning")
             .order_by(TrainingJob.created_at.desc())
             .limit(limit)
         )

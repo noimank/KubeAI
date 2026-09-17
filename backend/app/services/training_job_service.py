@@ -277,7 +277,8 @@ class TrainingJobService:
         status: str | None = None,
         name: str | None = None,
     ) -> tuple[list[TrainingJob], int]:
-        query = select(TrainingJob).where(TrainingJob.tenant_id == tenant_id)
+        # 超参调优 trial 任务归属调优详情页展示, 不进入训练任务列表
+        query = select(TrainingJob).where(TrainingJob.tenant_id == tenant_id, TrainingJob.source != "tuning")
 
         if status:
             query = query.where(TrainingJob.status == status)

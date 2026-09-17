@@ -52,6 +52,7 @@ class TrainingJobResponse(BaseModel):
     status: str
     source: str
     source_env_id: uuid.UUID | None
+    tuning_study_id: uuid.UUID | None = None
     vcjob_name: str | None
     started_at: datetime | None
     finished_at: datetime | None
