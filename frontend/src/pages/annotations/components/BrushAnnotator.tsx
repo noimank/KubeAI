@@ -7,6 +7,7 @@ import {
   FormatPainterOutlined,
   ScissorOutlined,
 } from '@ant-design/icons'
+import { generateId } from '../utils/id'
 import { Image as KonvaImage } from 'react-konva'
 import type Konva from 'konva'
 import { getMessageInstance } from '@/utils/messageHolder'
@@ -252,7 +253,7 @@ export default function BrushAnnotator({
     }
 
     onAddRegion({
-      id: crypto.randomUUID(),
+      id: generateId(),
       fromName: controlConfig.name,
       label: activeLabel ?? undefined,
       value: {

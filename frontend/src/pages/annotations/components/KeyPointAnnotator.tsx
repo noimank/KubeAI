@@ -11,6 +11,7 @@ import { labelColor } from './annotationColors'
 import type { Region } from '../hooks/useAnnotationRegions'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
 import { regionsOf } from '../utils/regions'
+import { generateId } from '../utils/id'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ export default function KeyPointAnnotator({
         return
       }
       onAddRegion({
-        id: crypto.randomUUID(),
+        id: generateId(),
         fromName: controlConfig.name,
         label: activeLabel ?? undefined,
         value: { kind: 'keypoint', x: p.x, y: p.y, width: KEYPOINT_VISUAL_RADIUS * 2 },

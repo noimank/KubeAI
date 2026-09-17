@@ -15,6 +15,7 @@ import {
   parseTimeSeriesData,
   type ParsedTimeSeries,
 } from '../utils/timeSeries'
+import { generateId } from '../utils/id'
 
 interface TimeSeriesLabelsAnnotatorProps {
   task: AnnotationTask
@@ -99,7 +100,7 @@ export default function TimeSeriesLabelsAnnotator({
         Math.abs(end - start) <
         (data.times.length > 1 ? Math.abs(data.times[1] - data.times[0]) / 2 : 0.001)
       onAddRegion({
-        id: crypto.randomUUID(),
+        id: generateId(),
         fromName: controlConfig.name,
         label: activeLabel,
         value: { kind: 'timeseries', start, end, instant },

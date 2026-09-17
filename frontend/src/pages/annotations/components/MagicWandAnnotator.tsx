@@ -12,6 +12,7 @@ import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
 import { regionsOf } from '../utils/regions'
 import { decodeRLE, encodeRLE } from '../utils/rleEncoder'
 import { floodFill, maskToRgba } from '../utils/floodFill'
+import { generateId } from '../utils/id'
 
 const DEFAULT_THRESHOLD = 15
 
@@ -115,7 +116,7 @@ export default function MagicWandAnnotator({
         return
       }
       onAddRegion({
-        id: crypto.randomUUID(),
+        id: generateId(),
         fromName: controlConfig.name,
         value: {
           kind: 'magicwand',

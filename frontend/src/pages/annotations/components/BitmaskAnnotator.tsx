@@ -8,6 +8,7 @@ import {
   ScissorOutlined,
   UndoOutlined,
 } from '@ant-design/icons'
+import { generateId } from '../utils/id'
 import { Image as KonvaImage } from 'react-konva'
 import type Konva from 'konva'
 import { getMessageInstance } from '@/utils/messageHolder'
@@ -194,7 +195,7 @@ export default function BitmaskAnnotator({
       return
     }
     onAddRegion({
-      id: crypto.randomUUID(),
+      id: generateId(),
       fromName: controlConfig.name,
       label: activeLabel ?? undefined,
       value: {

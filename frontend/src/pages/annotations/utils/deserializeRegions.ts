@@ -1,5 +1,6 @@
 import type { AnnotationResultItem } from '@/types/annotation'
 import type { Region, VideoKeyframe } from '../hooks/useAnnotationRegions'
+import { generateId } from './id'
 
 /**
  * 将 task.result 反序列化为 Region[]，供 workspace 只读回显。
@@ -14,7 +15,7 @@ export function deserializeRegions(results: AnnotationResultItem[] | null | unde
   const regions: Region[] = []
   for (const item of results) {
     const v = (item.value ?? {}) as Record<string, unknown>
-    const id = item.id ?? crypto.randomUUID()
+    const id = item.id ?? generateId()
     const fromName = item.from_name
     const label = firstLabel(v, item.type)
     const region = buildRegion(item.type, v, id, fromName, label)

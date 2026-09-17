@@ -11,6 +11,7 @@ import { labelColor } from './annotationColors'
 import type { Region } from '../hooks/useAnnotationRegions'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
 import { regionsOf } from '../utils/regions'
+import { generateId } from '../utils/id'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ export default function EllipseAnnotator({
     const cx = rx < 0 ? x + rx : x
     const cy = ry < 0 ? y + ry : y
     onAddRegion({
-      id: crypto.randomUUID(),
+      id: generateId(),
       fromName: controlConfig.name,
       label: activeLabel ?? undefined,
       value: {

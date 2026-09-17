@@ -3,6 +3,7 @@ import type { ConfigNode } from '../utils/parseLabelConfig'
 import { toRelationConfig } from '../utils/parseLabelConfig'
 import type { Region } from '../hooks/useAnnotationRegions'
 import type { AnnotationRelation } from '../hooks/useAnnotationRelations'
+import { generateId } from '../utils/id'
 
 interface RelationPanelProps {
   relationControls: ConfigNode[]
@@ -54,7 +55,7 @@ export default function RelationPanel({
                         onClick={() => {
                           if (selectedRegionId) {
                             onAddRelation({
-                              id: crypto.randomUUID(),
+                              id: generateId(),
                               fromRegionId: selectedRegionId,
                               toRegionId: '',
                               label: ch.value,

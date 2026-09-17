@@ -5,6 +5,7 @@ import LabelPalette from './LabelPalette'
 import { labelColor } from './annotationColors'
 import { regionsOf } from '../utils/regions'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
+import { generateId } from '../utils/id'
 
 /** Paragraphs 数据中的一条 utterance */
 interface Utterance {
@@ -90,7 +91,7 @@ export default function ParagraphLabelsAnnotator({
   const confirmSpan = useCallback(() => {
     if (!pending || !activeLabel) return
     onAddRegion({
-      id: crypto.randomUUID(),
+      id: generateId(),
       fromName: controlConfig.name,
       label: activeLabel,
       value: {

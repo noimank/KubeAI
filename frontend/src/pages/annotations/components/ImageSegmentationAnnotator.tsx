@@ -11,6 +11,7 @@ import { labelColor } from './annotationColors'
 import type { Region } from '../hooks/useAnnotationRegions'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
 import { regionsOf } from '../utils/regions'
+import { generateId } from '../utils/id'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ export default function ImageSegmentationAnnotator({
       return
     }
     onAddRegion({
-      id: crypto.randomUUID(),
+      id: generateId(),
       fromName: controlConfig.name,
       label: activeLabel ?? undefined,
       value: { kind: 'polygon', points: [...currentPoints] },

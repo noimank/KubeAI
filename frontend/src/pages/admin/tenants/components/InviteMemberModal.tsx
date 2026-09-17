@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Form, Input, Select } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { copyToClipboard } from '@/utils/clipboard'
 import { createInvitation } from '@/services/tenants'
 import { ROLE_OPTIONS } from '@/utils/roleLabels'
 
@@ -33,10 +34,11 @@ export default function InviteMemberModal({ tenantId, onSuccess }: Props) {
     }
   }
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (inviteLink) {
-      navigator.clipboard.writeText(inviteLink)
-      getMessageInstance()?.success('邀请链接已复制')
+      const ok = await copyToClipboard(inviteLink)
+      if (ok) getMessageInstance()?.success('邀请链接已复制')
+      else getMessageInstance()?.error('复制失败，请手动复制')
     }
   }
 

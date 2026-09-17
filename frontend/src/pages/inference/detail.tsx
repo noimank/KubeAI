@@ -18,6 +18,7 @@ import {
 import { ReloadOutlined, SyncOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
+import { copyToClipboard } from '@/utils/clipboard'
 import { formatDate } from '@/utils/format'
 import { useRbacStore } from '@/stores/rbacStore'
 import {
@@ -157,10 +158,11 @@ print(response.json())`
     }
   }
 
-  const copyEndpointUrl = () => {
+  const copyEndpointUrl = async () => {
     if (proxyUrl) {
-      navigator.clipboard.writeText(proxyUrl)
-      getMessageInstance()?.success('端点 URL 已复制')
+      const ok = await copyToClipboard(proxyUrl)
+      if (ok) getMessageInstance()?.success('端点 URL 已复制')
+      else getMessageInstance()?.error('复制失败，请手动复制')
     }
   }
 

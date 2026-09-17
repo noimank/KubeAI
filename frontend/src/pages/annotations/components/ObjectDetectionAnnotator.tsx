@@ -11,6 +11,7 @@ import { labelColor } from './annotationColors'
 import type { Region } from '../hooks/useAnnotationRegions'
 import { regionsOf, regionCenter } from '../utils/regions'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
+import { generateId } from '../utils/id'
 
 // ── Props ───────────────────────────────────────────────────────────────────
 
@@ -176,7 +177,7 @@ export default function ObjectDetectionAnnotator({
       return
     }
     onAddRegion({
-      id: crypto.randomUUID(),
+      id: generateId(),
       fromName: controlConfig.name,
       label: activeLabel ?? undefined,
       value: {

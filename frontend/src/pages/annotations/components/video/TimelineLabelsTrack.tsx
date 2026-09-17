@@ -8,6 +8,7 @@ import { regionsOf } from '../../utils/regions'
 import type { Region } from '../../hooks/useAnnotationRegions'
 import type { LabelStudioControlConfig } from '../../utils/parseLabelConfig'
 import { useVideoPlayerContext } from './VideoPlayerContext'
+import { generateId } from '../../utils/id'
 
 interface TimelineLabelsTrackProps {
   controlConfig: LabelStudioControlConfig
@@ -84,7 +85,7 @@ export default function TimelineLabelsTrack({
           const start = Math.min(d.start, d.end)
           const end = Math.max(d.start, d.end)
           onAddRegion({
-            id: crypto.randomUUID(),
+            id: generateId(),
             fromName: controlConfig.name,
             label: activeLabel ?? undefined,
             value: { kind: 'timelinelabels', ranges: [{ start, end }] },

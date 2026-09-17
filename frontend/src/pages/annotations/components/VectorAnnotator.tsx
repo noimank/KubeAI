@@ -11,6 +11,7 @@ import { labelColor } from './annotationColors'
 import type { Region, VectorValue, VectorVertex } from '../hooks/useAnnotationRegions'
 import type { SpatialAnnotatorProps } from './SpatialAnnotatorProps'
 import { regionsOf } from '../utils/regions'
+import { generateId } from '../utils/id'
 
 function toFlatPoints(vertices: VectorVertex[]): number[] {
   return vertices.flatMap((v) => [v.x, v.y])
@@ -96,7 +97,7 @@ export default function VectorAnnotator({
         return
       }
       onAddRegion({
-        id: crypto.randomUUID(),
+        id: generateId(),
         fromName: controlConfig.name,
         label: activeLabel ?? undefined,
         value: { kind: 'vector', vertices: [...currentVertices], closed: close },
@@ -117,7 +118,7 @@ export default function VectorAnnotator({
       setCurrentVertices((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: generateId(),
           x: p.x,
           y: p.y,
           prevPointId: prev.length > 0 ? prev[prev.length - 1].id : null,

@@ -14,6 +14,7 @@ import VideoStage, { type VideoStageRenderContext } from './VideoStage'
 import { useVideoPlayerContext } from './VideoPlayerContext'
 import { getShapeAtFrame } from './videoMath'
 import type { VideoKeyframe } from '../../hooks/useAnnotationRegions'
+import { generateId } from '../../utils/id'
 
 interface VideoRectangleLayerProps {
   controlConfig: LabelStudioControlConfig
@@ -140,7 +141,7 @@ export default function VideoRectangleLayer({
       return
     }
     onAddRegion({
-      id: crypto.randomUUID(),
+      id: generateId(),
       fromName: controlConfig.name,
       label: activeLabel ?? undefined,
       value: {
