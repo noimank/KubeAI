@@ -48,9 +48,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          antd: ['antd', '@ant-design/icons'],
-          router: ['react-router', 'react-router-dom'],
+        manualChunks(id) {
+          if (id.includes('node_modules/antd') || id.includes('node_modules/@ant-design'))
+            return 'antd'
+          if (id.includes('node_modules/react-router')) return 'router'
         },
       },
     },

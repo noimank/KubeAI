@@ -180,6 +180,9 @@ async def on_shutdown() -> None:
         await ws_pubsub.close()
         set_ws_pubsub(None)
 
+    from app.services.query_executor import close_cached_engines
+
+    await close_cached_engines()
     await close_k8s_clients()
     await close_clients()
     await close_db()

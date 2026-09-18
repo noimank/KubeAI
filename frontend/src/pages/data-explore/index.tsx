@@ -27,11 +27,12 @@ import {
   SearchOutlined,
   FolderOutlined,
 } from '@ant-design/icons'
-import Editor from '@monaco-editor/react'
+import VirtualList from 'rc-virtual-list'
 import dayjs from 'dayjs'
 
 import ConnectionFormModal from './ConnectionFormModal'
 import SaveToFileModal from './SaveToFileModal'
+import SqlEditor from './SqlEditor'
 import {
   getDbConnections,
   deleteDbConnection,
@@ -51,6 +52,15 @@ import type {
 import { DB_TYPE_LABELS } from '@/types/dataExplore'
 import type { DbType } from '@/types/dataExplore'
 import { getMessageInstance } from '@/utils/messageHolder'
+
+// 与后端 QueryExecutor.TABLE_LIST_LIMIT 一致：达到该数量说明表列表可能被截断
+const TABLE_LIST_LIMIT = 20000
+// 侧栏虚拟列表统一行高（分组头与表项）
+const SIDEBAR_ROW_HEIGHT = 34
+
+type SidebarRow =
+  | { kind: 'header'; key: string; schema: string; count: number }
+  | { kind: 'table'; key: string; schema: string; table: TableInfo; active: boolean }
 
 export default function DataExplorePage() {
   // 连接
@@ -90,6 +100,10 @@ export default function DataExplorePage() {
   const resultsContainerRef = useRef<HTMLDivElement>(null)
   const [resultsHeight, setResultsHeight] = useState(300)
 
+  // 侧栏高度测量（用于表列表虚拟滚动）
+  const sidebarListRef = useRef<HTMLDivElement>(null)
+  const [sidebarHeight, setSidebarHeight] = useState(400)
+
   useEffect(() => {
     const el = resultsContainerRef.current
     if (!el) return
@@ -100,6 +114,16 @@ export default function DataExplorePage() {
     observer.observe(el)
     return () => observer.disconnect()
   }, [queryResult])
+
+  useEffect(() => {
+    const el = sidebarListRef.current
+    if (!el) return
+    const observer = new ResizeObserver(([entry]) => {
+      setSidebarHeight(entry.contentRect.height)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   // 加载连接列表
   const loadConnections = useCallback(async () => {
@@ -169,6 +193,31 @@ export default function DataExplorePage() {
   }, [tables, searchTableText])
 
   const showGroupHeaders = filteredGroups.length > 1
+
+  // 摊平分组供虚拟列表渲染：分组头与表项交替的扁平结构
+  const sidebarRows = useMemo(() => {
+    const rows: SidebarRow[] = []
+    for (const group of filteredGroups) {
+      if (showGroupHeaders) {
+        rows.push({
+          kind: 'header',
+          key: `h:${group.schema}`,
+          schema: group.schema,
+          count: group.tables.length,
+        })
+      }
+      for (const table of group.tables) {
+        rows.push({
+          kind: 'table',
+          key: `${group.schema}:${table.name}`,
+          schema: group.schema,
+          table,
+          active: activeTableName === table.name,
+        })
+      }
+    }
+    return rows
+  }, [filteredGroups, showGroupHeaders, activeTableName])
 
   // 单击表名 → 弹窗展示列信息
   const handleTableClick = async (table: TableInfo) => {
@@ -335,11 +384,14 @@ export default function DataExplorePage() {
     return [rowNumCol, ...dataCols]
   }, [queryResult])
 
-  const tableData =
-    queryResult?.rows.map((row, rowIdx) => ({
-      key: rowIdx,
-      ...Object.fromEntries(row.map((cell, cellIdx) => [cellIdx, cell])),
-    })) ?? []
+  const tableData = useMemo(
+    () =>
+      queryResult?.rows.map((row, rowIdx) => ({
+        key: rowIdx,
+        ...Object.fromEntries(row.map((cell, cellIdx) => [cellIdx, cell])),
+      })) ?? [],
+    [queryResult],
+  )
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 112px)', gap: 1, background: '#f0f0f0' }}>
@@ -450,13 +502,15 @@ export default function DataExplorePage() {
             <Typography.Text type="secondary" style={{ fontSize: 11 }}>
               {searchTableText
                 ? `匹配 ${filteredTotal} / ${tables.length} 张表`
-                : `共 ${tables.length} 张表`}
+                : tables.length >= TABLE_LIST_LIMIT
+                  ? `${tables.length} 张表（已达单次上限）`
+                  : `共 ${tables.length} 张表`}
             </Typography.Text>
           </div>
         )}
 
-        {/* 表列表 */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '0 8px 8px' }}>
+        {/* 表列表（虚拟滚动：大库数千表不整树渲染） */}
+        <div ref={sidebarListRef} style={{ flex: 1, overflow: 'hidden', padding: '0 8px 8px' }}>
           {tablesLoading ? (
             <Spin tip="加载中..." style={{ display: 'block', padding: 20 }}>
               <div style={{ height: 50 }} />
@@ -483,16 +537,22 @@ export default function DataExplorePage() {
               请先选择或新建数据库连接
             </Typography.Text>
           ) : (
-            filteredGroups.map((group) => (
-              <div key={group.schema} style={{ marginBottom: 4 }}>
-                {/* Schema 分组标题 */}
-                {showGroupHeaders && (
+            <VirtualList
+              data={sidebarRows}
+              height={sidebarHeight}
+              itemHeight={SIDEBAR_ROW_HEIGHT}
+              itemKey="key"
+            >
+              {(row: SidebarRow) =>
+                row.kind === 'header' ? (
                   <div
                     style={{
+                      height: SIDEBAR_ROW_HEIGHT,
                       display: 'flex',
                       alignItems: 'center',
                       gap: 6,
-                      padding: '6px 4px 4px',
+                      padding: '0 4px',
+                      margin: '0 8px',
                       fontSize: 11,
                       fontWeight: 600,
                       color: '#8c8c8c',
@@ -501,84 +561,75 @@ export default function DataExplorePage() {
                     }}
                   >
                     <FolderOutlined style={{ fontSize: 12 }} />
-                    <span style={{ flex: 1 }}>{group.schema}</span>
-                    <span style={{ fontWeight: 400, color: '#bfbfbf' }}>{group.tables.length}</span>
+                    <span style={{ flex: 1 }}>{row.schema}</span>
+                    <span style={{ fontWeight: 400, color: '#bfbfbf' }}>{row.count}</span>
                   </div>
-                )}
-
-                {/* 表项 */}
-                {group.tables.map((table) => {
-                  const isView = table.type === 'view'
-                  const isActive = activeTableName === table.name
-                  return (
-                    <div
-                      key={`${group.schema}:${table.name}`}
-                      onClick={() => handleTableClick(table)}
-                      onDoubleClick={() => handleTableDoubleClick(table)}
-                      title="单击查看结构，双击插入 SELECT"
+                ) : (
+                  <div
+                    onClick={() => handleTableClick(row.table)}
+                    onDoubleClick={() => handleTableDoubleClick(row.table)}
+                    title="单击查看结构，双击插入 SELECT"
+                    style={{
+                      height: SIDEBAR_ROW_HEIGHT,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '0 8px',
+                      margin: '0 8px',
+                      marginLeft: showGroupHeaders ? 14 : 8,
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      border: row.active ? '1px solid #91caff' : '1px solid transparent',
+                      background: row.active ? '#e6f4ff' : 'transparent',
+                      transition: 'background 0.15s, border-color 0.15s',
+                      fontSize: 13,
+                      lineHeight: '22px',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!row.active) {
+                        e.currentTarget.style.background = '#f5f5f5'
+                        e.currentTarget.style.borderColor = '#e8e8e8'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!row.active) {
+                        e.currentTarget.style.background = 'transparent'
+                        e.currentTarget.style.borderColor = 'transparent'
+                      }
+                    }}
+                  >
+                    {row.table.type === 'view' ? (
+                      <FileTextOutlined style={{ fontSize: 12, color: '#fa8c16', flexShrink: 0 }} />
+                    ) : (
+                      <TableOutlined style={{ fontSize: 12, color: '#1890ff', flexShrink: 0 }} />
+                    )}
+                    <Typography.Text
+                      ellipsis
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '5px 8px',
-                        marginBottom: 2,
-                        marginLeft: showGroupHeaders ? 6 : 0,
-                        borderRadius: 6,
-                        cursor: 'pointer',
-                        border: isActive ? '1px solid #91caff' : '1px solid transparent',
-                        background: isActive ? '#e6f4ff' : 'transparent',
-                        transition: 'background 0.15s, border-color 0.15s',
+                        flex: 1,
                         fontSize: 13,
-                        lineHeight: '22px',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = '#f5f5f5'
-                          e.currentTarget.style.borderColor = '#e8e8e8'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = 'transparent'
-                          e.currentTarget.style.borderColor = 'transparent'
-                        }
+                        fontWeight: row.active ? 500 : 400,
+                        color: row.active ? '#1890ff' : undefined,
                       }}
                     >
-                      {isView ? (
-                        <FileTextOutlined
-                          style={{ fontSize: 12, color: '#fa8c16', flexShrink: 0 }}
-                        />
-                      ) : (
-                        <TableOutlined style={{ fontSize: 12, color: '#1890ff', flexShrink: 0 }} />
-                      )}
-                      <Typography.Text
-                        ellipsis
-                        style={{
-                          flex: 1,
-                          fontSize: 13,
-                          fontWeight: isActive ? 500 : 400,
-                          color: isActive ? '#1890ff' : undefined,
-                        }}
-                      >
-                        {table.name}
-                      </Typography.Text>
-                      <Tag
-                        style={{
-                          fontSize: 10,
-                          lineHeight: '16px',
-                          padding: '0 4px',
-                          margin: 0,
-                          flexShrink: 0,
-                        }}
-                        color={isView ? 'orange' : 'default'}
-                      >
-                        {isView ? '视图' : '表'}
-                      </Tag>
-                    </div>
-                  )
-                })}
-              </div>
-            ))
+                      {row.table.name}
+                    </Typography.Text>
+                    <Tag
+                      style={{
+                        fontSize: 10,
+                        lineHeight: '16px',
+                        padding: '0 4px',
+                        margin: 0,
+                        flexShrink: 0,
+                      }}
+                      color={row.table.type === 'view' ? 'orange' : 'default'}
+                    >
+                      {row.table.type === 'view' ? '视图' : '表'}
+                    </Tag>
+                  </div>
+                )
+              }
+            </VirtualList>
           )}
         </div>
       </div>
@@ -618,21 +669,7 @@ export default function DataExplorePage() {
 
         {/* SQL 编辑器 */}
         <div style={{ flex: 1, minHeight: 200 }}>
-          <Editor
-            height="100%"
-            language="sql"
-            theme="vs"
-            value={sql}
-            onChange={(val) => setSql(val ?? '')}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: 'on',
-              scrollBeyondLastLine: false,
-              wordWrap: 'on',
-              automaticLayout: true,
-            }}
-          />
+          <SqlEditor value={sql} onChange={setSql} />
         </div>
 
         {/* 操作栏 */}
@@ -724,6 +761,7 @@ export default function DataExplorePage() {
           ) : queryResult ? (
             <>
               <Table
+                virtual
                 columns={tableColumns}
                 dataSource={tableData}
                 size="small"

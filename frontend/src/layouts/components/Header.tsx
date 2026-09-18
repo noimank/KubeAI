@@ -70,7 +70,10 @@ export function Header() {
       <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} placement="bottomRight">
         <button type="button" aria-label="用户菜单" style={userButtonStyle}>
           {user?.avatar ? (
-            <Avatar size={28} src={user.avatar} />
+            // 纯内网部署下外部头像 URL（如 IdP 默认头像）不可达，加载失败时回退首字母
+            <Avatar size={28} src={user.avatar} onError={() => true}>
+              {displayName ? displayName.charAt(0).toUpperCase() : <UserOutlined />}
+            </Avatar>
           ) : (
             <Avatar
               size={28}

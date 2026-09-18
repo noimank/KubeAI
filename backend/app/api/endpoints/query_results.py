@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import logging
 import uuid
 from typing import Annotated, Any
 
@@ -25,6 +26,8 @@ from app.schemas.db_connection import (
 from app.services.query_executor import QueryExecutor
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/query-results", tags=["query-results"])
 
@@ -163,7 +166,7 @@ async def list_tables(
 
     executor = QueryExecutor()
     try:
-        tables = await executor.list_tables(
+        tables, truncated = await executor.list_tables(
             db_type=conn.db_type,
             host=conn.host,
             port=conn.port,
@@ -174,7 +177,12 @@ async def list_tables(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    return BaseResponse(data=[TableInfo(**t) for t in tables], message="查询成功")
+    message = "查询成功"
+    if truncated:
+        logger.info("租户 %s 连接 %s 表列表超出上限，仅返回前 %d 张", user.tenant_id, connection_id, len(tables))
+        message = f"表数量超过单次上限，仅返回前 {len(tables)} 张"
+
+    return BaseResponse(data=[TableInfo(**t) for t in tables], message=message)
 
 
 @router.get(

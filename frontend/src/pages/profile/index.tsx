@@ -273,13 +273,17 @@ export default function ProfilePage() {
       }}
     >
       {user?.avatar ? (
+        // 纯内网部署下外部头像 URL（如 IdP 默认头像）不可达，加载失败时回退首字母
         <Avatar
           size={96}
           src={user.avatar}
+          onError={() => true}
           style={{
             border: '3px solid #e8f0fe',
           }}
-        />
+        >
+          {displayName?.charAt(0).toUpperCase()}
+        </Avatar>
       ) : (
         <DefaultAvatar name={displayName} size={96} />
       )}

@@ -1,17 +1,93 @@
 """SQL 查询执行引擎 + Schema 浏览。
 
-每个请求动态创建 SQLAlchemy engine，用完即弃，避免维护持久连接池。
-支持 PostgreSQL (asyncpg)、MySQL (aiomysql) 原生异步，Spark/Hive (pyhive)、MSSQL (pymssql) 通过 asyncio.to_thread 包装。
+异步驱动（PostgreSQL/MySQL/Doris）的 SQLAlchemy engine 按连接目标缓存复用，避免每次
+请求重复 TCP/认证握手；闲置超 TTL 自动回收，进程退出时统一 dispose。同步驱动
+（Spark/Hive/MSSQL）连接生命周期绑定单请求线程，不缓存，仍通过 asyncio.to_thread 包装。
 """
 
 import asyncio
+import hashlib
+import logging
 import re
 import time
 from typing import Any
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+# 引擎闲置回收秒数：超过后在下一次请求时 dispose，避免向用户数据库长期持有空闲连接
+_ENGINE_IDLE_TTL_SECONDS = 300
+# 建连超时（秒）：驱动默认普遍偏长（asyncpg 60s），防火墙丢包时前端会长时间转圈
+_ENGINE_CONNECT_TIMEOUT = 10
+
+# 异步引擎缓存: cache_key -> (engine, 最后使用时刻 monotonic)
+_async_engines: dict[str, tuple[AsyncEngine, float]] = {}
+
+
+def _engine_cache_key(url: str) -> str:
+    """连接目标缓存键。URL 含账号密码，缓存里只保留其摘要。"""
+    return hashlib.sha256(url.encode()).hexdigest()
+
+
+def _connect_args(db_type: str) -> dict[str, Any]:
+    """驱动级建连参数：PG 只读事务 + 各驱动受控建连超时。"""
+    if db_type == "postgresql":
+        # PG 服务端强制只读事务: 阻断 WITH ... DELETE/UPDATE 数据修改 CTE 绕过只读白名单
+        return {
+            "server_settings": {"default_transaction_read_only": "on"},
+            "timeout": _ENGINE_CONNECT_TIMEOUT,
+        }
+    if db_type in ("mysql", "doris"):
+        return {"connect_timeout": _ENGINE_CONNECT_TIMEOUT}
+    return {}
+
+
+async def _dispose_engine(engine: "AsyncEngine") -> None:
+    try:
+        await engine.dispose()
+    except Exception:
+        logger.warning("数据探索引擎回收失败", exc_info=True)
+
+
+async def _get_cached_engine(db_type: str, url: str) -> "AsyncEngine":
+    """取缓存引擎并触活；不存在则创建。池化连接让首个请求建连、后续请求直接复用。"""
+    cache_key = _engine_cache_key(url)
+    now = time.monotonic()
+
+    stale = [k for k, (_, ts) in _async_engines.items() if now - ts > _ENGINE_IDLE_TTL_SECONDS]
+    for key in stale:
+        engine, _ = _async_engines.pop(key)
+        await _dispose_engine(engine)
+
+    entry = _async_engines.get(cache_key)
+    if entry is None:
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        engine = create_async_engine(
+            url,
+            pool_size=2,
+            max_overflow=3,
+            pool_pre_ping=True,
+            connect_args=_connect_args(db_type),
+        )
+        _async_engines[cache_key] = (engine, now)
+        return engine
+
+    _async_engines[cache_key] = (entry[0], now)
+    return entry[0]
+
+
+async def close_cached_engines() -> None:
+    """进程退出时回收全部缓存引擎（FastAPI lifespan shutdown 调用）。"""
+    engines = [entry[0] for entry in _async_engines.values()]
+    _async_engines.clear()
+    for engine in engines:
+        await _dispose_engine(engine)
+
 
 # 只读 SQL 关键字白名单
 _READONLY_KEYWORDS = {"SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH"}
@@ -181,30 +257,33 @@ class QueryExecutor:
             )
 
     async def _execute_async(self, db_type: str, url: str, sql: str, max_rows: int, timeout: int) -> dict[str, Any]:
-        """异步驱动执行（PostgreSQL/MySQL）。"""
-        from sqlalchemy.ext.asyncio import create_async_engine
+        """异步驱动执行（PostgreSQL/MySQL/Doris），引擎缓存复用；建连+执行+取数统一受 timeout 约束。"""
+        engine = await _get_cached_engine(db_type, url)
 
-        # PG 服务端强制只读事务: 阻断 WITH ... DELETE/UPDATE 数据修改 CTE 绕过只读白名单
-        connect_args = {"server_settings": {"default_transaction_read_only": "on"}} if db_type == "postgresql" else {}
-        engine = create_async_engine(url, pool_size=1, pool_pre_ping=True, connect_args=connect_args)
-        try:
-            start = time.monotonic()
+        async def _run() -> tuple[list[str], list[list[Any]]]:
             async with engine.connect() as conn:
-                result = await asyncio.wait_for(conn.execute(text(sql)), timeout=timeout)
+                result = await conn.execute(text(sql))
                 columns = list(result.keys())
                 rows = [list(row) for row in result.fetchall()]
-            elapsed = (time.monotonic() - start) * 1000
+                return columns, rows
 
-            truncated = len(rows) >= max_rows
-            return {
-                "columns": columns,
-                "rows": rows,
-                "row_count": len(rows),
-                "truncated": truncated,
-                "execution_time_ms": round(elapsed, 2),
-            }
-        finally:
-            await engine.dispose()
+        start = time.monotonic()
+        try:
+            columns, rows = await asyncio.wait_for(_run(), timeout=timeout)
+        except TimeoutError:
+            # 超时中断后连接可能停留在未完成的协议状态，直接废弃该引擎的全部池化连接
+            _async_engines.pop(_engine_cache_key(url), None)
+            await _dispose_engine(engine)
+            raise
+        elapsed = (time.monotonic() - start) * 1000
+
+        return {
+            "columns": columns,
+            "rows": rows,
+            "row_count": len(rows),
+            "truncated": len(rows) >= max_rows,
+            "execution_time_ms": round(elapsed, 2),
+        }
 
     def _execute_sync(self, db_type: str, url: str, sql: str, max_rows: int, timeout: int) -> dict[str, Any]:
         """同步驱动执行（Spark/Hive/MSSQL），在 asyncio.to_thread 中运行。超时由外层 asyncio.wait_for 控制。"""
@@ -228,6 +307,9 @@ class QueryExecutor:
         finally:
             engine.dispose()
 
+    # 表列表单次上限：超出即截断并向上游返回截断标志（前端有虚拟列表，可承载大库）
+    TABLE_LIST_LIMIT = 20000
+
     async def list_tables(
         self,
         db_type: str,
@@ -236,17 +318,24 @@ class QueryExecutor:
         database_name: str,
         username: str,
         password: str,
-    ) -> list[dict[str, Any]]:
-        """列出数据库中的表和视图。"""
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """列出数据库中的表和视图，返回 (表列表, 是否被上限截断)。"""
         if db_type == "postgresql":
+            # pg_catalog 直查而非 information_schema：后者是带逐表权限检查的重视图，
+            # 多 schema/多表库上慢一个量级
             sql = """
-                SELECT table_name, table_schema,
-                       CASE table_type WHEN 'VIEW' THEN 'view' ELSE 'table' END AS table_type
-                FROM information_schema.tables
-                WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY table_schema, table_name
+                SELECT c.relname AS table_name, n.nspname AS table_schema,
+                       CASE WHEN c.relkind IN ('v', 'm') THEN 'view' ELSE 'table' END AS table_type
+                FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                  AND n.nspname !~ '^pg_(toast|temp)'
+                ORDER BY n.nspname, c.relname
             """
         elif db_type in ("mysql", "doris"):
+            # MySQL 8 若实例设 information_schema_stats_expiry=0，此查询会逐表现算统计，
+            # 大库显著变慢，由实例侧参数控制
             sql = (
                 "SELECT TABLE_NAME AS table_name, TABLE_SCHEMA AS table_schema, "
                 "CASE TABLE_TYPE WHEN 'VIEW' THEN 'view' ELSE 'table' END AS table_type "
@@ -265,7 +354,13 @@ class QueryExecutor:
         else:
             raise ValueError(f"不支持的数据库类型: {db_type}")
 
-        result = await self.execute_query(db_type, host, port, database_name, username, password, sql, max_rows=5000)
+        result = await self.execute_query(
+            db_type, host, port, database_name, username, password, sql, max_rows=self.TABLE_LIST_LIMIT
+        )
+        if result["truncated"]:
+            logger.warning(
+                "数据探索表列表超出 %d 张上限，已截断: %s:%d/%s", self.TABLE_LIST_LIMIT, host, port, database_name
+            )
 
         tables = []
         for row in result["rows"]:
@@ -292,7 +387,7 @@ class QueryExecutor:
                         "type": row[2] if len(row) > 2 else "table",
                     }
                 )
-        return tables
+        return tables, result["truncated"]
 
     async def get_table_schema(
         self,
