@@ -219,8 +219,18 @@ export default function DataExplorePage() {
     return rows
   }, [filteredGroups, showGroupHeaders, activeTableName])
 
-  // 单击表名 → 弹窗展示列信息
-  const handleTableClick = async (table: TableInfo) => {
+  // 单击/双击区分：双击前必然先触发两次单击，若单击立即弹窗，遮罩会吃掉第二次
+  // 点击导致 onDoubleClick 永不触发。故单击延迟执行，双击到达时先取消。
+  const clickTimerRef = useRef<number | null>(null)
+  const clearClickTimer = useCallback(() => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current)
+      clickTimerRef.current = null
+    }
+  }, [])
+  useEffect(() => clearClickTimer, [clearClickTimer])
+
+  const openTableSchema = async (table: TableInfo) => {
     if (!selectedConnId) return
     setActiveTableName(table.name)
     setSchemaTableName(table.name)
@@ -241,11 +251,24 @@ export default function DataExplorePage() {
     }
   }
 
-  // 双击表名 → 插入 SELECT 语句
+  // 单击表名（延迟 250ms）→ 弹窗展示列信息
+  const handleTableClick = (table: TableInfo) => {
+    clearClickTimer()
+    clickTimerRef.current = window.setTimeout(() => {
+      clickTimerRef.current = null
+      openTableSchema(table)
+    }, 250)
+  }
+
+  // 双击表名 → 插入 SELECT 语句。PG 的表按全 schema 列出，非默认 schema 的表
+  // 必须带 schema 前缀，否则 search_path 解析不到（relation does not exist）
   const handleTableDoubleClick = (table: TableInfo) => {
+    clearClickTimer()
     const dbType = selectedConnection?.dbType ?? 'postgresql'
     const quote = dbType === 'mysql' || dbType === 'doris' ? '`' : '"'
-    setSql(`SELECT * FROM ${quote}${table.name}${quote} LIMIT 100`)
+    const schema =
+      dbType === 'postgresql' && table.tableSchema ? `${quote}${table.tableSchema}${quote}.` : ''
+    setSql(`SELECT * FROM ${schema}${quote}${table.name}${quote} LIMIT 100`)
   }
 
   // 执行查询
