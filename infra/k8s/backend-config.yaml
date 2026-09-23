@@ -134,7 +134,7 @@ data:
   # Kaniko: 训练任务镜像构建
   KANIKO_IMAGE: "hub.uimpcloud.com/kubeai/kaniko-executor:latest"
   # MinIO mc: 数据集导入等任务
-  MINIO_MC_IMAGE: "hub.uimpcloud.com/kubeai/minio-mc:latest"
+  MINIO_MC_IMAGE: "hub.uimpcloud.com/kubeai/mc:latest"
 
   # -- TensorBoard sidecar 镜像与端口 (由 build_vcjob 注入到 trainer Pod)
   # 训练任务创建时勾选 "TensorBoard 可视化" 即注入该 sidecar

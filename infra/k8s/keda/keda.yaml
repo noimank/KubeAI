@@ -11755,7 +11755,7 @@ spec:
             readOnlyRootFilesystem: true
             seccompProfile:
               type: RuntimeDefault
-          image: "ghcr.io/kedacore/keda:2.19.0"
+          image: "hub.uimpcloud.com/kubeai/keda:2.19.0"
           command:
           - "/keda"
           args:
@@ -11884,7 +11884,7 @@ spec:
             readOnlyRootFilesystem: true
             seccompProfile:
               type: RuntimeDefault
-          image: "ghcr.io/kedacore/keda-metrics-apiserver:2.19.0"
+          image: "hub.uimpcloud.com/kubeai/keda-metrics-apiserver:2.19.0"
           imagePullPolicy: Always
           livenessProbe:
             httpGet:
@@ -12014,7 +12014,7 @@ spec:
             readOnlyRootFilesystem: true
             seccompProfile:
               type: RuntimeDefault
-          image: "ghcr.io/kedacore/keda-admission-webhooks:2.19.0"
+          image: "hub.uimpcloud.com/kubeai/keda-admission-webhooks:2.19.0"
           command:
           - /keda-admission-webhooks
           args:

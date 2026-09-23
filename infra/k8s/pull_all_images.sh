@@ -33,9 +33,16 @@ section() {
     echo -e "${YELLOW}$1${NC}"
 }
 
+# 个别镜像的后端契约名与拍平规则 (${image##*/}) 不同，显式映射
+# (backend-config.yaml 的 KANIKO_IMAGE 契约为 kaniko-executor)
+declare -A RENAME=(
+  ["gcr.io/kaniko-project/executor:latest"]="kaniko-executor:latest"
+)
+
 target_image() {
     local image="$1"
-    echo "${PRIVATE_REGISTRY_PREFIX}/${image##*/}"
+    local name="${RENAME[$image]:-${image##*/}}"
+    echo "${PRIVATE_REGISTRY_PREFIX}/${name}"
 }
 
 pull_with_retry() {
@@ -93,11 +100,12 @@ section "[本地] 核心应用镜像 (需先构建)"
 
 LOCAL+=("kubeai-backend:0.1.0")
 LOCAL+=("kubeai-frontend:0.1.0")
+LOCAL+=("kubeai-tensorboard:latest")
 
 # ============================================
 # 数据库 & 缓存
 # ============================================
-section "[1/10] 数据库 & 缓存"
+section "[1/13] 数据库 & 缓存"
 
 REQUIRED+=("postgres:17-alpine")
 REQUIRED+=("redis:7-alpine")
@@ -105,21 +113,21 @@ REQUIRED+=("redis:7-alpine")
 # ============================================
 # 对象存储
 # ============================================
-section "[2/10] 对象存储"
+section "[2/13] 对象存储"
 
 REQUIRED+=("minio/minio:RELEASE.2025-03-12T18-04-18Z")
 
 # ============================================
 # 实验追踪
 # ============================================
-section "[3/10] MLflow"
+section "[3/13] MLflow"
 
 REQUIRED+=("ghcr.io/mlflow/mlflow:v3.12.0")
 
 # ============================================
 # Harbor 容器仓库
 # ============================================
-section "[4/10] Harbor"
+section "[4/13] Harbor"
 
 REQUIRED+=("docker.io/goharbor/harbor-core:v2.15.1")
 REQUIRED+=("docker.io/goharbor/harbor-jobservice:v2.15.1")
@@ -133,7 +141,7 @@ REQUIRED+=("docker.io/goharbor/trivy-adapter-photon:v2.15.1")
 # ============================================
 # KEDA 自动扩缩容
 # ============================================
-section "[5/10] KEDA"
+section "[5/13] KEDA"
 
 REQUIRED+=("ghcr.io/kedacore/keda:2.19.0")
 REQUIRED+=("ghcr.io/kedacore/keda-metrics-apiserver:2.19.0")
@@ -142,7 +150,7 @@ REQUIRED+=("ghcr.io/kedacore/keda-admission-webhooks:2.19.0")
 # ============================================
 # Volcano 批调度器
 # ============================================
-section "[6/10] Volcano"
+section "[6/13] Volcano"
 
 REQUIRED+=("docker.io/volcanosh/vc-webhook-manager:v1.14.2")
 REQUIRED+=("docker.io/volcanosh/vc-controller-manager:v1.14.2")
@@ -151,7 +159,7 @@ REQUIRED+=("docker.io/volcanosh/vc-scheduler:v1.14.2")
 # ============================================
 # Prometheus 监控栈
 # ============================================
-section "[7/10] Prometheus 监控栈"
+section "[7/13] Prometheus 监控栈"
 
 REQUIRED+=("quay.io/prometheus/prometheus:v3.1.0")
 REQUIRED+=("docker.io/grafana/grafana:11.4.0")
@@ -164,14 +172,14 @@ REQUIRED+=("registry.k8s.io/ingress-nginx/kube-webhook-certgen:v20221220-control
 # ============================================
 # GPU 监控
 # ============================================
-section "[8/10] DCGM Exporter (GPU)"
+section "[8/13] DCGM Exporter (GPU)"
 
 REQUIRED+=("nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04")
 
 # ============================================
 # 镜像构建工具 (后端 K8s Job 使用)
 # ============================================
-section "[9/10] 镜像构建 & 工具镜像"
+section "[9/13] 镜像构建 & 工具镜像"
 
 REQUIRED+=("gcr.io/kaniko-project/executor:latest")
 REQUIRED+=("minio/mc:latest")
@@ -180,12 +188,42 @@ REQUIRED+=("busybox:1.36")
 # ============================================
 # 构建基础镜像 (Dockerfile 中使用)
 # ============================================
-section "[10/10] 构建基础镜像"
+section "[10/13] 构建基础镜像"
 
 REQUIRED+=("python:3.12-slim")
 REQUIRED+=("ghcr.io/astral-sh/uv:latest")
 REQUIRED+=("node:24-alpine")
 REQUIRED+=("nginx:alpine")
+
+# ============================================
+# [11/13] Istio (KServe 入站链路)
+# ============================================
+section "[11/13] Istio"
+
+REQUIRED+=("docker.io/istio/pilot:1.24.3")
+REQUIRED+=("docker.io/istio/proxyv2:1.24.3")
+REQUIRED+=("busybox:1.28")
+
+# ============================================
+# [13/13] cert-manager (KServe webhook 证书前置)
+# ============================================
+section "[13/13] cert-manager"
+
+REQUIRED+=("quay.io/jetstack/cert-manager-controller:v1.16.1")
+REQUIRED+=("quay.io/jetstack/cert-manager-cainjector:v1.16.1")
+REQUIRED+=("quay.io/jetstack/cert-manager-webhook:v1.16.1")
+
+# ============================================
+# [12/13] KServe 模型推理 (仅控制面)
+# ============================================
+section "[12/13] KServe"
+
+# 平台推理使用自有 Pod (自定义镜像 Deployment)，不使用 KServe 推理运行时，
+# 因此只需控制面镜像；如后续接入 KServe InferenceService，再按需补推运行时镜像
+REQUIRED+=("docker.io/kserve/kserve-controller:v0.17.0")
+REQUIRED+=("docker.io/kserve/storage-initializer:v0.17.0")
+REQUIRED+=("docker.io/kserve/agent:v0.17.0")
+REQUIRED+=("quay.io/brancz/kube-rbac-proxy:v0.18.0")
 
 # ============================================
 # 开发环境镜像 (可选 - 失败不阻塞)
@@ -216,6 +254,7 @@ for image in "${LOCAL[@]}"; do
         echo -e "  请先构建:"
         echo -e "    docker build -t kubeai-backend:0.1.0 -f infra/images/backend/Dockerfile ."
         echo -e "    docker build -t kubeai-frontend:0.1.0 -f infra/images/frontend/Dockerfile ."
+        echo -e "    docker build -t kubeai-tensorboard:latest -f infra/images/tensorboard/Dockerfile ."
         exit 1
     fi
 done

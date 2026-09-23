@@ -24,7 +24,7 @@ spec:
         kubeai: "true"
       containers:
         - name: frontend
-          image: kubeai-frontend:0.1.0
+          image: hub.uimpcloud.com/kubeai/kubeai-frontend:0.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

@@ -35,7 +35,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: taskiq-scheduler
-          image: kubeai-backend:0.1.0
+          image: hub.uimpcloud.com/kubeai/kubeai-backend:0.1.0
           imagePullPolicy: IfNotPresent
           command: ["taskiq", "scheduler", "app.core.taskiq_app:scheduler", "--skip-first-run"]
           envFrom:

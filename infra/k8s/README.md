@@ -42,6 +42,16 @@ infra/k8s/
 │   ├── 00-namespace.yaml        #   keda 命名空间
 │   ├── keda.yaml                #   helm template 渲染
 │   └── README.md
+├── kserve/                      # KServe 推理控制面 (平台推理走自有 Pod，不用 KServe 运行时)
+│   ├── 00-namespace.yaml        #   kserve 命名空间
+│   ├── kserve-crd.yaml          #   CRDs (helm template 渲染，必须先安装，server-side apply)
+│   ├── kserve.yaml              #   Controller + Webhooks
+│   ├── README.md
+│   └── istio/                   #   Istio 入站链路 (KServe 依赖)
+│       ├── istio-manifest.yaml  #     生成的纯 K8s YAML (kubectl apply 即用，含 istio-system ns)
+│       ├── kserve-gateway.yaml  #     Gateway + IngressClass
+│       ├── generate.sh          #     有网机器上生成 manifest (istioctl)
+│       └── install.sh           #     一键安装脚本
 ├── harbor/                      # Harbor 镜像仓库
 │   ├── harbor.yaml              #   helm template 渲染
 │   └── README.md
@@ -173,6 +183,15 @@ kubectl apply --server-side -f infra/k8s/keda/keda.yaml
 kubectl apply -f infra/k8s/harbor/harbor.yaml          # 镜像仓库
 kubectl apply -f infra/k8s/monitoring/00-namespace.yaml  # 监控命名空间
 kubectl apply -f infra/k8s/prometheus/prometheus.yaml  # 监控
+
+# 8. KServe 推理链路 (可选，详见 infra/k8s/kserve/README.md)
+kubectl apply -f infra/k8s/cert-manager/cert-manager.yaml  # KServe webhook 证书依赖，如未部署
+bash infra/k8s/kserve/istio/install.sh                     # Istio + Gateway (自动补 istio-system/kserve 命名空间)
+kubectl apply -f infra/k8s/kserve/00-namespace.yaml
+kubectl apply --server-side -f infra/k8s/kserve/kserve-crd.yaml
+kubectl wait --for=condition=Established --timeout=60s \
+  crd/inferenceservices.serving.kserve.io crd/servingruntimes.serving.kserve.io crd/clusterservingruntimes.serving.kserve.io
+kubectl apply -f infra/k8s/kserve/kserve.yaml
 ```
 
 ## 生产部署要点
