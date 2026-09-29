@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -304,3 +305,137 @@ class TestGetPodFailureInfo:
 
         result = await k8s_pod.get_pod_failure_info("ns", "pod-1")
         assert result is None
+
+
+QUOTA_EVENT_MESSAGE = (
+    "Error creating pods: [failed to create pod training-kjiji-master-0, "
+    'err: pods "training-kjiji-master-0" is forbidden: exceeded quota: tenant-default-quota, '
+    "requested: requests.cpu=4100m,requests.memory=8448Mi, "
+    "limited: requests.cpu=4,requests.memory=8Gi]"
+)
+
+
+def _make_event(kind="Warning", reason="FailedCreate", message="", last_ts=None, first_ts=None):
+    event = MagicMock()
+    event.type = kind
+    event.reason = reason
+    event.message = message
+    event.last_timestamp = last_ts
+    event.event_time = None
+    event.first_timestamp = first_ts
+    return event
+
+
+class TestResolveVcjobEventReason:
+    async def test_quota_event_mapped_to_readable_message(self, mock_k8s_clients):
+        mock_k8s_clients["core_v1"].list_namespaced_event = AsyncMock(
+            return_value=MagicMock(items=[_make_event(message=QUOTA_EVENT_MESSAGE)])
+        )
+
+        result = await k8s_pod.resolve_vcjob_event_reason("kubeai-default", "training-kjiji")
+
+        assert result is not None
+        assert "租户资源配额不足" in result
+        assert "requests.cpu=4100m" in result
+        assert "requests.memory=8Gi" in result
+
+    async def test_filters_by_job_object_and_selects_latest(self, mock_k8s_clients):
+        old = _make_event(message="older failure", last_ts=datetime(2026, 9, 29, 2, 30, tzinfo=UTC))
+        new = _make_event(message=QUOTA_EVENT_MESSAGE, last_ts=datetime(2026, 9, 29, 2, 32, tzinfo=UTC))
+        mock_k8s_clients["core_v1"].list_namespaced_event = AsyncMock(return_value=MagicMock(items=[old, new]))
+
+        result = await k8s_pod.resolve_vcjob_event_reason("ns", "training-kjiji")
+
+        assert result is not None
+        assert "租户资源配额不足" in result
+        call_kwargs = mock_k8s_clients["core_v1"].list_namespaced_event.call_args[1]
+        assert call_kwargs["field_selector"] == "involvedObject.name=training-kjiji,involvedObject.kind=Job"
+
+    async def test_no_warning_events_returns_none(self, mock_k8s_clients):
+        normal = _make_event(kind="Normal", reason="ExecuteAction", message="Job synced")
+        mock_k8s_clients["core_v1"].list_namespaced_event = AsyncMock(return_value=MagicMock(items=[normal]))
+
+        result = await k8s_pod.resolve_vcjob_event_reason("ns", "training-kjiji")
+
+        assert result is None
+
+    async def test_api_error_returns_none(self, mock_k8s_clients):
+        mock_k8s_clients["core_v1"].list_namespaced_event = AsyncMock(side_effect=ApiException(status=500))
+
+        result = await k8s_pod.resolve_vcjob_event_reason("ns", "training-kjiji")
+
+        assert result is None
+
+    async def test_long_message_truncated(self, mock_k8s_clients):
+        mock_k8s_clients["core_v1"].list_namespaced_event = AsyncMock(
+            return_value=MagicMock(items=[_make_event(reason="Weird", message="x" * 500)])
+        )
+
+        result = await k8s_pod.resolve_vcjob_event_reason("ns", "training-kjiji")
+
+        assert result is not None
+        assert len(result) < 400
+
+
+class TestResolvePodFailureReason:
+    async def test_no_pods_uses_vcjob_event_reason(self, mock_k8s_clients):
+        # Quota admission rejection: FailedCreate lands on the Job, pods are never created.
+        mock_k8s_clients["core_v1"].list_namespaced_pod = AsyncMock(return_value=MagicMock(items=[]))
+        mock_k8s_clients["core_v1"].list_namespaced_event = AsyncMock(
+            return_value=MagicMock(items=[_make_event(message=QUOTA_EVENT_MESSAGE)])
+        )
+
+        result = await k8s_pod.resolve_pod_failure_reason("kubeai-default", "training-kjiji")
+
+        assert "租户资源配额不足" in result
+
+    async def test_no_pods_no_events_keeps_generic_message(self, mock_k8s_clients):
+        mock_k8s_clients["core_v1"].list_namespaced_pod = AsyncMock(return_value=MagicMock(items=[]))
+        mock_k8s_clients["core_v1"].list_namespaced_event = AsyncMock(return_value=MagicMock(items=[]))
+
+        result = await k8s_pod.resolve_pod_failure_reason("ns", "training-job")
+
+        assert result == "训练任务已失败，但失败详情不可用（任务资源已被清理）。"
+
+    async def test_pod_failure_detail_still_wins_over_events(self, mock_k8s_clients):
+        terminated = MagicMock()
+        terminated.exit_code = 137
+        terminated.reason = "OOMKilled"
+        terminated.message = "Out of memory"
+        terminated.signal = None
+        terminated.finished_at = None
+        state = MagicMock()
+        state.terminated = terminated
+        state.waiting = None
+        cs = MagicMock()
+        cs.state = state
+
+        pod = MagicMock()
+        pod.metadata.name = "training-job-master-0"
+        pod.status.phase = "Failed"
+        pod.status.container_statuses = [cs]
+
+        mock_k8s_clients["core_v1"].list_namespaced_pod = AsyncMock(return_value=MagicMock(items=[pod]))
+        mock_k8s_clients["core_v1"].read_namespaced_pod = AsyncMock(return_value=pod)
+        mock_k8s_clients["core_v1"].list_namespaced_event = AsyncMock(
+            return_value=MagicMock(items=[_make_event(message=QUOTA_EVENT_MESSAGE)])
+        )
+
+        result = await k8s_pod.resolve_pod_failure_reason("ns", "training-job")
+
+        assert "内存不足" in result
+        mock_k8s_clients["core_v1"].list_namespaced_event.assert_not_called()
+
+    async def test_pod_query_error_falls_back_to_events(self, mock_k8s_clients):
+        mock_k8s_clients["core_v1"].list_namespaced_pod = AsyncMock(side_effect=ApiException(status=500))
+        mock_k8s_clients["core_v1"].list_namespaced_event = AsyncMock(
+            return_value=MagicMock(items=[_make_event(message=QUOTA_EVENT_MESSAGE)])
+        )
+
+        result = await k8s_pod.resolve_pod_failure_reason("ns", "training-job")
+
+        assert "租户资源配额不足" in result
+
+    async def test_no_vcjob_name_returns_generic(self, mock_k8s_clients):
+        result = await k8s_pod.resolve_pod_failure_reason("ns", None)
+        assert result == "训练任务已失败"

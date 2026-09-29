@@ -1,6 +1,7 @@
 import logging
 import re
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from kubernetes_asyncio.client.rest import ApiException
@@ -205,11 +206,60 @@ def map_failure_message(failure: dict[str, Any]) -> str:
     return f"训练任务失败 (原因: {reason})：请查看日志获取详细信息。"
 
 
-async def resolve_pod_failure_reason(namespace: str, vcjob_name: str | None) -> str:
-    """Best-effort extraction of a human-readable failure reason from a VCJob's pods.
+def _event_sort_key(event: Any) -> datetime:
+    ts = event.last_timestamp or event.event_time or event.first_timestamp
+    return ts if ts else datetime.min.replace(tzinfo=UTC)
 
-    Returns a generic message when pods are gone or no termination detail is
-    available — never raises, so it is safe to call while building a DB error row.
+
+def _map_event_message(reason: str, message: str) -> str:
+    """Map a K8s Warning event on a VCJob to a Chinese, human-readable message."""
+    if len(message) > 300:
+        message = message[:300] + "…"
+
+    if reason == "FailedCreate" and "exceeded quota" in message:
+        return (
+            "租户资源配额不足，无法创建任务 Pod：任务申请的资源超过了租户配额上限。"
+            "请调低任务资源申请，或联系管理员调大租户配额。"
+            f"详情：{message}"
+        )
+    return f"任务异常事件 ({reason})：{message}"
+
+
+async def resolve_vcjob_event_reason(namespace: str, vcjob_name: str) -> str | None:
+    """Best-effort: latest Warning event on the VCJob as a human-readable message.
+
+    Covers failures that happen before any Pod exists (e.g. ResourceQuota
+    admission rejection — ``FailedCreate`` lands on the Job object and pods are
+    never created), which the pod-based resolver cannot see.
+    Returns None when there is nothing usable — callers keep their generic text.
+    """
+    k8s = await get_k8s_clients()
+    core_v1: client.CoreV1Api = k8s["core_v1"]
+
+    try:
+        events = await core_v1.list_namespaced_event(
+            namespace=namespace,
+            field_selector=f"involvedObject.name={vcjob_name},involvedObject.kind=Job",
+        )
+    except Exception:
+        logger.warning("Failed to list events for VCJob %s in %s", vcjob_name, namespace, exc_info=True)
+        return None
+
+    warning_events = [e for e in events.items if e.type == "Warning"]
+    if not warning_events:
+        return None
+
+    latest = max(warning_events, key=_event_sort_key)
+    return _map_event_message(latest.reason or "", latest.message or "")
+
+
+async def resolve_pod_failure_reason(namespace: str, vcjob_name: str | None) -> str:
+    """Best-effort extraction of a human-readable failure reason for a VCJob.
+
+    Pod-level detail first (OOM, image pull, exit codes); when pods are missing
+    or carry no detail — e.g. the job never got a pod because ResourceQuota
+    admission rejected it — fall back to the VCJob's Warning events.
+    Never raises, so it is safe to call while building a DB error row.
     """
     if not vcjob_name:
         return "训练任务已失败"
@@ -217,17 +267,23 @@ async def resolve_pod_failure_reason(namespace: str, vcjob_name: str | None) -> 
     try:
         pods = await list_vcjob_pods(namespace, vcjob_name)
     except Exception:
-        return "训练任务已失败，但失败详情不可用（无法查询 Pod 信息）。"
+        pods = None
 
+    if pods:
+        for pod_info in pods:
+            try:
+                failure = await get_pod_failure_info(namespace, pod_info["pod_name"])
+            except Exception:
+                continue
+            if failure:
+                return map_failure_message(failure)
+
+    event_reason = await resolve_vcjob_event_reason(namespace, vcjob_name)
+    if event_reason:
+        return event_reason
+
+    if pods is None:
+        return "训练任务已失败，但失败详情不可用（无法查询 Pod 信息）。"
     if not pods:
         return "训练任务已失败，但失败详情不可用（任务资源已被清理）。"
-
-    for pod_info in pods:
-        try:
-            failure = await get_pod_failure_info(namespace, pod_info["pod_name"])
-        except Exception:
-            continue
-        if failure:
-            return map_failure_message(failure)
-
     return "训练任务已失败，但未能获取具体失败原因。"
