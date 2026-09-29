@@ -13,9 +13,16 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
-import { CheckCircleOutlined, InboxOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import {
+  CheckCircleOutlined,
+  ExperimentOutlined,
+  InboxOutlined,
+  SwapOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
 import { Link, useParams } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -38,6 +45,7 @@ import {
 import OptimizationHistoryChart from './components/OptimizationHistoryChart'
 import HyperparameterImportanceChart from './components/HyperparameterImportanceChart'
 import ParallelCoordinatesChart from './components/ParallelCoordinatesChart'
+import ExperimentCompareDrawer from './components/ExperimentCompareDrawer'
 import type { TuningStudyStatus, TuningTrial, TuningTrialState } from '@/types/tuning'
 
 const STUDY_STATUS_CONFIG: Record<TuningStudyStatus, { color: string; text: string }> = {
@@ -67,6 +75,9 @@ export default function TuningDetailPage() {
   const [modelName, setModelName] = useState('')
   const [modelDesc, setModelDesc] = useState('')
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
+  // trial 实验对比: 勾选 2-5 个有实验的 trial
+  const [selectedTrialKeys, setSelectedTrialKeys] = useState<string[]>([])
+  const [compareOpen, setCompareOpen] = useState(false)
 
   const authUser = useAuthStore((s) => s.user)
   const currentTenant = useTenantStore((s) => s.currentTenant)
@@ -142,6 +153,15 @@ export default function TuningDetailPage() {
     setRegisterOpen(true)
   }
 
+  // 勾选 trial 对应的实验 ID (无实验的 trial 不参与对比)
+  const selectedExperimentIds = useMemo(
+    () =>
+      (trials ?? [])
+        .filter((t) => selectedTrialKeys.includes(t.id) && t.experimentId)
+        .map((t) => t.experimentId!),
+    [trials, selectedTrialKeys],
+  )
+
   const handleRegisterOk = () => {
     if (!selectedPaths.length) {
       getMessageInstance()?.warning('请至少勾选一个文件或目录')
@@ -211,6 +231,13 @@ export default function TuningDetailPage() {
               {record.jobName ?? '查看任务'}
             </Link>
             {jobCfg && <Tag color={jobCfg.color}>{jobCfg.text}</Tag>}
+            {record.experimentId && (
+              <Tooltip title="查看实验详情（超参数 / 指标曲线）">
+                <Link to={`/training-jobs/${record.trainingJobId}?tab=experiment`}>
+                  <ExperimentOutlined style={{ color: '#1890ff' }} />
+                </Link>
+              </Tooltip>
+            )}
           </Space>
         )
       },
@@ -362,8 +389,55 @@ export default function TuningDetailPage() {
           dataSource={trials ?? []}
           pagination={false}
           locale={{ emptyText: '暂无 trial' }}
+          rowSelection={{
+            selectedRowKeys: selectedTrialKeys,
+            onChange: (keys) => setSelectedTrialKeys(keys as string[]),
+            selections: false,
+            getCheckboxProps: (record) => ({
+              disabled:
+                !record.experimentId ||
+                (selectedTrialKeys.length >= 5 && !selectedTrialKeys.includes(record.id)),
+            }),
+          }}
         />
       </Card>
+
+      {/* trial 实验对比浮动栏 */}
+      {selectedTrialKeys.length > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 100,
+            background: 'var(--ant-color-bg-container)',
+            border: '1px solid var(--ant-color-border)',
+            borderRadius: 8,
+            padding: '8px 16px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <span>已选 {selectedTrialKeys.length} 个 trial（最多 5 个）</span>
+          <Button
+            type="primary"
+            icon={<SwapOutlined />}
+            disabled={selectedExperimentIds.length < 2}
+            onClick={() => setCompareOpen(true)}
+          >
+            对比实验
+          </Button>
+          <Button onClick={() => setSelectedTrialKeys([])}>取消选择</Button>
+        </div>
+      )}
+      <ExperimentCompareDrawer
+        open={compareOpen}
+        experimentIds={selectedExperimentIds}
+        onClose={() => setCompareOpen(false)}
+      />
 
       <Modal
         title="注册模型"

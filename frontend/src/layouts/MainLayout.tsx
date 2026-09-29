@@ -11,7 +11,6 @@ const NAVIGATE_MAP: Record<string, string> = {
   '/datasets': '数据集',
   '/datasets/:id': '数据集详情',
   '/training-jobs': '训练任务',
-  '/experiments': '实验追踪',
   '/models': '模型仓库',
   '/inference': '推理服务',
   '/dev-environments': '开发环境',

@@ -330,13 +330,14 @@ class TuningService:
     async def list_trials(self, study_id: uuid.UUID, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
         await self._get_study_or_fail(study_id, tenant_id)
         result = await self.db.execute(
-            select(TuningTrial, TrainingJob)
+            select(TuningTrial, TrainingJob, Experiment)
             .outerjoin(TrainingJob, TuningTrial.training_job_id == TrainingJob.id)
+            .outerjoin(Experiment, Experiment.training_job_id == TuningTrial.training_job_id)
             .where(TuningTrial.study_id == study_id)
             .order_by(TuningTrial.trial_number.asc())
         )
         items: list[dict[str, Any]] = []
-        for trial, job in result.all():
+        for trial, job, exp in result.all():
             items.append(
                 {
                     "id": trial.id,
@@ -351,6 +352,7 @@ class TuningService:
                     "updated_at": trial.updated_at,
                     "job_name": job.name if job else None,
                     "job_status": job.status if job else None,
+                    "experiment_id": exp.id if exp else None,
                 }
             )
         return items

@@ -159,7 +159,14 @@ async def list_training_jobs(
         status=status,
         name=name,
     )
-    job_list = [_to_response(job) for job in items]
+    # 批量查关联 experiment ID (一对一, 用于前端实验详情入口)
+    exp_result = await db.execute(
+        select(Experiment.training_job_id, Experiment.id).where(
+            Experiment.training_job_id.in_([job.id for job in items])
+        )
+    )
+    experiment_ids = {job_id: exp_id for job_id, exp_id in exp_result.all()}
+    job_list = [_to_response(job, experiment_id=experiment_ids.get(job.id)) for job in items]
     page_data = PageData(items=job_list, total=total, page=page, page_size=page_size)
     return PageResponse(data=page_data, message="获取成功")
 

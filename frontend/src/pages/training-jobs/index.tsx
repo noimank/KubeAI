@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { Button, Empty, Input, Popconfirm, Segmented, Space, Table, Tag } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
-import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined, SearchOutlined, ExperimentOutlined } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessageInstance } from '@/utils/messageHolder'
@@ -168,7 +168,7 @@ export default function TrainingJobsPage() {
     },
     {
       title: '操作',
-      width: 260,
+      width: 330,
       render: (_: unknown, record: TrainingJob) => (
         <Space size="small">
           <Link to={`/training-jobs/${record.id}`}>
@@ -176,6 +176,16 @@ export default function TrainingJobsPage() {
               详情
             </Button>
           </Link>
+          {record.experimentId && (
+            <Button
+              type="link"
+              size="small"
+              icon={<ExperimentOutlined />}
+              onClick={() => navigate(`/training-jobs/${record.id}?tab=experiment`)}
+            >
+              实验详情
+            </Button>
+          )}
           <Button
             type="link"
             size="small"
@@ -266,7 +276,7 @@ export default function TrainingJobsPage() {
         columns={columns}
         dataSource={data?.items}
         loading={isLoading}
-        scroll={{ x: 1160 }}
+        scroll={{ x: 1230 }}
         pagination={{
           current: page,
           pageSize,

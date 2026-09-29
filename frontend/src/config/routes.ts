@@ -9,7 +9,6 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
   { path: '/datasets/:id', permission: 'datasets:read' },
   { path: '/training-jobs', permission: 'training_jobs:read' },
   { path: '/tuning', permission: 'tuning:read' },
-  { path: '/experiments', permission: 'experiments:read' },
   { path: '/models', permission: 'models:read' },
   { path: '/inference', permission: 'inference_services:read' },
   { path: '/dev-environments', permission: 'dev_environments:read' },

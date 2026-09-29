@@ -111,12 +111,6 @@ const MENU_CONFIG: MenuEntry[] = [
         permission: 'tuning:read',
       },
       {
-        path: '/experiments',
-        name: '实验追踪',
-        icon: <FileSearchOutlined />,
-        permission: 'experiments:read',
-      },
-      {
         path: '/algorithms',
         name: '算法管理',
         icon: <FolderOpenOutlined />,

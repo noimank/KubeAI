@@ -148,6 +148,7 @@ class TuningTrialResponse(BaseModel):
     # ── 关联训练任务信息 (由 service join 注入) ────────────────────
     job_name: str | None = None
     job_status: str | None = None
+    experiment_id: uuid.UUID | None = None
 
 
 class BestTrialResponse(BaseModel):

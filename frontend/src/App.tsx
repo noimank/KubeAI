@@ -25,8 +25,6 @@ const TrainingJobDetailPage = lazy(() => import('./pages/training-jobs/detail'))
 const TuningPage = lazy(() => import('./pages/tuning'))
 const TuningCreatePage = lazy(() => import('./pages/tuning/create'))
 const TuningDetailPage = lazy(() => import('./pages/tuning/detail'))
-const ExperimentsPage = lazy(() => import('./pages/experiments'))
-const ExperimentDetailPage = lazy(() => import('./pages/experiments/detail'))
 const ModelsPage = lazy(() => import('./pages/models'))
 const ModelDetailPage = lazy(() => import('./pages/models/detail'))
 const InferencePage = lazy(() => import('./pages/inference'))
@@ -173,17 +171,6 @@ export default function App() {
                       <Route index element={<TuningPage />} />
                       <Route path="create" element={<TuningCreatePage />} />
                       <Route path=":id" element={<TuningDetailPage />} />
-                    </Route>
-                    <Route
-                      path="experiments"
-                      element={
-                        <PermissionGuard permission="experiments:read">
-                          <Outlet />
-                        </PermissionGuard>
-                      }
-                    >
-                      <Route index element={<ExperimentsPage />} />
-                      <Route path=":id" element={<ExperimentDetailPage />} />
                     </Route>
                     <Route
                       path="models"

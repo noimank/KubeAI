@@ -17,7 +17,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { formatDate } from '@/utils/format'
 import {
   CheckCircleOutlined,
@@ -46,6 +46,7 @@ import {
   deleteTrainingJob,
 } from '@/services/training-jobs'
 import { registerModel } from '@/services/models'
+import ExperimentPanel from './components/ExperimentPanel'
 import { getMessageInstance } from '@/utils/messageHolder'
 import { TRAINING_JOB_STATUS_CONFIG } from '@/utils/constants'
 import type { TrainingJobStatus } from '@/types/training-job'
@@ -98,7 +99,16 @@ function formatDuration(start?: string, end?: string): string {
 export default function TrainingJobDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  // 初始 Tab 支持 ?tab= 深链 (训练任务列表「实验详情」按钮跳转实验 Tab)
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') ?? 'overview')
+  const handleTabChange = (key: string) => {
+    setActiveTab(key)
+    const next = new URLSearchParams(searchParams)
+    if (key === 'overview') next.delete('tab')
+    else next.set('tab', key)
+    setSearchParams(next, { replace: true })
+  }
   const [selectedPod, setSelectedPod] = useState<string | undefined>(undefined)
   const [registerModalOpen, setRegisterModalOpen] = useState(false)
   const [modelName, setModelName] = useState('')
@@ -386,7 +396,14 @@ export default function TrainingJobDetailPage() {
         size="small"
         extra={
           job.mlflowEnabled && job.experimentId ? (
-            <Link to={`/experiments/${job.experimentId}`}>查看实验 →</Link>
+            <Button
+              type="link"
+              size="small"
+              style={{ padding: 0 }}
+              onClick={() => handleTabChange('experiment')}
+            >
+              查看实验 →
+            </Button>
           ) : null
         }
       >
@@ -440,9 +457,17 @@ export default function TrainingJobDetailPage() {
           <Descriptions.Item label="MLflow 追踪">
             {job.mlflowEnabled ? (
               job.experimentId ? (
-                <Link to={`/experiments/${job.experimentId}`}>
-                  <Tag color="green">已启用</Tag> 查看实验 →
-                </Link>
+                <Space size={4}>
+                  <Tag color="green">已启用</Tag>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0 }}
+                    onClick={() => handleTabChange('experiment')}
+                  >
+                    查看实验 →
+                  </Button>
+                </Space>
               ) : (
                 <Tag color="green">已启用</Tag>
               )
@@ -489,7 +514,7 @@ export default function TrainingJobDetailPage() {
                       type="link"
                       size="small"
                       style={{ padding: 0, marginTop: 8 }}
-                      onClick={() => setActiveTab('logs')}
+                      onClick={() => handleTabChange('logs')}
                     >
                       查看日志 →
                     </Button>
@@ -623,13 +648,13 @@ export default function TrainingJobDetailPage() {
             </Descriptions>
           </Card>
 
-          {/* 实验追踪入口：仅 MLflow 启用且有关联 experiment 时显示 */}
+          {/* 实验追踪入口：仅 MLflow 启用且有关联 experiment 时显示, 点击切换到实验 Tab */}
           {job.mlflowEnabled && job.experimentId && (
             <Card
               size="small"
               hoverable
               style={{ cursor: 'pointer', borderColor: '#1890ff' }}
-              onClick={() => navigate(`/experiments/${job.experimentId}`)}
+              onClick={() => handleTabChange('experiment')}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <ExperimentOutlined style={{ fontSize: 24, color: '#1890ff' }} />
@@ -637,7 +662,7 @@ export default function TrainingJobDetailPage() {
                   <Typography.Text strong>实验追踪</Typography.Text>
                   <br />
                   <Typography.Text type="secondary">
-                    查看实验结果：超参数、指标曲线、对比分析 →
+                    查看实验结果：超参数、指标曲线 →
                   </Typography.Text>
                 </div>
               </div>
@@ -660,6 +685,16 @@ export default function TrainingJobDetailPage() {
         </div>
       ),
     },
+    // 实验 Tab: 内嵌实验追踪 (超参数/指标曲线/MLflow), 有关联实验时显示
+    ...(job.experimentId
+      ? [
+          {
+            key: 'experiment',
+            label: '实验',
+            children: <ExperimentPanel experimentId={job.experimentId} />,
+          },
+        ]
+      : []),
     {
       key: 'logs',
       label: '日志',
@@ -735,9 +770,10 @@ export default function TrainingJobDetailPage() {
           )}
         </Space>
       </div>
+      {/* 深链 tab=experiment 但任务无实验时回退概览 */}
       <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
+        activeKey={activeTab === 'experiment' && !job.experimentId ? 'overview' : activeTab}
+        onChange={handleTabChange}
         items={tabs}
         className="training-detail-tabs"
       />

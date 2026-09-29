@@ -64,6 +64,8 @@ export interface TuningTrial {
   updatedAt: string
   jobName?: string
   jobStatus?: string
+  /** trial 训练任务关联的实验 (用于实验详情入口与跨 trial 对比) */
+  experimentId?: string
 }
 
 export interface TuningStudyCreate {
