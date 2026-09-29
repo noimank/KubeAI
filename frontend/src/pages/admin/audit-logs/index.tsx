@@ -211,6 +211,7 @@ export default function AuditLogsPage() {
         columns={columns}
         dataSource={res?.data?.items}
         loading={isLoading}
+        scroll={{ x: 870 }}
         pagination={{
           current: page,
           pageSize,

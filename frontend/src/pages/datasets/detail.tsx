@@ -625,6 +625,7 @@ export default function DatasetDetailPage() {
                         columns={fileColumns}
                         dataSource={files}
                         onChange={handleTableChange}
+                        scroll={{ x: 800 }}
                         pagination={{
                           current: filePage,
                           pageSize: filePageSize,

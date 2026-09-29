@@ -233,7 +233,15 @@ export default function TrainingJobsPage() {
 
   return (
     <div style={{ padding: 0 }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
         <Space>
           <Segmented
             options={STATUS_TABS}

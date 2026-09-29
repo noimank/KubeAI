@@ -86,6 +86,7 @@ export default function DatasetsPage() {
       title: '名称',
       dataIndex: 'displayName',
       width: 280,
+      fixed: 'left',
       render: (displayName: string | undefined, record: Dataset) => displayName || record.name,
       ellipsis: true,
     },
@@ -162,7 +163,15 @@ export default function DatasetsPage() {
 
   return (
     <div style={{ padding: 0 }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
         <Space>
           <Input.Search
             placeholder="搜索数据集名称"
@@ -190,6 +199,7 @@ export default function DatasetsPage() {
         columns={columns}
         dataSource={data?.items}
         loading={isLoading}
+        scroll={{ x: 1080 }}
         pagination={{
           current: page,
           pageSize,

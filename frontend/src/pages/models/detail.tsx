@@ -158,6 +158,7 @@ export default function ModelDetailPage() {
       title: '版本号',
       dataIndex: 'versionNumber',
       width: 100,
+      fixed: 'left',
       render: (n: number) => `v${n}`,
     },
     {
@@ -332,6 +333,7 @@ export default function ModelDetailPage() {
         columns={versionColumns}
         dataSource={model.versions}
         pagination={false}
+        scroll={{ x: canManage ? 1280 : 1220 }}
         title={() => <strong>版本列表</strong>}
       />
       <FileListDrawer

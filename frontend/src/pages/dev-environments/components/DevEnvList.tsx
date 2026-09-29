@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { Button, Empty, Input, Popconfirm, Segmented, Space, Table, Tag } from 'antd'
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
-import type { TablePaginationConfig } from 'antd/es/table'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { formatDate } from '@/utils/format'
 import type {
   DevEnvironment,
@@ -78,12 +78,14 @@ export function DevEnvList({
     [onPageChange],
   )
 
-  const columns = useMemo(
+  const columns = useMemo<ColumnsType<DevEnvironment>>(
     () => [
       {
         title: '名称',
         dataIndex: 'name',
         width: 180,
+        ellipsis: true,
+        fixed: 'left',
         render: (name: string) => <span style={{ fontWeight: 500 }}>{name}</span>,
       },
       {
@@ -111,6 +113,7 @@ export function DevEnvList({
       {
         title: '镜像',
         dataIndex: 'image',
+        width: 200,
         ellipsis: true,
       },
       {
@@ -218,7 +221,15 @@ export function DevEnvList({
 
   return (
     <>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
         <Space>
           <Segmented
             options={STATUS_TABS}
@@ -249,6 +260,7 @@ export function DevEnvList({
         columns={columns}
         dataSource={data?.items}
         loading={loading}
+        scroll={{ x: 1640 }}
         pagination={{
           current: page,
           pageSize,

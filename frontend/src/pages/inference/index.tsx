@@ -90,7 +90,9 @@ export default function InferencePage() {
     {
       title: '名称',
       dataIndex: 'name',
+      width: 200,
       ellipsis: true,
+      fixed: 'left',
       render: (name: string, record: InferenceService) => (
         <Link to={`/inference/${record.id}`}>{name}</Link>
       ),
@@ -205,7 +207,15 @@ export default function InferencePage() {
 
   return (
     <div style={{ padding: 0 }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
         <Space>
           <Segmented
             options={statusTabs}
@@ -248,6 +258,7 @@ export default function InferencePage() {
         columns={columns}
         dataSource={data?.items}
         loading={isLoading}
+        scroll={{ x: 1060 }}
         pagination={{
           current: page,
           pageSize,

@@ -122,6 +122,8 @@ export default function TenantsPage() {
       title: '租户名称',
       dataIndex: 'name',
       width: 160,
+      fixed: 'left',
+      ellipsis: true,
     },
     {
       title: '显示名称',
@@ -233,7 +235,15 @@ export default function TenantsPage() {
 
   return (
     <>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
         <Space>
           <Segmented
             options={STATUS_TABS}
@@ -268,6 +278,7 @@ export default function TenantsPage() {
         columns={columns}
         dataSource={res?.data?.items}
         loading={isLoading}
+        scroll={{ x: 1260 }}
         pagination={{
           current: page,
           pageSize,

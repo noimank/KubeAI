@@ -344,10 +344,11 @@ function BusinessImagesTab({
       dataIndex: 'name',
       ellipsis: true,
       width: 180,
+      fixed: 'left' as const,
       render: (name: string, record: Image) => <Link to={`/images/${record.id}`}>{name}</Link>,
     },
     { title: '标签', dataIndex: 'tag', ellipsis: true, width: 160 },
-    { title: '镜像地址', dataIndex: 'imageRef', ellipsis: true },
+    { title: '镜像地址', dataIndex: 'imageRef', ellipsis: true, width: 240 },
     {
       title: '来源',
       dataIndex: 'source',
@@ -456,7 +457,15 @@ function BusinessImagesTab({
 
   return (
     <div style={{ padding: 0 }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
         <Space size={12} wrap>
           <Segmented shape="round" options={MAIN_TABS} value={mainTab} onChange={onSwitchTab} />
           <Divider type="vertical" />
@@ -508,6 +517,7 @@ function BusinessImagesTab({
         columns={columns}
         dataSource={data?.items}
         loading={isLoading}
+        scroll={{ x: 1390 }}
         pagination={{
           current: page,
           pageSize,
@@ -835,6 +845,8 @@ function DevEnvImagesTab({
       title: '名称',
       dataIndex: 'name',
       width: 200,
+      ellipsis: true,
+      fixed: 'left' as const,
       render: (name: string) => <span style={{ fontWeight: 500 }}>{name}</span>,
     },
     {
@@ -845,7 +857,7 @@ function DevEnvImagesTab({
         <Tag color={ENVIRONMENT_TYPE_COLORS[type]}>{ENVIRONMENT_TYPE_LABELS[type]}</Tag>
       ),
     },
-    { title: '镜像地址', dataIndex: 'imageRef', ellipsis: true },
+    { title: '镜像地址', dataIndex: 'imageRef', ellipsis: true, width: 240 },
     {
       title: '默认资源',
       width: 160,
@@ -906,7 +918,15 @@ function DevEnvImagesTab({
 
   return (
     <div style={{ padding: 0 }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
         <Space size={12} wrap>
           <Segmented shape="round" options={MAIN_TABS} value={mainTab} onChange={onSwitchTab} />
           <Divider type="vertical" />
@@ -941,6 +961,7 @@ function DevEnvImagesTab({
         columns={columns}
         dataSource={data?.items}
         loading={isLoading}
+        scroll={{ x: 1200 }}
         pagination={{
           current: page,
           pageSize,

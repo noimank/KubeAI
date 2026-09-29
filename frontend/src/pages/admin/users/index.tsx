@@ -205,6 +205,8 @@ export default function UsersPage() {
       title: '用户名',
       dataIndex: 'username',
       width: 140,
+      fixed: 'left',
+      ellipsis: true,
     },
     {
       title: '邮箱',
@@ -364,6 +366,7 @@ export default function UsersPage() {
         columns={columns}
         dataSource={res?.data?.items}
         loading={isLoading}
+        scroll={{ x: 1140 }}
         pagination={{
           current: page,
           pageSize,
